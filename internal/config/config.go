@@ -1,4 +1,4 @@
-// Package config reads and writes lazyfiles' tiny key = value settings file.
+// Package config reads and writes tyr's tiny key = value settings file.
 //
 // Nothing here ever stores an ssh password: a saved connection records where to
 // connect and as whom, and the password is asked for each time the app starts.
@@ -18,17 +18,24 @@ type Config struct {
 	Theme string
 }
 
-// Dir is the directory holding the config file: $XDG_CONFIG_HOME/lazyfiles,
-// falling back to ~/.config/lazyfiles.
-func Dir() (string, error) {
+// dirName is the config directory tyr owns, under whichever base applies.
+const dirName = "tyr"
+
+// Dir is the directory holding the config file: $XDG_CONFIG_HOME/tyr,
+// falling back to ~/.config/tyr.
+func Dir() (string, error) { return dirNamed(dirName) }
+
+// dirNamed resolves a config directory by name. Migrate uses it for the
+// pre-rename name, so the two paths cannot drift apart.
+func dirNamed(name string) (string, error) {
 	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
-		return filepath.Join(base, "lazyfiles"), nil
+		return filepath.Join(base, name), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "lazyfiles"), nil
+	return filepath.Join(home, ".config", name), nil
 }
 
 // Path is the full path of the config file.
@@ -55,7 +62,7 @@ func Load() (Config, error) {
 }
 
 // Save writes the scalar settings back, preserving connections and any keys
-// lazyfiles doesn't know.
+// tyr doesn't know.
 func Save(c Config) error {
 	return rewrite(func(pairs map[string]string) {
 		if c.Theme != "" {
@@ -89,7 +96,7 @@ func rewrite(mutate func(map[string]string)) error {
 	sort.Strings(keys)
 
 	var b strings.Builder
-	b.WriteString("# lazyfiles configuration\n")
+	b.WriteString("# tyr configuration\n")
 	b.WriteString("# ssh passwords are never stored here\n")
 	for _, k := range keys {
 		fmt.Fprintf(&b, "%s = %s\n", k, pairs[k])

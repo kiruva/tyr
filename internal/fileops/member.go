@@ -108,7 +108,7 @@ func writeMemberFile(dir, member string, data []byte) (string, error) {
 }
 
 func writeZipMember(archive, member string, data []byte) error {
-	tmp, err := os.MkdirTemp("", "lazyfiles-zip-")
+	tmp, err := os.MkdirTemp("", "tyr-zip-")
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func writeUncompressedTarMember(archive, member string, data []byte) error {
 	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, member)); err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp("", "lazyfiles-tar-")
+	tmp, err := os.MkdirTemp("", "tyr-tar-")
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func writeUncompressedTarMember(archive, member string, data []byte) error {
 // rewriteCompressedTarMember extracts the whole archive, replaces one member,
 // and repacks — the only way to update a member of a compressed tar via the CLI.
 func rewriteCompressedTarMember(f format, archive, member string, data []byte) error {
-	tmp, err := os.MkdirTemp("", "lazyfiles-rewrite-")
+	tmp, err := os.MkdirTemp("", "tyr-rewrite-")
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, erro
 // addToTar rewrites the tar with the new files spliced in at vdir. Rewriting
 // (rather than -r append) keeps one code path for both plain and compressed tar.
 func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error {
-	tmp, err := os.MkdirTemp("", "lazyfiles-add-")
+	tmp, err := os.MkdirTemp("", "tyr-add-")
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 // addToZip stages the sources and lets `zip` splice them in (updates existing
 // members in place, so no full rewrite is needed).
 func addToZip(archive, vdir string, srcs []string, r *reporter) error {
-	tmp, err := os.MkdirTemp("", "lazyfiles-addzip-")
+	tmp, err := os.MkdirTemp("", "tyr-addzip-")
 	if err != nil {
 		return err
 	}

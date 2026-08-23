@@ -3,8 +3,8 @@ package app
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/config"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // openThemePicker enters the picker, remembering the theme to restore on cancel.

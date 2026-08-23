@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // Op identifies a filesystem operation.

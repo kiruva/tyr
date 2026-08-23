@@ -9,9 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/remote"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/remote"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // The create prompt is a one-field modal naming a new file or directory in the

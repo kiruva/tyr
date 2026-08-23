@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to lazyfiles are documented in this file.
+All notable changes to tyr are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Versions are derived
@@ -8,6 +8,26 @@ from the commit history by GitVersion and tagged by CI; see
 [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
 
 ## [Unreleased]
+
+### Changed
+
+- **Renamed the project from `lazyfiles` to `tyr`.**
+  - The binary is now `tyr`; the Go module path is `github.com/kiruva/tyr`.
+  - The config directory moved from `$XDG_CONFIG_HOME/lazyfiles` (or `~/.config/lazyfiles`)
+    to `$XDG_CONFIG_HOME/tyr` (or `~/.config/tyr`). Saved themes and connections carry over
+    on their own — see below.
+  - `LAZYFILES_THEME` is now `TYR_THEME`, and the ssh integration-test variables
+    `LAZYFILES_TEST_SSH` and `LAZYFILES_TEST_SSH_KEY` are now `TYR_TEST_SSH` and
+    `TYR_TEST_SSH_KEY`. Unlike the config directory, the old names are no longer read —
+    update whatever exports them.
+
+### Added
+
+- A one-time config migration on startup: if a pre-rename `lazyfiles` config directory is
+  present and no `tyr` one is, the old directory is moved into place and the status bar says
+  where it went. The move is skipped entirely when a `tyr` config already exists, so it can
+  never overwrite settings you have under the new name, and it is a no-op on every run after
+  the first. A migration that fails is reported but does not stop the app from starting.
 
 ## [0.1.0] - 2026-08-18
 

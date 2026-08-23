@@ -1,4 +1,4 @@
-BINARY := lazyfiles
+BINARY := tyr
 
 .PHONY: build run test vet lint fmt install clean
 

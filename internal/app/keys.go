@@ -2,7 +2,7 @@ package app
 
 import "github.com/charmbracelet/bubbles/key"
 
-// keyMap defines every binding lazyfiles responds to.
+// keyMap defines every binding tyr responds to.
 type keyMap struct {
 	Up       key.Binding
 	Down     key.Binding

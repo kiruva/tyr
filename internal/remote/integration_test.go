@@ -12,24 +12,24 @@ import (
 // These exercise the real ssh path. They need a host that accepts key-based
 // logins, so they skip unless one is named:
 //
-//	LAZYFILES_TEST_SSH=ssh://host:port/scratch/dir go test ./internal/remote/
+//	TYR_TEST_SSH=ssh://host:port/scratch/dir go test ./internal/remote/
 //
-// LAZYFILES_TEST_SSH_KEY optionally names the private key to authenticate with;
+// TYR_TEST_SSH_KEY optionally names the private key to authenticate with;
 // otherwise the agent and the standard ~/.ssh key names are tried. Password
 // authentication is not covered here: it needs a server configured to accept one,
 // which a test cannot conjure.
 func testHost(t *testing.T) (Host, string) {
 	t.Helper()
-	target := os.Getenv("LAZYFILES_TEST_SSH")
+	target := os.Getenv("TYR_TEST_SSH")
 	if target == "" {
-		t.Skip("set LAZYFILES_TEST_SSH=<host> to run the ssh integration tests")
+		t.Skip("set TYR_TEST_SSH=<host> to run the ssh integration tests")
 	}
 	h, base, ok := Parse(target)
 	if !ok {
-		t.Fatalf("LAZYFILES_TEST_SSH=%q is not a valid target", target)
+		t.Fatalf("TYR_TEST_SSH=%q is not a valid target", target)
 	}
 	if base == "" {
-		base = "/tmp/lazyfiles-test"
+		base = "/tmp/tyr-test"
 	}
 
 	connectForTest(t, h)
@@ -46,7 +46,7 @@ func connectForTest(t *testing.T, h Host) {
 	t.Helper()
 	t.Cleanup(func() { Forget(h) })
 
-	opts := Options{IdentityFile: os.Getenv("LAZYFILES_TEST_SSH_KEY"), AcceptHostKey: true}
+	opts := Options{IdentityFile: os.Getenv("TYR_TEST_SSH_KEY"), AcceptHostKey: true}
 	if err := Connect(h, opts); err != nil {
 		t.Fatalf("connect to %s: %v", h.String(), err)
 	}
@@ -56,17 +56,17 @@ func connectForTest(t *testing.T, h Host) {
 // an unrecognised host must come back as a HostKeyError carrying a fingerprint,
 // not as an opaque failure, and accepting it must then work.
 func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
-	target := os.Getenv("LAZYFILES_TEST_SSH")
+	target := os.Getenv("TYR_TEST_SSH")
 	if target == "" {
-		t.Skip("set LAZYFILES_TEST_SSH=<host> to run the ssh integration tests")
+		t.Skip("set TYR_TEST_SSH=<host> to run the ssh integration tests")
 	}
 	h, _, ok := Parse(target)
 	if !ok {
-		t.Fatalf("LAZYFILES_TEST_SSH=%q is not a valid target", target)
+		t.Fatalf("TYR_TEST_SSH=%q is not a valid target", target)
 	}
 
 	// A fresh HOME means an empty known_hosts, so this host is unknown again.
-	key := os.Getenv("LAZYFILES_TEST_SSH_KEY")
+	key := os.Getenv("TYR_TEST_SSH_KEY")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Cleanup(func() { Forget(h) })

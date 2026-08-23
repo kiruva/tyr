@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // Update implements tea.Model.
@@ -68,6 +68,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // onKey dispatches a keypress to the handler for the current mode.
 func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.noticeText = "" // a startup notice is read once and dismissed by any key
+
 	switch m.mode {
 	case modeAddress:
 		return m.onAddressKey(msg)

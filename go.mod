@@ -1,4 +1,4 @@
-module github.com/kiruva/lazyfiles
+module github.com/kiruva/tyr
 
 go 1.26.5
 
