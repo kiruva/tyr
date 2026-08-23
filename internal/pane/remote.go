@@ -1,7 +1,7 @@
 package pane
 
 import (
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // Remote browsing works differently from local and archive browsing: a listing

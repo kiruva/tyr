@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
+	"github.com/kiruva/tyr/internal/fileops"
 )
 
 // InArchive reports whether the pane is currently browsing inside an archive.

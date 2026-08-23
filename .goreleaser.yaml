@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: lazyfiles
+  - id: tyr
     main: .
-    binary: lazyfiles
+    binary: tyr
     env:
       - CGO_ENABLED=0
     goos:

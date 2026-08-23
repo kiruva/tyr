@@ -5,9 +5,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/kiruva/lazyfiles/internal/config"
-	"github.com/kiruva/lazyfiles/internal/remote"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/remote"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // The connection modal keeps one size across every stage, so moving between them
@@ -109,7 +109,7 @@ func (m Model) renderConnPassword() string {
 		"",
 		ui.AddrEdit.Width(contentWidth).Render(m.conn.password.View()),
 		"",
-		ui.Faint.Render("not saved — asked again next time lazyfiles starts"),
+		ui.Faint.Render("not saved — asked again next time tyr starts"),
 	}
 	footer := ui.Faint.Render("enter connect · esc back")
 	return connBox(lines, m.conn.status, footer)

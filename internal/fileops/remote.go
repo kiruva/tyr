@@ -3,7 +3,7 @@ package fileops
 import (
 	"os"
 
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // runRemote dispatches the ssh-backed operations. Move semantics are "transfer

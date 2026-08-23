@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // remoteListMsg carries the result of a directory listing back to the UI. It

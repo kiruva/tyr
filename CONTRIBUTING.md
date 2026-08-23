@@ -1,6 +1,6 @@
-# Contributing to lazyfiles
+# Contributing to tyr
 
-Thanks for your interest! lazyfiles aims to be a clean, keyboard-driven, dual-pane
+Thanks for your interest! tyr aims to be a clean, keyboard-driven, dual-pane
 file manager. Contributions of all sizes are welcome.
 
 ## Getting started
@@ -8,8 +8,8 @@ file manager. Contributions of all sizes are welcome.
 Go 1.26 or newer is required.
 
 ```sh
-git clone https://github.com/kiruva/lazyfiles
-cd lazyfiles
+git clone https://github.com/kiruva/tyr
+cd tyr
 go run .
 ```
 
@@ -86,5 +86,5 @@ still triggers **Release** on its own.
 
 ## Reporting bugs
 
-Open an issue with your OS, terminal, lazyfiles version (`lazyfiles --version`),
+Open an issue with your OS, terminal, tyr version (`tyr --version`),
 and steps to reproduce.

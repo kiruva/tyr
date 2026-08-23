@@ -36,7 +36,7 @@ func TestSaveThenLoad(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("config file: %v", err)
 	}
-	if want := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "lazyfiles", "config"); path != want {
+	if want := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "tyr", "config"); path != want {
 		t.Fatalf("Path() = %q, want %q", path, want)
 	}
 }

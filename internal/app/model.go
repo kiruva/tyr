@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/pane"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/pane"
 )
 
 // mode is the top-level input mode / modal state.
@@ -52,6 +52,7 @@ type Model struct {
 	progress      fileops.Progress
 	progressCh    <-chan any
 	errText       string
+	noticeText    string // non-error banner, cleared by the next keypress
 
 	// view/edit state
 	viewport   viewport.Model
@@ -91,6 +92,15 @@ func New() Model {
 		viewport: viewport.New(0, 0),
 		editor:   ta,
 	}
+}
+
+// WithNotice seeds the status bar with a one-off message, shown until the first
+// keypress. It is how startup work done before the program runs — a migrated
+// config directory, say — gets in front of the user, since anything printed
+// before the alt screen opens is not visible until after the app exits.
+func (m Model) WithNotice(text string) Model {
+	m.noticeText = text
+	return m
 }
 
 // Init implements tea.Model.

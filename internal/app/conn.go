@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/config"
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // The connection modal is a small state machine. Opening it lists the saved

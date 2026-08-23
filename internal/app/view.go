@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // View implements tea.Model.
@@ -65,7 +65,7 @@ func (m Model) renderHelp() string {
 	right := joinBlocks(blocks[mid:])
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
 
-	header := ui.DialogTitle.Render("lazyfiles — keys")
+	header := ui.DialogTitle.Render("tyr — keys")
 	footer := ui.Faint.Render("any key to close")
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
 	return ui.Dialog.Render(content)
@@ -160,6 +160,9 @@ func overlay(w, h int, dialog string) string {
 func (m Model) statusBar() string {
 	if m.errText != "" {
 		return ui.ErrorBar.Width(m.width).Render(" " + m.errText)
+	}
+	if m.noticeText != "" {
+		return ui.NoticeBar.Width(m.width).Render(" " + truncTail(m.noticeText, m.width-1))
 	}
 
 	p := &m.panes[m.active]

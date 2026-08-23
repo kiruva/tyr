@@ -1,11 +1,11 @@
-# Demo recording script for lazyfiles.
+# Demo recording script for tyr.
 # Install VHS (https://github.com/charmbracelet/vhs), then run:
 #     vhs demo.tape
 # It produces demo.gif, referenced by the README.
 #
 # The recording walks a fixture tree in /tmp so it looks the same every time:
 #
-#     /tmp/lazyfiles-demo/
+#     /tmp/tyr-demo/
 #     ├── backup/            (empty — the destination pane)
 #     └── project/
 #         ├── assets/logo.txt
@@ -29,13 +29,13 @@ Set TypingSpeed 120ms
 # Build the binary and lay out the fixture, hidden from the recording. The
 # config lives in the fixture too, so recording never touches a real one.
 Hide
-Type "go build -o /tmp/lazyfiles ."
+Type "go build -o /tmp/tyr ."
 Enter
-Type "rm -rf /tmp/lazyfiles-demo && mkdir -p /tmp/lazyfiles-demo/backup /tmp/lazyfiles-demo/project/src /tmp/lazyfiles-demo/project/assets"
+Type "rm -rf /tmp/tyr-demo && mkdir -p /tmp/tyr-demo/backup /tmp/tyr-demo/project/src /tmp/tyr-demo/project/assets"
 Enter
-Type "cd /tmp/lazyfiles-demo/project"
+Type "cd /tmp/tyr-demo/project"
 Enter
-Type "echo '# lazyfiles' > README.md && echo 'A dual-pane file manager for the terminal.' >> README.md"
+Type "echo '# tyr' > README.md && echo 'A dual-pane file manager for the terminal.' >> README.md"
 Enter
 Type "echo 'todo: ship v0.1.0' > notes.txt && echo 'logo' > assets/logo.txt"
 Enter
@@ -43,9 +43,9 @@ Type "echo 'package main' > src/main.go && echo 'func main() {}' >> src/main.go"
 Enter
 Type "echo 'package main' > src/util.go"
 Enter
-Type "export XDG_CONFIG_HOME=/tmp/lazyfiles-demo/config"
+Type "export XDG_CONFIG_HOME=/tmp/tyr-demo/config"
 Enter
-Type "cd /tmp/lazyfiles-demo && clear && /tmp/lazyfiles"
+Type "cd /tmp/tyr-demo && clear && /tmp/tyr"
 Enter
 Sleep 1s
 Show

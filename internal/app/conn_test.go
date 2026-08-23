@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/config"
-	"github.com/kiruva/lazyfiles/internal/remote"
+	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/remote"
 )
 
 // openModal starts the app with a scratch config and opens the connection modal.

@@ -9,8 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/fileops"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // The address bar is the pane's top line. It shows the current location while

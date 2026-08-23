@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kiruva/lazyfiles/internal/config"
-	"github.com/kiruva/lazyfiles/internal/ui"
+	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // newSized builds an app with a usable window, restoring the default theme

@@ -1,4 +1,4 @@
-// Package ui holds the Lip Gloss theme shared across lazyfiles.
+// Package ui holds the Lip Gloss theme shared across tyr.
 package ui
 
 import "github.com/charmbracelet/lipgloss"
@@ -36,6 +36,10 @@ var (
 
 	// ErrorBar styles the bottom bar when an operation failed.
 	ErrorBar lipgloss.Style
+
+	// NoticeBar styles the bottom bar for something worth saying that is not a
+	// failure, such as a config directory moved on startup.
+	NoticeBar lipgloss.Style
 
 	// Dialog is the bordered box for confirm/progress modals.
 	Dialog lipgloss.Style
@@ -114,6 +118,11 @@ func Apply(t Theme) {
 	ErrorBar = lipgloss.NewStyle().
 		Foreground(t.Fg).
 		Background(t.Danger).
+		Bold(true)
+
+	NoticeBar = lipgloss.NewStyle().
+		Foreground(t.CursorFg).
+		Background(t.Accent).
 		Bold(true)
 
 	Dialog = lipgloss.NewStyle().

@@ -1,9 +1,9 @@
-# lazyfiles
+# tyr
 
 > A TUI file manager to rule them all — dual-pane, keyboard-driven, as intuitive as lazygit.
 
-[![CI](https://github.com/kiruva/lazyfiles/actions/workflows/ci.yml/badge.svg)](https://github.com/kiruva/lazyfiles/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/kiruva/lazyfiles)](https://goreportcard.com/report/github.com/kiruva/lazyfiles)
+[![CI](https://github.com/kiruva/tyr/actions/workflows/ci.yml/badge.svg)](https://github.com/kiruva/tyr/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kiruva/tyr)](https://goreportcard.com/report/github.com/kiruva/tyr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Built for the Linux community first, comfortable on macOS. Leans on what Total Commander is
@@ -31,16 +31,16 @@ to Windows, reimagined for the terminal.
 
 ```sh
 # With Go 1.26 or newer installed:
-go install github.com/kiruva/lazyfiles@latest
+go install github.com/kiruva/tyr@latest
 
 # Or build from source:
-git clone https://github.com/kiruva/lazyfiles
-cd lazyfiles
-make build      # produces ./lazyfiles
+git clone https://github.com/kiruva/tyr
+cd tyr
+make build      # produces ./tyr
 ```
 
 Pre-built binaries for Linux and macOS (amd64/arm64) are attached to each
-[release](https://github.com/kiruva/lazyfiles/releases).
+[release](https://github.com/kiruva/tyr/releases).
 
 Browsing, copying, and editing need nothing but the binary. Archive actions call the system
 tool for the format you touch (`tar`, `unzip`, `7z`, `unrar`), and ssh transfers need `tar`
@@ -49,10 +49,10 @@ and a POSIX shell on the far side.
 ## Run it
 
 ```sh
-lazyfiles                  # or: go run .
-lazyfiles --theme nord     # start with a theme
-lazyfiles --themes         # list the built-in themes
-lazyfiles --version
+tyr                  # or: go run .
+tyr --theme nord     # start with a theme
+tyr --themes         # list the built-in themes
+tyr --version
 ```
 
 ## Keys
@@ -173,7 +173,7 @@ used first, with a `●` next to any that are already connected:
 pane you pressed `S` from — the modal says which one.
 
 A connection records a name, host, user, port, starting path, and optionally a key
-file. **It never records a password.** If the host needs one, lazyfiles asks each
+file. **It never records a password.** If the host needs one, tyr asks each
 time it starts:
 
 ```
@@ -184,7 +184,7 @@ time it starts:
 │                                                          │
 │   ••••••••••                                             │
 │                                                          │
-│   not saved — asked again next time lazyfiles starts     │
+│   not saved — asked again next time tyr starts           │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
@@ -200,14 +200,14 @@ outright rather than offered as a yes/no — that is either a rebuilt server or 
 interception, and either way it wants looking at by hand. A key of an algorithm
 you have no entry for is just a key you have not seen, and prompts normally.
 
-As `ssh` does, lazyfiles asks the server for a host key algorithm it already has
+As `ssh` does, tyr asks the server for a host key algorithm it already has
 recorded, so a host whose `known_hosts` line is ed25519 is not re-verified against
 whatever key type the server happens to prefer.
 
 Saved connections live in the same config file as everything else:
 
 ```ini
-# lazyfiles configuration
+# tyr configuration
 # ssh passwords are never stored here
 conn.prod.host = web01.example.com
 conn.prod.user = deploy
@@ -240,7 +240,7 @@ through this machine.
 
 ### How it works
 
-lazyfiles speaks ssh in-process (`golang.org/x/crypto/ssh`) rather than shelling out
+tyr speaks ssh in-process (`golang.org/x/crypto/ssh`) rather than shelling out
 to the `ssh` binary. That is what makes the password prompt possible at all: `ssh`
 reads passwords straight from the terminal, which the TUI owns, and a password passed
 any other way would have to travel through a command line or an environment variable
@@ -248,14 +248,14 @@ where other processes can see it. In-process, it goes from the input straight in
 authentication exchange.
 
 The trade-off is that a native client does not read `~/.ssh/config` for you, so
-lazyfiles parses the part that decides where a connection goes: `HostName`, `User`,
+tyr parses the part that decides where a connection goes: `HostName`, `User`,
 `Port`, `IdentityFile`, `ProxyJump`, plus `Include` and `Host` pattern matching. An
 alias that depends on anything else — `ProxyCommand`, for instance — will not resolve
 the way `ssh` would. A jump host must accept key or agent authentication, since the
 modal only prompts for one password.
 
 Transfers stream a tar archive over one ssh session (`tar -cf -` on one end, `tar -xf -`
-on the other) rather than using scp or sftp. Every path is quoted by lazyfiles and
+on the other) rather than using scp or sftp. Every path is quoted by tyr and
 interpreted by exactly one shell, and the local `tar -v` names each file as it moves,
 which is what fills the progress bar. The far side needs `tar` and a POSIX shell;
 nothing is installed.
@@ -266,22 +266,27 @@ Eight built-in themes: `default`, `nord`, `dracula`, `gruvbox`, `catppuccin`, `t
 `solarized`, `monokai`. Press `t` for the picker — moving the cursor previews the theme live,
 `Enter` applies and remembers it, `Esc` puts the old one back.
 
-Resolution order is `--theme` → `$LAZYFILES_THEME` → config file → `default`:
+Resolution order is `--theme` → `$TYR_THEME` → config file → `default`:
 
 ```sh
-lazyfiles --theme gruvbox
-LAZYFILES_THEME=dracula lazyfiles
+tyr --theme gruvbox
+TYR_THEME=dracula tyr
 ```
 
-The picker writes the choice to `$XDG_CONFIG_HOME/lazyfiles/config` (or
-`~/.config/lazyfiles/config`), a plain `key = value` file you can also edit by hand:
+The picker writes the choice to `$XDG_CONFIG_HOME/tyr/config` (or
+`~/.config/tyr/config`), a plain `key = value` file you can also edit by hand:
 
 ```ini
-# lazyfiles configuration
+# tyr configuration
 theme = nord
 ```
 
 Saved ssh connections share this file; see [Over ssh](#over-ssh).
+
+> **Upgrading from lazyfiles?** The first run moves a leftover `~/.config/lazyfiles`
+> directory to `~/.config/tyr` and tells you it did, so your theme and connections carry
+> over. If a `~/.config/tyr` already exists it is left alone and nothing is moved. The
+> `LAZYFILES_THEME` environment variable is *not* carried over — use `TYR_THEME`.
 
 Themes are pure data — a name plus eight colours in `internal/ui/theme.go`. Adding one is a
 single struct literal; every style is rebuilt from it.
@@ -293,7 +298,7 @@ make run     # go run .
 make test    # go test ./...
 make vet     # go vet ./...
 make lint    # golangci-lint run
-make build   # build ./lazyfiles
+make build   # build ./tyr
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout and guidelines.
