@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -41,6 +42,10 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderConn())
 	case modeCreate:
 		return overlay(m.width, m.height, m.renderCreate())
+	case modeRenameOne:
+		return overlay(m.width, m.height, m.renderRenameOne())
+	case modeRename:
+		return m.renderRename()
 	default:
 		return base
 	}
@@ -244,6 +249,21 @@ func (m Model) renderConfirm() string {
 	case fileops.OpRemoteDelete:
 		title = ui.Danger.Render(fmt.Sprintf("Delete %d %s on %s?", n, items(n), j.Host.String()))
 		body = "This cannot be undone."
+	case fileops.OpRename:
+		sum := rename.Summarize(j.Renames)
+		title = ui.DialogTitle.Render(fmt.Sprintf("Rename %d %s", sum.Renamed, items(sum.Renamed)))
+		body = "in " + truncTail(j.Dest, 44)
+		if sum.Conflicts > 0 {
+			body += "\n" + ui.Faint.Render(fmt.Sprintf("%d blocked %s skipped", sum.Conflicts, items(sum.Conflicts)))
+		}
+		body += "\n" + ui.Faint.Render("ctrl+z puts it back")
+	case fileops.OpRenameUndo:
+		plan := rename.Applicable(j.Renames)
+		title = ui.DialogTitle.Render("Undo rename")
+		body = "put " + rename.UndoLabel(plan) + " back\n" + ui.Faint.Render("in "+truncTail(j.Dest, 40))
+		if skipped := rename.Summarize(j.Renames).Conflicts; skipped > 0 {
+			body += "\n" + ui.Faint.Render(fmt.Sprintf("%d %s cannot be put back", skipped, items(skipped)))
+		}
 	case fileops.OpAddToArchive:
 		verb := "Add"
 		if j.Move {

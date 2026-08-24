@@ -16,16 +16,18 @@ import (
 type mode int
 
 const (
-	modeNormal   mode = iota // navigating the panes
-	modeAddress              // typing a path into the active pane's address bar
-	modeConfirm              // awaiting y/n on a pending operation
-	modeProgress             // an operation is running
-	modeView                 // read-only text pager
-	modeEdit                 // nano-style text editor
-	modeHelp                 // keybinding overlay
-	modeTheme                // theme picker overlay
-	modeConn                 // ssh connection picker / form / password prompt
-	modeCreate               // naming a new file or directory
+	modeNormal    mode = iota // navigating the panes
+	modeAddress               // typing a path into the active pane's address bar
+	modeConfirm               // awaiting y/n on a pending operation
+	modeProgress              // an operation is running
+	modeView                  // read-only text pager
+	modeEdit                  // nano-style text editor
+	modeHelp                  // keybinding overlay
+	modeTheme                 // theme picker overlay
+	modeConn                  // ssh connection picker / form / password prompt
+	modeCreate                // naming a new file or directory
+	modeRenameOne             // renaming the highlighted entry
+	modeRename                // the batch rename tool
 )
 
 // editTarget records what an edit session is writing back to.
@@ -71,6 +73,11 @@ type Model struct {
 
 	// new file / new folder prompt state
 	create createState
+
+	// rename state: the one-field prompt, the batch tool, and the undo history
+	renOne    renameOneState
+	ren       renameState
+	undoStack []renameBatch
 }
 
 // New constructs the app with both panes rooted at the current directory.
