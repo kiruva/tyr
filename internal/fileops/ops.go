@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/kiruva/tyr/internal/remote"
+	"github.com/kiruva/tyr/internal/rename"
 )
 
 // Op identifies a filesystem operation.
@@ -29,6 +30,8 @@ const (
 	OpUpload       // copy local Srcs into remote dir Dest (over ssh)
 	OpRemoteCopy   // copy/move Srcs to Dest within one host
 	OpRemoteDelete // remove remote Srcs
+	OpRename       // rename Renames in place, under Dest
+	OpRenameUndo   // put an applied rename batch back
 )
 
 func (o Op) String() string {
@@ -55,6 +58,10 @@ func (o Op) String() string {
 		return "Copy"
 	case OpRemoteDelete:
 		return "Delete"
+	case OpRename:
+		return "Rename"
+	case OpRenameUndo:
+		return "Undo rename"
 	default:
 		return "?"
 	}
@@ -83,6 +90,10 @@ func (o Op) Present() string {
 		return "Copying"
 	case OpRemoteDelete:
 		return "Deleting"
+	case OpRename:
+		return "Renaming"
+	case OpRenameUndo:
+		return "Undoing"
 	default:
 		return "Working"
 	}
@@ -98,6 +109,10 @@ type Job struct {
 	VDir string   // virtual directory within the archive (add-to-archive)
 	Move bool     // delete the sources once the transfer succeeded
 
+	// Renames is the batch for OpRename, or the inverted batch for OpRenameUndo,
+	// relative to Dest.
+	Renames []rename.Change
+
 	// Host is the ssh destination for the remote ops; zero for local work.
 	Host remote.Host
 }
@@ -112,6 +127,11 @@ type Progress struct {
 type Result struct {
 	Op  Op
 	Err error
+
+	// Renamed is what a rename job actually did, which is what an undo of it has
+	// to be built from. It is set even when Err is: a batch that stopped part-way
+	// still moved everything before the failure.
+	Renamed []rename.Change
 }
 
 // Run starts the job in a goroutine and returns a channel that yields zero or
@@ -128,7 +148,10 @@ func Run(job Job) <-chan any {
 			return
 		}
 
-		var err error
+		var (
+			err     error
+			renamed []rename.Change
+		)
 		switch job.Op {
 		case OpPack:
 			err = pack(job, r)
@@ -136,6 +159,10 @@ func Run(job Job) <-chan any {
 			err = extractAll(job, r)
 		case OpAddToArchive:
 			err = addToArchive(job, r)
+		case OpRename:
+			renamed, err = rename.Apply(job.Dest, job.Renames, r.step)
+		case OpRenameUndo:
+			renamed, err = rename.Undo(job.Dest, job.Renames, r.step)
 		default:
 			for _, src := range job.Srcs {
 				switch job.Op {
@@ -151,7 +178,7 @@ func Run(job Job) <-chan any {
 				}
 			}
 		}
-		ch <- Result{Op: job.Op, Err: err}
+		ch <- Result{Op: job.Op, Err: err, Renamed: renamed}
 	}()
 	return ch
 }
@@ -160,6 +187,8 @@ func Run(job Job) <-chan any {
 func computeTotal(job Job) int {
 	total := 0
 	switch job.Op {
+	case OpRename, OpRenameUndo:
+		return len(rename.Applicable(job.Renames))
 	case OpDownload, OpRemoteCopy, OpRemoteDelete:
 		// Counting remote items would cost another round trip; the bar runs
 		// indeterminate instead.

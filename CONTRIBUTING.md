@@ -34,6 +34,7 @@ CI runs the same checks on every push and pull request.
 | `internal/app`     | Root model, update router, view, keymap (The Elm Arch.). |
 | `internal/pane`    | One directory pane; also the virtual archive browser.    |
 | `internal/fileops` | UI-agnostic create/copy/move/delete + archive engine.    |
+| `internal/rename`  | UI-agnostic batch-rename planner and applier.            |
 | `internal/remote`  | In-process ssh: listings, transfers, `~/.ssh/config`.    |
 | `internal/config`  | The `key = value` config file: theme, saved connections. |
 | `internal/ui`      | Lip Gloss theme and shared styles.                       |
@@ -49,6 +50,8 @@ CI runs the same checks on every push and pull request.
   overlay automatically via `keyMap.groups()`.
 - Anything remote must stay off the UI thread too: the pane records where it wants
   to be and the app layer fills it in from a `tea.Cmd`.
+- The rename recipes in `README.md` are pinned by `TestDocumentedExamples` in
+  `internal/rename/examples_test.go`. Change one and the other has to follow.
 - Note user-facing changes in `CHANGELOG.md` under `## [Unreleased]`.
 
 ## Commit messages

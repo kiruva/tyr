@@ -17,6 +17,9 @@ to Windows, reimagined for the terminal.
   the whole mental model.
 - **File operations.** Create, copy, move, and delete, all recursive, each confirmed first and
   run off the UI thread with a live progress bar.
+- **Rename.** `F2` for one name, `M` for the multi-rename tool: regex, wildcards or
+  name masks over a whole selection, recursively, with a live preview of every
+  `old → new` before anything moves — and `Ctrl+Z` to put it back.
 - **Archives.** Pack and unpack `tar`/`zip`/`7z`/`rar`, browse an archive as though it were a
   directory, and add files to one without unpacking it.
 - **Text viewer and editor.** Read or edit a file in place — including a file **inside** an
@@ -77,6 +80,9 @@ tyr --version
 | `F5` / `c`          | Copy selection → other pane     |
 | `F6` / `m`          | Move selection → other pane     |
 | `F8` / `Del` / `d`  | Delete selection                |
+| `r` / `F2`          | Rename the highlighted entry    |
+| `M`                 | Multi-rename tool (batch)       |
+| `Ctrl+Z`            | Undo the last rename            |
 | `p`                 | Pack selection → other pane     |
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
@@ -107,6 +113,345 @@ leaves the bar open with the reason in the status line.
 local or remote. The name may contain separators, so `src/main.go` creates the missing
 directories on the way. Absolute paths are refused (use the address bar to move there), and so
 is a name that already exists: creating never overwrites.
+
+## Renaming
+
+Two tools, one engine. `F2` fixes a single name; `M` reshapes a whole selection from a
+pattern, with a live preview of every name before anything moves. `Ctrl+Z` puts either of
+them back.
+
+### One name at a time
+
+`r` (or `F2`) renames the highlighted entry. The prompt starts prefilled, so it is an edit
+rather than a retype:
+
+```
+╭──────────────────────────────────────────────────────────╮
+│   Rename                                                 │
+│                                                          │
+│   quarterly-report-draft.md                              │
+│   quarterly-report-final.md                              │
+│                                                          │
+│    enter  rename     esc  cancel     M for a batch       │
+╰──────────────────────────────────────────────────────────╯
+```
+
+The name stays where it is: separators, absolute paths and `..` are refused — use `F6`/`m` to
+move something. An existing name is never overwritten, and changing only the case of a name
+works even on a case-insensitive filesystem.
+
+### The multi-rename tool
+
+`M` opens the batch tool on the selection, or on the highlighted entry when nothing is marked.
+It is full-screen because the preview is the point: nothing happens until you press `enter`
+and confirm.
+
+```
+ multi-rename · 4 items · 3 to rename · 1 blocked                          ~/pics
+  find     IMG_(\d+)                        regex · ignore case
+  replace  holiday-$1
+  name     [N]              ext [E]      counter 1     step 1
+  case as-is · trim · recursive · rename dirs
+─────────────────────────────────────────────────────────────────────────────────
+  IMG_0021.jpg      → holiday-0021.jpg
+  IMG_0022.jpg      → holiday-0022.jpg
+  IMG_0023.jpg      → holiday-0023.jpg ✗ exists
+  sub/IMG_0099.jpg  → sub/holiday-0099.jpg
+ tab field · ↑/↓ scroll · enter apply · esc cancel
+ ctrl+o mode · alt+i ignore case · ctrl+t case · ctrl+p trim · ctrl+r recursive · …
+```
+
+The header counts what the form would do; the highlighted switches on the line under it are
+on. Rows that cannot be applied are marked `✗` with the reason and are simply left alone —
+the rest of the batch still runs.
+
+| Key                 | Does                                              |
+| ------------------- | ------------------------------------------------- |
+| `Tab` / `Shift+Tab` | Next / previous field                             |
+| `↑` / `↓`           | Scroll the preview                                |
+| `PgUp` / `PgDn`     | Scroll the preview a page                         |
+| `Ctrl+O`            | Cycle how `find` is read: regex → literal → glob  |
+| `Alt+I`             | Match without regard to case                      |
+| `Ctrl+T`            | Cycle case conversion: as-is → lower → UPPER → Title |
+| `Ctrl+P`            | Trim and collapse whitespace                      |
+| `Ctrl+R`            | Recursion on/off                                  |
+| `Ctrl+Y`            | Rename directory names too                        |
+| `Enter`             | Apply (asks to confirm first)                     |
+| `Esc`               | Close, changing nothing                           |
+
+While `name` or `ext` has focus, the bottom line becomes the token legend, so the masks are
+documented where you are typing them.
+
+#### A first run
+
+1. Mark what to rename with `Space`, or just leave the cursor on one entry.
+2. Press `M`. The preview lists every candidate; on an untouched form each one reads
+   `(unchanged)`, because the default masks reproduce the name it already has.
+3. Type a pattern into `find`, `Tab` to `replace`, and type the replacement. The preview
+   follows every keystroke.
+4. Read the header: how many the form renames, and how many it cannot. Scroll the list with
+   `↑`/`↓` if it is longer than the screen.
+5. `Enter`, then `y`. If it turns out wrong, `Ctrl+Z` puts it back.
+
+Nothing before step 5 touches the disk, so a pattern is free to experiment with.
+
+#### How a new name is built
+
+Four fields, applied in this order. Knowing the order is most of knowing the tool:
+
+1. **`find` decides who takes part.** A name it does not match is left exactly as it is, masks
+   and all — so `find` doubles as a filter over the whole form. An empty `find` matches
+   everything. It is matched against the name as it stands now, before any mask has run.
+2. **`name` and `ext` are masks.** They build a name out of literal text and `[tokens]`.
+   Their defaults, `[N]` and `[E]`, reproduce the current name — so a form you have not
+   touched renames nothing.
+3. **The two are joined** into `name.ext`, or just `name` when `ext` is empty.
+4. **`replace` substitutes** into that whole assembled name, wherever `find` matched. It takes
+   the same `[tokens]` the masks do, alongside its `$1` backreferences.
+5. **Case conversion and trimming** run last, on the name without its extension.
+
+Following `IMG_0021.JPG` through a form with `find` = `IMG_(\d+)`, `replace` = `holiday-$1`
+and case set to `lower`:
+
+```
+  IMG_0021.JPG
+    masks       [N] → IMG_0021        [E] → JPG
+    joined      IMG_0021.JPG
+    substitute  holiday-0021.JPG      ← the pattern never matched ".JPG", so it survives
+    case        holiday-0021.JPG      ← lower applies to the stem, which is already lower
+```
+
+Two consequences worth knowing before you type a pattern:
+
+- **`find` sees the extension.** It is matching `IMG_0021.JPG`, not `IMG_0021`. That is what
+  lets a pattern rewrite part of a name and leave the rest — including the extension —
+  untouched. It is also why a greedy pattern like `(.+) - (.+)` swallows `.mp3` into `$2`;
+  anchor it (`^(.+) - (.+)\.mp3$`) when the extension matters.
+- **Case and trim do not.** `UPPER` will not shout your `.jpg` into `.JPG`. To change an
+  extension, put the new one in the `ext` field.
+
+A directory has no extension to protect: its whole name is `[N]`, and `ext` is ignored.
+
+#### How `find` is read
+
+`Ctrl+O` cycles the three modes. `Alt+I` makes any of them case-insensitive.
+
+| Mode      | The pattern is                                | The replacement is        |
+| --------- | --------------------------------------------- | ------------------------- |
+| `regex`   | a Go regular expression, matched anywhere      | text with `$1` backrefs   |
+| `literal` | plain text — `.` and `*` mean themselves       | plain text                |
+| `glob`    | `*`, `?` and `[abc]`, matched against the whole name | text with `$1` per wildcard |
+
+An empty `find` matches every name, which is what you want when the masks are doing the work.
+A regex that does not compile is reported under the form and cannot be applied.
+
+#### Tokens
+
+Tokens work in three fields — `name`, `ext` and `replace` — and mean the same thing in each.
+They are resolved per file, against the name as it is now:
+
+| Token    | Is                                       |
+| -------- | ---------------------------------------- |
+| `[N]`    | the name without its extension           |
+| `[N3]`   | its 3rd character                        |
+| `[N3-7]` | characters 3 to 7 (1-based, inclusive)   |
+| `[N3-]`  | from the 3rd character to the end        |
+| `[E]`    | the extension, without the dot           |
+| `[E1-3]` | the extension, sliced the same way       |
+| `[C]`    | the counter                              |
+| `[C3]`   | the counter, zero-padded to 3 digits     |
+| `[P]`    | the name of the directory the file is in |
+| `[d]`    | the file's own date, as `2026-08-24`     |
+| `[t]`    | its time, as `09-41-12`                  |
+
+A range that runs past the end of a short name yields what is there rather than failing. An
+unknown token is left as typed, so `[Z]` stays `[Z]` and a name may legitimately contain a
+bracket.
+
+In `replace`, tokens sit alongside backreferences — `holiday_[d]_$1` is a date from the file
+and a group from the pattern in one replacement. `find` itself takes no tokens: it is a
+pattern, not a name.
+
+One Go regexp quirk to know when you mix the two: a `$1` that runs straight into letters,
+digits or an underscore is read as one long group name, so `$1_[d]` looks for a group called
+`1_2026`. Brace it — `${1}_[d]` — whenever something wordlike follows.
+
+**counter** and **step** drive `[C]`: it starts at `counter` and advances by `step` for each
+name the pattern matches — a file `find` skipped does not burn a number. `step` may be
+negative to count down.
+
+#### Recipes
+
+Each of these is a form to type and what it does to the files under it. Every one is pinned by
+a test, so they work as written. Fields not shown are left at their defaults.
+
+**Numbering.** The counter is the reason the tool exists for photo dumps:
+
+```
+Number a batch, keeping each extension        Keep the name, add a number in front
+  name  holiday-[C3]                            name  [C2]-[N]
+
+  DSC_4821.JPG → holiday-001.JPG                intro.md → 01-intro.md
+  DSC_4830.JPG → holiday-002.JPG                setup.md → 02-setup.md
+  DSC_4901.JPG → holiday-003.JPG
+
+Start somewhere else, count in tens           Number only what the pattern matched
+  name  [C]   counter  10   step  10            find  IMG        name  photo-[C]
+
+  a.txt → 10.txt                                IMG_11.jpg → photo-1.jpg
+  b.txt → 20.txt                                scan.jpg   → scan.jpg     ← skipped
+  c.txt → 30.txt                                IMG_12.jpg → photo-2.jpg  ← still 2
+```
+
+**Substituting.** `Ctrl+O` picks how the pattern is read; the mode is named in each stanza:
+
+```
+Strip a leading track number (regex)          Swap the halves of a name (regex)
+  find     ^\d+ -_       ← "_" is a space        find     ^(.+) - (.+)\.mp3$
+  replace  (empty)                              replace  $2 - $1.mp3
+
+  01 - Intro.mp3 → Intro.mp3                    Miles Davis - So What.mp3
+  02 - Verse.mp3 → Verse.mp3                      → So What - Miles Davis.mp3
+
+A version number, dots and all (literal)      Rewrite a prefix, keep the rest (glob)
+  find     v1.2                                 find     draft-*
+  replace  v2.0                                 replace  2026-$1
+
+  app v1.2.zip → app v2.0.zip                   draft-notes.txt → 2026-notes.txt
+                                                final-notes.txt → final-notes.txt
+                                                     └── glob matches the whole name or not
+                                                         at all, so this one is untouched
+
+Underscores to dashes (literal)               Match whichever case it is (literal, alt+i)
+  find     _                                    find     img
+  replace  -                                    replace  photo
+
+  my_long_name.txt → my-long-name.txt           IMG_1.jpg → photo_1.jpg
+                                                img_2.jpg → photo_2.jpg
+```
+
+**Stamping on a date or a number.** Tokens in `replace` write the same values the masks do,
+but only where the pattern matched — so the rest of the name is left exactly as it was:
+
+```
+Date the whole batch (masks)                  Date only what matches (regex)
+  name  [N]_[d]                                 find     ^(report[^.]*)
+                                                replace  ${1}_[d]
+  notes.md → notes_2026-08-24.md
+  todo.md  → todo_2026-08-24.md                 report-q3.pdf → report-q3_2026-08-24.pdf
+                                                notes.pdf     → notes.pdf
+
+A token and a backreference together (regex)  Version-number what was found (literal)
+  find     IMG_(\d+)                            find     draft
+  replace  holiday_[d]_$1                       replace  v[C3]
+
+  IMG_0021.jpg                                  draft-a.txt → v001-a.txt
+    → holiday_2026-08-24_0021.jpg                draft-b.txt → v002-b.txt
+```
+
+**Extensions.** The `ext` field owns the extension; `find` and the case keys leave it alone:
+
+```
+Change it                Normalise a shouting one         Drop it
+  ext  md                  ext  jpg                         ext  (empty)
+
+  notes.txt → notes.md     DSC_1.JPG → DSC_1.jpg            README.md → README
+  todo.txt  → todo.md
+```
+
+**Slicing and tidying.** `[N]` can be cut down, and the case keys clean up what is left:
+
+```
+Shorten to the first 8 characters             Cut off a fixed-width prefix
+  name  [N1-8]                                  name  [N12-]
+
+  a-very-long-filename.log                      2026-08-24 meeting.md → meeting.md
+    → a-very-l.log                                         └── 11 characters, so start at 12
+
+Fix the shouting and the double spaces        Stamp on the file's own date
+  ctrl+t → Title      ctrl+p → trim             name  [d] [N]
+
+  "  my   HOLIDAY  photo .jpg"                  report.pdf → 2026-08-24 report.pdf
+    → My Holiday Photo.jpg
+```
+
+**Flattening.** `[P]` is the folder a file came from, which is what you want when a recursive
+batch is about to put files from several folders side by side:
+
+```
+  name  [P]-[N]
+
+  holiday/1.jpg → holiday/holiday-1.jpg
+  work/1.jpg    → work/work-1.jpg
+```
+
+Renaming does not move anything, so those files stay in their folders — `[P]` only makes the
+names safe to move together afterwards with `F6`.
+
+#### Choosing what to rename
+
+Candidates come from the selection (`Space`), or from the highlighted entry when nothing is
+marked. `..` is never one.
+
+- **`Ctrl+R` — recursion**, on by default. A selected directory contributes everything inside
+  it, at any depth, and each preview row is prefixed with where it lives. With recursion off,
+  a selected directory contributes only itself.
+- **`Ctrl+Y` — rename directories**, off by default. Until you turn it on, a directory is
+  something to look inside, not something to rename, so a recursive pattern cannot reshape the
+  tree by accident. With it on, children are renamed before their parent, so both can change in
+  one batch.
+- **Dotfiles** come along only when the pane is showing them (`.`).
+- A sweep stops at **20 000 entries** and says so in the header, rather than building a preview
+  nobody can read.
+
+#### When it refuses
+
+A row marked `✗` is skipped and counted in the confirm prompt:
+
+| Marked                | Means                                                          |
+| --------------------- | -------------------------------------------------------------- |
+| `✗ exists`            | something is already using that name, and the batch does not move it away |
+| `✗ same name as …`    | two candidates in one directory want the same name              |
+| `✗ empty name`        | the masks produced nothing                                      |
+| `✗ name contains a separator` | the result is a path, and rename does not move things    |
+| `✗ reserved name`     | `.` or `..`                                                     |
+
+Nothing is ever renamed over an existing file — not even by a batch that raced with something
+else, which stops with an error rather than overwriting. What looks like it needs overwriting
+usually does not: a swap (`a → b`, `b → a`), a chain (`a → b`, `b → c`) and a change of case
+alone are all staged through temporary names, and simply work.
+
+Rename is local. An ssh pane or an archive is refused with the reason in the status line —
+copy the files across, or unpack, first.
+
+### Undo
+
+`Ctrl+Z` puts the last rename back — the batch or a single `F2`, whichever came last — after
+the usual confirmation:
+
+```
+╭─────────────────────────────────────────────────╮
+│   Undo rename                                   │
+│                                                 │
+│   put 2 folders and 2 files back                │
+│   in ~/projects                                 │
+│                                                 │
+│    y  confirm     n  cancel                     │
+╰─────────────────────────────────────────────────╯
+```
+
+Press it again to walk further back. The history is 20 batches deep, kept in memory for the
+session and never written to disk; there is no redo, and cancelling the prompt leaves the
+history alone.
+
+What is recorded is what actually happened rather than what was planned, so a batch that
+stopped part-way is still undoable, and a recursive batch that renamed directories as well as
+their contents is taken apart in the opposite order it went together. An entry whose name has
+moved on since — renamed by hand, or its old name taken again — is skipped and counted in the
+prompt; the rest still goes back. When nothing in a batch can be put back, tyr says so and
+drops it from the history rather than leaving it in the way of the ones underneath.
+
+Undo is renames only. Copy, move and delete have no history — **delete is still permanent**.
 
 ## Operations
 

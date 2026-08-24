@@ -23,6 +23,31 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **Rename.** `r` (or `F2`) renames the highlighted entry through a prefilled prompt.
+- **Multi-rename tool** (`M`), a full-screen batch rename over the pane's selection:
+  - find/replace read as a Go regex with `$1` backreferences, as literal text, or as an
+    anchored glob (`ctrl+o` cycles; `alt+i` matches case-insensitively);
+  - tokens in the `name`, `ext` **and `replace`** fields — `[N]`, `[N2-5]`, `[E]`, `[C]`/`[C3]`
+    counter with a start and step (the step may be negative), `[P]` parent directory,
+    `[d]`/`[t]` the file's own date and time. In `replace` they sit alongside `$1`
+    backreferences, so `holiday_[d]_$1` is one replacement, and a token value containing a `$`
+    is escaped rather than read as a group reference;
+  - case conversion (`ctrl+t`) and whitespace trimming (`ctrl+p`), applied to the name without
+    its extension;
+  - recursive by default (`ctrl+r`), with directory names renamed only when asked (`ctrl+y`);
+  - a live preview of every `old → new` pair, with clashes marked and held back, and a confirm
+    prompt before anything moves. The batch runs off the UI thread with a progress bar.
+  - Nothing is renamed over an existing name; swaps, chains and case-only changes are staged
+    through temporary names, and children are renamed before their directory.
+  - Local only for now: an ssh pane or an archive is refused with the reason in the status line.
+- **Undo for renames** (`ctrl+z`), covering both the single rename and the batch tool. The
+  history is per session, up to 20 batches deep, and walks back newest first; each undo asks
+  for confirmation like any other operation. What is recorded is what the engine reported
+  doing, so a batch that stopped part-way is still undoable, and a directory batch is taken
+  apart in the opposite order it went together. A name that has moved on since — renamed by
+  hand, or its old name taken again — is reported and skipped rather than forced; a batch
+  where nothing can be put back is dropped from the history instead of blocking the ones under
+  it. There is no redo.
 - A one-time config migration on startup: if a pre-rename `lazyfiles` config directory is
   present and no `tyr` one is, the old directory is moved into place and the status bar says
   where it went. The move is skipped entirely when a `tyr` config already exists, so it can

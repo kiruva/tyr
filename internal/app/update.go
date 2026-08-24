@@ -11,6 +11,7 @@ import (
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
+	"github.com/kiruva/tyr/internal/rename"
 )
 
 // Update implements tea.Model.
@@ -38,6 +39,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case createdMsg:
 		return m.onCreated(msg)
 
+	case renameCollectedMsg:
+		return m.onRenameCollected(msg)
+
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -53,6 +57,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeCreate:
 		var cmd tea.Cmd
 		m.create.input, cmd = m.create.input.Update(msg)
+		return m, cmd
+	case modeRenameOne:
+		var cmd tea.Cmd
+		m.renOne.input, cmd = m.renOne.input.Update(msg)
+		return m, cmd
+	case modeRename:
+		var cmd tea.Cmd
+		m.ren.fields[m.ren.focus], cmd = m.ren.fields[m.ren.focus].Update(msg)
 		return m, cmd
 	case modeEdit:
 		var cmd tea.Cmd
@@ -90,6 +102,10 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onConnKey(msg)
 	case modeCreate:
 		return m.onCreateKey(msg)
+	case modeRenameOne:
+		return m.onRenameOneKey(msg)
+	case modeRename:
+		return m.onRenameKey(msg)
 	default:
 		return m.onNormalKey(msg)
 	}
@@ -163,6 +179,14 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beginOp(fileops.OpCopy)
 	case key.Matches(msg, m.keys.Move):
 		m.beginOp(fileops.OpMove)
+	case key.Matches(msg, m.keys.Rename):
+		cmd := m.openRenameOne()
+		return m, cmd
+	case key.Matches(msg, m.keys.RenameMulti):
+		cmd := m.openRename()
+		return m, cmd
+	case key.Matches(msg, m.keys.Undo):
+		m.openUndo()
 	case key.Matches(msg, m.keys.Delete):
 		m.beginOp(fileops.OpDelete)
 	case key.Matches(msg, m.keys.Pack):
@@ -211,6 +235,12 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.startPending()
 		return m, cmd
 	case "n", "esc", "q":
+		// Cancelling a batch rename goes back to the tool with the form intact:
+		// the whole point of the preview is trying patterns out.
+		if m.pending.Op == fileops.OpRename && m.ren.open {
+			m.mode = modeRename
+			return m, nil
+		}
 		m.mode = modeNormal
 	}
 	return m, nil
@@ -500,6 +530,23 @@ func (m *Model) startPending() tea.Cmd {
 func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
 	m.progressCh = nil
+
+	switch res.Op {
+	case fileops.OpRename:
+		// The batch is done; the tool it came from has nothing left to preview,
+		// and what it did becomes the top of the undo history.
+		m.ren.fields[m.ren.focus].Blur()
+		m.ren = renameState{}
+		m.pushUndo(m.pending.Dest, res.Renamed)
+		if n := len(res.Renamed); n > 0 {
+			m.noticeText = fmt.Sprintf("renamed %s · ctrl+z to undo", rename.UndoLabel(res.Renamed))
+		}
+	case fileops.OpRenameUndo:
+		m.popUndo()
+		if n := len(res.Renamed); n > 0 {
+			m.noticeText = "put " + rename.UndoLabel(res.Renamed) + " back"
+		}
+	}
 
 	var cmds []tea.Cmd
 	for i := range m.panes {
