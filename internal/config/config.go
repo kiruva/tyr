@@ -16,7 +16,30 @@ import (
 // Config holds the persisted scalar settings.
 type Config struct {
 	Theme string
+
+	// Startup is what the panes open on: "cwd" (the default) starts where the
+	// shell was, "last" restores the directories from the previous run.
+	Startup string
+
+	// Panes is the view state each side was left in, saved on exit.
+	Panes [2]PaneState
 }
+
+// PaneState is one pane's remembered view: where it was and how it was showing
+// things. A pane that was on a remote host saves no path — the connection is
+// not restored on the next run, so neither is the location.
+type PaneState struct {
+	Path   string
+	Sort   string // "name", "size" or "time"
+	Hidden bool   // dotfiles were visible
+}
+
+// RestorePaths reports whether the saved directories should be reopened.
+func (c Config) RestorePaths() bool { return strings.EqualFold(c.Startup, "last") }
+
+// paneKeys names the config keys for one side. The prefix is what a hand-edited
+// file reads as: "left.path", "right.sort", and so on.
+var paneKeys = [2]string{"left", "right"}
 
 // dirName is the config directory tyr owns, under whichever base applies.
 const dirName = "tyr"
@@ -58,7 +81,53 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{Theme: lookup(pairs, "theme")}, nil
+
+	cfg := Config{
+		Theme:   lookup(pairs, "theme"),
+		Startup: lookup(pairs, "startup"),
+	}
+	for i, prefix := range paneKeys {
+		cfg.Panes[i] = PaneState{
+			Path:   lookup(pairs, prefix+".path"),
+			Sort:   lookup(pairs, prefix+".sort"),
+			Hidden: truthy(lookup(pairs, prefix+".hidden")),
+		}
+	}
+	return cfg, nil
+}
+
+// SaveSession writes the per-pane view state back, leaving every other setting
+// alone. An empty path is not written: a pane that ended the run on a remote
+// host or could not report a location keeps whatever was saved before.
+func SaveSession(panes [2]PaneState) error {
+	return rewrite(func(pairs map[string]string) {
+		for i, prefix := range paneKeys {
+			p := panes[i]
+			if p.Path != "" {
+				setPreservingCase(pairs, prefix+".path", p.Path)
+			}
+			if p.Sort != "" {
+				setPreservingCase(pairs, prefix+".sort", p.Sort)
+			}
+			setPreservingCase(pairs, prefix+".hidden", boolText(p.Hidden))
+		}
+	})
+}
+
+// truthy reads the spellings a hand-written config might use for "yes".
+func truthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "yes", "on", "1":
+		return true
+	}
+	return false
+}
+
+func boolText(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // Save writes the scalar settings back, preserving connections and any keys

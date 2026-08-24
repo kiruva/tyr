@@ -52,6 +52,10 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderPack())
 	case modeUnpackPw:
 		return overlay(m.width, m.height, m.renderUnpackPw())
+	case modeSelectMask:
+		return overlay(m.width, m.height, m.renderSelectMask())
+	case modeFind:
+		return overlay(m.width, m.height, m.renderFind())
 	default:
 		return base
 	}
@@ -169,6 +173,9 @@ func overlay(w, h int, dialog string) string {
 }
 
 func (m Model) statusBar() string {
+	if m.mode == modeFilter {
+		return m.renderFilterBar()
+	}
 	if m.errText != "" {
 		return ui.ErrorBar.Width(m.width).Render(" " + m.errText)
 	}
@@ -181,25 +188,20 @@ func (m Model) statusBar() string {
 
 	if m.mode == modeAddress {
 		right := "enter go · tab complete · esc cancel"
-		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-		if pad < 1 {
-			pad = 1
-		}
-		return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 
 	if p.Loading() {
 		right := "connecting…"
-		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-		if pad < 1 {
-			pad = 1
-		}
-		return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 
 	right := fmt.Sprintf("%d items", len(p.Entries))
 	if n := p.SelectedCount(); n > 0 {
 		right += fmt.Sprintf(" · %d selected", n)
+	}
+	if f := p.Filter(); f != "" {
+		right += " · filter:" + truncTail(f, 16)
 	}
 	right += fmt.Sprintf(" · sort:%s", p.SortModeLabel())
 	if p.HiddenShown() {
@@ -207,11 +209,17 @@ func (m Model) statusBar() string {
 	}
 	right += " · ? help"
 
-	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+}
+
+// spacer is the filler that pushes right up against the edge of a bar of the
+// given total width, never closing the gap entirely.
+func spacer(total int, left, right string) string {
+	pad := total - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 1 {
 		pad = 1
 	}
-	return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+	return strings.Repeat(" ", pad)
 }
 
 func (m Model) renderConfirm() string {

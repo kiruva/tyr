@@ -15,6 +15,10 @@ to Windows, reimagined for the terminal.
 
 - **Dual panes.** The active pane is the source, the other one is the destination — `Tab` is
   the whole mental model.
+- **Find what you came for.** `/` narrows a pane as you type; `Ctrl+F` searches the tree below
+  it by name and by what is inside the files, and `Enter` on a hit takes the pane there.
+- **Selection that scales.** `Ctrl+A` takes everything on screen, `*` inverts, `+`/`-` mark and
+  unmark by mask — all bounded by the filter, so they reach only what you can see.
 - **File operations.** Create, copy, move, and delete, all recursive, each confirmed first and
   run off the UI thread with a live progress bar.
 - **Rename.** `F2` for one name, `M` for the multi-rename tool: regex, wildcards or
@@ -29,8 +33,12 @@ to Windows, reimagined for the terminal.
 - **ssh.** Browse a remote host in either pane and transfer in either direction, with
   `~/.ssh/config` aliases, agent and key authentication, and host-key verification.
 - **Themes.** Eight built-in colour schemes with a live-preview picker.
+- **Directory sizes.** `Space` measures the directory under the cursor, `=` measures the whole
+  pane — off the UI thread, and the sort follows.
 - **Capabilities.** `C` lists what works on this machine and which tool is missing where it
   does not, instead of finding out when an operation fails.
+- **It remembers.** Each pane's sort order and hidden-file setting come back on the next run,
+  and `startup = last` brings the directories back too.
 
 > **Status:** pre-1.0 and under active development. See [CHANGELOG.md](CHANGELOG.md).
 
@@ -80,7 +88,14 @@ tyr --version
 | `h` / `←` / `⌫`     | Go to parent dir                |
 | `Ctrl+L` / `:`      | Edit address bar (jump to path) |
 | `Tab`               | Switch active pane              |
-| `Space`             | Select / deselect entry         |
+| `Ctrl+R` / `R`      | Re-read the active pane         |
+| `/`                 | Filter the pane (`Esc` clears)  |
+| `Ctrl+F` / `F`      | Find files below this directory |
+| `Space`             | Select / deselect (sizes a dir) |
+| `Ctrl+A`            | Select everything visible       |
+| `*`                 | Invert the selection            |
+| `+` / `-`           | Select / deselect by mask       |
+| `=`                 | Measure every directory shown   |
 | `s`                 | Cycle sort (name → size → time) |
 | `.`                 | Toggle hidden files             |
 | `n`                 | New file in active pane         |
@@ -116,6 +131,89 @@ to the current directory, `~`-rooted, or contain `$VARS`. Typing the path of a b
 archive opens it as a virtual tree, and an `ssh://` or `host:/path` target starts the ssh
 connection flow for that pane (see [Over ssh](#over-ssh)); anything that isn't a directory
 leaves the bar open with the reason in the status line.
+
+## Filtering
+
+`/` narrows the active pane as you type: the listing behind the prompt shrinks on every
+keystroke, so a pattern is judged by what it leaves rather than by what it says. `Enter` keeps
+the narrowed pane and hands the keys back to navigation, `Esc` puts back whatever was there
+before — and with nothing else open, `Esc` clears the filter entirely.
+
+A pattern with a wildcard in it (`*`, `?`, `[…]`) is matched as a glob against the whole name;
+anything else matches as a substring. Both ignore case.
+
+```
+/ *.go        →  every Go file
+/ test        →  anything with "test" in the name
+```
+
+The filter is part of the view, not of the directory: it survives a refresh, and walking
+anywhere drops it. Everything that acts on "what is on screen" — `Ctrl+A`, `*`, `+`, `-` —
+respects it, which is the point of having both.
+
+## Finding
+
+`Ctrl+F` searches the active pane's directory and everything under it:
+
+```
+╭──────────────────────────────────────────────────────────╮
+│   Find                                                   │
+│                                                          │
+│   in /home/kim/src/tyr                                   │
+│                                                          │
+│   name      *.go                                         │
+│   contains  TODO                                         │
+│                                                          │
+│     [×] match case                                       │
+│     [ ] hidden files                                     │
+│                                                          │
+│    enter  search     tab  field     esc  close           │
+╰──────────────────────────────────────────────────────────╯
+```
+
+Either field on its own is a search; both together mean *and*. **name** takes the same globs
+and substrings the filter does. **contains** looks inside the files — binary files and
+anything over 32 MB are matched by name only, and the hit reports the line it landed on.
+
+The walk runs off the UI thread and `Esc` cancels it. Results list the path relative to where
+the search started, with the size or the matching line beside it: `Enter` takes the pane to
+that file with the cursor already on it, `/` goes back to the query to narrow it, `Esc` closes.
+Long searches stop at 500 hits and say so rather than pretending that was all of them.
+
+Find walks this machine's filesystem — it is not available on a remote pane, and an archive is
+already listed in full by the pane itself.
+
+## Selecting
+
+`Space` marks one entry and moves down. Beyond that:
+
+| Key       | What it marks                                      |
+| --------- | -------------------------------------------------- |
+| `Ctrl+A`  | everything visible                                  |
+| `*`       | the inverse of what is marked now                   |
+| `+`       | the entries matching a mask                         |
+| `-`       | unmarks the entries matching a mask                 |
+
+`+` and `-` open a one-field prompt. A mask is one or more patterns separated by `;`, each a
+glob when it has a wildcard and a substring otherwise:
+
+```
+*.go;*.md     →  Go and Markdown files
+draft         →  anything with "draft" in the name
+```
+
+All four act on what the pane is showing, so under a filter they reach only what is left.
+
+## Sizes
+
+A directory's own size says nothing about what is in it, so the size column stays blank until
+something measures one. `Space` on a directory measures it while it marks it; `=` measures
+every directory in the pane. Both walk the tree off the UI thread and fill the column in as
+the totals land, and a pane sorted by size reorders as they do — with the cursor following the
+entry it was on, not the row.
+
+Totals are remembered until the pane moves somewhere else, so a refresh keeps them. Measuring
+is local: a remote pane says so rather than walking the far side.
 
 ## Creating
 
@@ -700,7 +798,35 @@ The picker writes the choice to `$XDG_CONFIG_HOME/tyr/config` (or
 theme = nord
 ```
 
-Saved ssh connections share this file; see [Over ssh](#over-ssh).
+Saved ssh connections share this file; see [Over ssh](#over-ssh), and so does the session tyr
+writes on the way out — see below.
+
+## What tyr remembers
+
+Quitting with `q` writes each pane's sort order, hidden-file setting and directory to the same
+config file:
+
+```ini
+left.path = /home/kim/src/tyr
+left.sort = size
+left.hidden = true
+right.path = /home/kim/downloads
+right.sort = name
+right.hidden = false
+```
+
+The sort order and the hidden-file setting come back on the next run. The **directories do
+not**, unless you ask for them:
+
+```ini
+startup = last     # reopen where you left off; anything else (or nothing) means the
+                   # directory you launched tyr from
+```
+
+A saved directory that has since gone away is skipped rather than argued about, and a pane
+that ended the run on a remote host saves no path — the connection is not restored, so neither
+is the location. Nothing else about a session is written: no passwords, no selection, no
+filter.
 
 > **Upgrading from lazyfiles?** The first run moves a leftover `~/.config/lazyfiles`
 > directory to `~/.config/tyr` and tells you it did, so your theme and connections carry

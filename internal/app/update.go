@@ -43,6 +43,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case renameCollectedMsg:
 		return m.onRenameCollected(msg)
 
+	case dirSizeMsg:
+		return m.onDirSize(msg)
+
+	case findDoneMsg:
+		return m.onFindDone(msg)
+
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -79,6 +85,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeUnpackPw:
 		var cmd tea.Cmd
 		m.unpackPw.input, cmd = m.unpackPw.input.Update(msg)
+		return m, cmd
+	case modeFilter:
+		var cmd tea.Cmd
+		m.filter.input, cmd = m.filter.input.Update(msg)
+		return m, cmd
+	case modeSelectMask:
+		var cmd tea.Cmd
+		m.selMask.input, cmd = m.selMask.input.Update(msg)
+		return m, cmd
+	case modeFind:
+		var cmd tea.Cmd
+		switch m.find.focus {
+		case findFieldName:
+			m.find.name, cmd = m.find.name.Update(msg)
+		case findFieldContent:
+			m.find.content, cmd = m.find.content.Update(msg)
+		}
 		return m, cmd
 	case modeEdit:
 		var cmd tea.Cmd
@@ -136,6 +159,12 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onPackKey(msg)
 	case modeUnpackPw:
 		return m.onUnpackPwKey(msg)
+	case modeFilter:
+		return m.onFilterKey(msg)
+	case modeSelectMask:
+		return m.onSelectMaskKey(msg)
+	case modeFind:
+		return m.onFindKey(msg)
 	default:
 		return m.onNormalKey(msg)
 	}
@@ -148,6 +177,7 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Quit):
+		m.saveSession()    // where the panes were, for the next run
 		remote.ForgetAll() // close sessions and drop passwords from memory
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.Up):
@@ -179,7 +209,36 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := p.BeginEditPath()
 		return m, cmd
 	case key.Matches(msg, m.keys.Select):
+		// Space marks the entry; on a directory it also asks for the one thing
+		// the listing cannot say — how much is inside it.
+		cmd := m.sizeCurrentDir()
 		p.ToggleSelect()
+		return m, cmd
+	case key.Matches(msg, m.keys.SelectAll):
+		m.selectAll()
+	case key.Matches(msg, m.keys.Invert):
+		m.invertSelection()
+	case key.Matches(msg, m.keys.SelectMask):
+		cmd := m.openSelectMask(true)
+		return m, cmd
+	case key.Matches(msg, m.keys.Deselect):
+		cmd := m.openSelectMask(false)
+		return m, cmd
+	case key.Matches(msg, m.keys.Filter):
+		cmd := m.openFilter()
+		return m, cmd
+	case key.Matches(msg, m.keys.Find):
+		cmd := m.openFind()
+		return m, cmd
+	case key.Matches(msg, m.keys.SizeDirs):
+		cmd := m.sizeAllDirs()
+		return m, cmd
+	case key.Matches(msg, m.keys.Refresh):
+		cmd := m.refreshPane(m.active)
+		return m, cmd
+	case msg.String() == "esc":
+		// Nothing modal is open, so Esc is the way out of a narrowed pane.
+		p.ClearFilter()
 	case key.Matches(msg, m.keys.Hidden):
 		p.ToggleHidden()
 	case key.Matches(msg, m.keys.Sort):

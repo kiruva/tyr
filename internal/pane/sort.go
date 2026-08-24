@@ -23,6 +23,20 @@ func (s SortMode) String() string {
 	}
 }
 
+// ParseSort resolves a mode's name back into the mode, for a setting read from
+// the config file. An unknown name reports false and is ignored by the caller.
+func ParseSort(name string) (SortMode, bool) {
+	switch name {
+	case "name":
+		return SortName, true
+	case "size":
+		return SortSize, true
+	case "time":
+		return SortTime, true
+	}
+	return SortName, false
+}
+
 // Next cycles to the following sort mode.
 func (s SortMode) Next() SortMode {
 	return (s + 1) % 3

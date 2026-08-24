@@ -3,11 +3,13 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/config"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/pane"
 )
@@ -16,21 +18,24 @@ import (
 type mode int
 
 const (
-	modeNormal    mode = iota // navigating the panes
-	modeAddress               // typing a path into the active pane's address bar
-	modeConfirm               // awaiting y/n on a pending operation
-	modeProgress              // an operation is running
-	modeView                  // read-only text pager
-	modeEdit                  // nano-style text editor
-	modeHelp                  // keybinding overlay
-	modeCaps                  // capabilities overlay: what the tools on PATH allow
-	modeTheme                 // theme picker overlay
-	modeConn                  // ssh connection picker / form / password prompt
-	modeCreate                // naming a new file or directory
-	modeRenameOne             // renaming the highlighted entry
-	modeRename                // the batch rename tool
-	modePack                  // the pack dialog: format, level, password, name
-	modeUnpackPw              // password prompt for an encrypted archive
+	modeNormal     mode = iota // navigating the panes
+	modeAddress                // typing a path into the active pane's address bar
+	modeConfirm                // awaiting y/n on a pending operation
+	modeProgress               // an operation is running
+	modeView                   // read-only text pager
+	modeEdit                   // nano-style text editor
+	modeHelp                   // keybinding overlay
+	modeCaps                   // capabilities overlay: what the tools on PATH allow
+	modeTheme                  // theme picker overlay
+	modeConn                   // ssh connection picker / form / password prompt
+	modeCreate                 // naming a new file or directory
+	modeRenameOne              // renaming the highlighted entry
+	modeRename                 // the batch rename tool
+	modePack                   // the pack dialog: format, level, password, name
+	modeUnpackPw               // password prompt for an encrypted archive
+	modeFilter                 // typing a filter that narrows the active pane
+	modeFind                   // the find tool: query form, search, hit list
+	modeSelectMask             // selecting or deselecting entries by mask
 )
 
 // editTarget records what an edit session is writing back to.
@@ -85,6 +90,11 @@ type Model struct {
 	renOne    renameOneState
 	ren       renameState
 	undoStack []renameBatch
+
+	// narrowing the view: the filter prompt, the find tool, the mask prompt
+	filter  filterState
+	find    findState
+	selMask selectMaskState
 }
 
 // New constructs the app with both panes rooted at the current directory.
@@ -106,6 +116,49 @@ func New() Model {
 		viewport: viewport.New(0, 0),
 		editor:   ta,
 	}
+}
+
+// WithSession restores the view each pane was left in on the last run: its sort
+// order and hidden-file setting always, and the directory it was in when the
+// config asks for that. A directory that has since gone away is skipped, so a
+// removed mount cannot stop the app from starting.
+func (m Model) WithSession(cfg config.Config) Model {
+	restore := cfg.RestorePaths()
+	for i := range m.panes {
+		saved := cfg.Panes[i]
+
+		sort, ok := pane.ParseSort(saved.Sort)
+		if !ok {
+			sort = pane.SortName
+		}
+		m.panes[i].SetView(sort, saved.Hidden)
+
+		if restore && saved.Path != "" {
+			_ = m.panes[i].GoTo(saved.Path) // gone or unreadable: stay on the default
+		}
+	}
+	return m
+}
+
+// saveSession records where the panes are and how they are showing things, for
+// the next run to restore. It is best-effort: the app is on its way out, and
+// there is nowhere left to show an error about a config file.
+func (m Model) saveSession() {
+	var state [2]config.PaneState
+	for i := range m.panes {
+		p := &m.panes[i]
+		state[i] = config.PaneState{Sort: p.SortModeLabel(), Hidden: p.HiddenShown()}
+
+		switch {
+		case p.IsRemote():
+			// The connection is not restored, so neither is the location.
+		case p.InArchive():
+			state[i].Path = filepath.Dir(p.ArchivePath())
+		default:
+			state[i].Path = p.Path
+		}
+	}
+	_ = config.SaveSession(state)
 }
 
 // WithNotice seeds the status bar with a one-off message, shown until the first

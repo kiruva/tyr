@@ -12,6 +12,10 @@ type Entry struct {
 	Size    int64
 	Mode    os.FileMode
 	ModTime time.Time
+
+	// HasSize reports whether Size is worth showing. A file always has one; a
+	// directory only once its contents have been measured (see dirsize.go).
+	HasSize bool
 }
 
 // isDotfile reports whether the entry is a hidden dotfile (never true for "..").
@@ -32,7 +36,7 @@ func readRaw(path string, hasParent bool) ([]Entry, error) {
 		entries = append(entries, Entry{Name: "..", IsDir: true})
 	}
 	for _, d := range dirents {
-		e := Entry{Name: d.Name(), IsDir: d.IsDir()}
+		e := Entry{Name: d.Name(), IsDir: d.IsDir(), HasSize: !d.IsDir()}
 		if info, err := d.Info(); err == nil {
 			e.Size = info.Size()
 			e.Mode = info.Mode()

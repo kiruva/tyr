@@ -14,7 +14,15 @@ type keyMap struct {
 	Back        key.Binding
 	Address     key.Binding
 	Switch      key.Binding
+	Refresh     key.Binding
 	Select      key.Binding
+	SelectAll   key.Binding
+	Invert      key.Binding
+	SelectMask  key.Binding
+	Deselect    key.Binding
+	Filter      key.Binding
+	Find        key.Binding
+	SizeDirs    key.Binding
 	Hidden      key.Binding
 	Sort        key.Binding
 	NewFile     key.Binding
@@ -79,9 +87,41 @@ func defaultKeys() keyMap {
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "switch pane"),
 		),
+		Refresh: key.NewBinding(
+			key.WithKeys("ctrl+r", "R"),
+			key.WithHelp("ctrl+r", "refresh"),
+		),
 		Select: key.NewBinding(
 			key.WithKeys(" "),
-			key.WithHelp("space", "select"),
+			key.WithHelp("space", "select / size dir"),
+		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+			key.WithHelp("ctrl+a", "select all"),
+		),
+		Invert: key.NewBinding(
+			key.WithKeys("*"),
+			key.WithHelp("*", "invert selection"),
+		),
+		SelectMask: key.NewBinding(
+			key.WithKeys("+"),
+			key.WithHelp("+", "select by mask"),
+		),
+		Deselect: key.NewBinding(
+			key.WithKeys("-"),
+			key.WithHelp("-", "deselect by mask"),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter (esc clears)"),
+		),
+		Find: key.NewBinding(
+			key.WithKeys("ctrl+f", "F"),
+			key.WithHelp("ctrl+f", "find files"),
+		),
+		SizeDirs: key.NewBinding(
+			key.WithKeys("="),
+			key.WithHelp("=", "size all dirs"),
 		),
 		Hidden: key.NewBinding(
 			key.WithKeys("."),
@@ -175,8 +215,9 @@ type helpGroup struct {
 // groups organizes the bindings for the help overlay.
 func (k keyMap) groups() []helpGroup {
 	return []helpGroup{
-		{"Navigate", []key.Binding{k.Up, k.Down, k.PageDown, k.Top, k.Bottom, k.Enter, k.Back, k.Address, k.Switch}},
-		{"Select & view", []key.Binding{k.Select, k.Sort, k.Hidden, k.View, k.Edit}},
+		{"Navigate", []key.Binding{k.Up, k.Down, k.PageDown, k.Top, k.Bottom, k.Enter, k.Back, k.Address, k.Switch, k.Refresh}},
+		{"Select", []key.Binding{k.Select, k.SelectAll, k.Invert, k.SelectMask, k.Deselect}},
+		{"Look", []key.Binding{k.Filter, k.Find, k.Sort, k.Hidden, k.SizeDirs, k.View, k.Edit}},
 		{"Create", []key.Binding{k.NewFile, k.NewDir}},
 		{"Operations", []key.Binding{k.Copy, k.Move, k.Rename, k.RenameMulti, k.Undo, k.Delete}},
 		{"Archives", []key.Binding{k.Pack, k.Unpack, k.Unwrap}},

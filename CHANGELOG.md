@@ -23,6 +23,29 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **Filter** (`/`): narrows the active pane as you type — glob (`*.go`) or substring, both
+  case-insensitive. `Enter` keeps it, `Esc` in the prompt restores the previous one, and `Esc`
+  with nothing else open clears it. The filter survives a refresh, is dropped when the pane
+  moves, and bounds everything that acts on "what is visible".
+- **Find** (`Ctrl+F` / `F`): searches the active pane's directory and everything below it by
+  name and, optionally, by text inside the files, with switches for case and hidden files. The
+  walk runs off the UI thread and `Esc` cancels it; `Enter` on a hit takes the pane to the file
+  with the cursor on it, `/` reopens the query to narrow it. Content matches report the line
+  they landed on; binary files and anything over 32 MB are matched by name only. Results stop
+  at 500 hits and say so. Local panes only.
+- **Selection by the handful**: `Ctrl+A` selects everything visible, `*` inverts the selection,
+  and `+` / `-` mark and unmark by mask (`*.go;*.md` — globs or substrings, `;` separated). All
+  four act on what the pane is showing, so a filter bounds them.
+- **Directory sizes**: `Space` on a directory measures what is inside it while it marks it, and
+  `=` measures every directory in the pane. The walks run off the UI thread, the size column
+  fills in as totals land, and a pane sorted by size reorders with the cursor following its
+  entry. Totals are kept until the pane moves; measuring is local-only.
+- **Refresh** (`Ctrl+R` / `R`): re-reads the active pane, over ssh when it is remote.
+- **The session is remembered**: quitting writes each pane's sort order, hidden-file setting
+  and directory to the config file. Sort and hidden come back on the next run; the directories
+  come back only with `startup = last` in the config, and a directory that has gone away is
+  skipped. A pane left on a remote host saves no path.
+
 - **Pack dialog** (`p`): pick the format, the compression level and a password before anything
   runs, instead of always writing a default `.tar.gz`.
   - Formats: `tar.gz`, `tar.bz2`, `tar.xz`, `tar.zst`, `tar`, `zip`, `7z`. Only the formats

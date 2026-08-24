@@ -41,11 +41,14 @@ func main() {
 
 	notice := migrateConfig()
 
-	if err := applyTheme(themeFlag); err != nil {
+	// A config that cannot be read is not fatal: the app starts on defaults.
+	cfg, _ := config.Load()
+
+	if err := applyTheme(themeFlag, cfg); err != nil {
 		fail(err.Error())
 	}
 
-	p := tea.NewProgram(app.New().WithNotice(notice), tea.WithAltScreen())
+	p := tea.NewProgram(app.New().WithSession(cfg).WithNotice(notice), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tyr:", err)
 		os.Exit(1)
@@ -72,7 +75,7 @@ func migrateConfig() string {
 // config file, and falls back to the built-in default. An unknown name is an
 // error only when the user asked for it explicitly; a stale config file is
 // ignored so a typo there can't stop the app from starting.
-func applyTheme(flag string) error {
+func applyTheme(flag string, cfg config.Config) error {
 	for _, name := range []string{flag, os.Getenv("TYR_THEME")} {
 		if name == "" {
 			continue
@@ -85,10 +88,6 @@ func applyTheme(flag string) error {
 		return nil
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return nil // unreadable config shouldn't block startup
-	}
 	if t, ok := ui.ThemeByName(cfg.Theme); ok {
 		ui.Apply(t)
 	}

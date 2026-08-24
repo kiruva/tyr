@@ -3,6 +3,7 @@ package pane
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -24,7 +25,9 @@ type Model struct {
 
 	sort       SortMode
 	showHidden bool
-	selected   map[string]bool // keys are entry names in the current dir
+	selected   map[string]bool  // keys are entry names in the current dir
+	filter     string           // narrows the listing; "" shows everything
+	dirSizes   map[string]int64 // measured directory totals, by entry name
 
 	// address bar (top line): mirrors the location, editable for direct jumps
 	addr        textinput.Model
@@ -65,34 +68,33 @@ func (m *Model) reload() {
 	m.syncAddr()
 }
 
+// reloadEntries rebuilds the visible listing: read it from wherever the pane is
+// pointed, then apply the view options — hidden files, the filter, any measured
+// directory totals — and sort what is left.
 func (m *Model) reloadEntries() {
-	if m.IsRemote() {
-		m.Entries = m.remoteEntries()
-		m.clampCursor()
-		return
-	}
+	var entries []Entry
 
-	if m.archive != "" {
-		entries := virtualEntries(m.members, m.vpath)
-		if !m.showHidden {
-			entries = dropDotfiles(entries)
+	switch {
+	case m.IsRemote():
+		entries = m.remoteRawEntries()
+	case m.archive != "":
+		entries = virtualEntries(m.members, m.vpath)
+	default:
+		hasParent := filepath.Dir(m.Path) != m.Path
+		read, err := readRaw(m.Path, hasParent)
+		if err != nil {
+			m.Entries = nil
+			m.Cursor = 0
+			return
 		}
-		sortEntries(entries, m.sort)
-		m.Entries = entries
-		m.clampCursor()
-		return
+		entries = read
 	}
 
-	hasParent := filepath.Dir(m.Path) != m.Path
-	entries, err := readRaw(m.Path, hasParent)
-	if err != nil {
-		m.Entries = nil
-		m.Cursor = 0
-		return
-	}
 	if !m.showHidden {
 		entries = dropDotfiles(entries)
 	}
+	entries = m.applyFilter(entries)
+	m.applyDirSizes(entries)
 	sortEntries(entries, m.sort)
 	m.Entries = entries
 	m.clampCursor()
@@ -199,9 +201,28 @@ func (m *Model) Ascend() {
 	}
 }
 
+// GoTo moves the pane to a real directory on this machine, leaving any archive
+// it was browsing. It is how the app layer jumps a pane somewhere the user did
+// not walk to — a search hit, or a location restored from the last session.
+func (m *Model) GoTo(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("not a directory: %s", path)
+	}
+	m.archive, m.vpath, m.members = "", "", nil
+	m.Path = path
+	m.enterDir()
+	return nil
+}
+
 func (m *Model) enterDir() {
 	m.Cursor = 0
 	m.selected = map[string]bool{} // selection is per-directory
+	m.filter = ""                  // and so is the filter
+	m.clearDirSizes()
 	m.reload()
 }
 
@@ -266,6 +287,13 @@ func (m *Model) ToggleHidden() {
 // CycleSort advances to the next sort mode.
 func (m *Model) CycleSort() {
 	m.sort = m.sort.Next()
+	m.reload()
+}
+
+// SetView installs a sort mode and hidden-file setting in one go, which is how
+// a session saved on the last run is restored without reloading twice.
+func (m *Model) SetView(sort SortMode, showHidden bool) {
+	m.sort, m.showHidden = sort, showHidden
 	m.reload()
 }
 
@@ -335,8 +363,8 @@ func formatEntry(e Entry, selected bool, width int) string {
 	}
 
 	size := ""
-	if !e.IsDir {
-		size = humanize(e.Size)
+	if e.HasSize {
+		size = HumanSize(e.Size)
 	}
 
 	avail := width - lipgloss.Width(gutter) - 1 // gutter + one space after it
@@ -368,7 +396,8 @@ func truncate(s string, w int) string {
 	return out.String() + "…"
 }
 
-func humanize(size int64) string {
+// HumanSize renders a byte count the way the panes show it.
+func HumanSize(size int64) string {
 	const unit = 1024
 	if size < unit {
 		return fmt.Sprintf("%dB", size)
