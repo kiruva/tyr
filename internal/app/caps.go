@@ -33,8 +33,10 @@ func (m Model) renderCaps() string {
 		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
-	// split the groups across two columns, as the help overlay does
-	mid := (len(blocks) + 1) / 2
+	// Split the groups across two columns by line count, not by group count:
+	// the groups are very different sizes, and balancing on count alone makes
+	// one column twice as tall as the other.
+	mid := balancePoint(blocks)
 	cols := lipgloss.JoinHorizontal(lipgloss.Top,
 		joinBlocks(blocks[:mid]), "     ", joinBlocks(blocks[mid:]))
 
@@ -45,6 +47,28 @@ func (m Model) renderCaps() string {
 	footer := ui.Faint.Render("? keys · any key to close")
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
 	return ui.Dialog.Render(content)
+}
+
+// balancePoint is the group to break the two columns at, chosen so the taller
+// column is as short as it can be.
+func balancePoint(blocks []string) int {
+	total := 0
+	for _, b := range blocks {
+		total += lipgloss.Height(b) + 1 // + the blank line between groups
+	}
+
+	best, bestDiff, run := 1, total, 0
+	for i, b := range blocks {
+		run += lipgloss.Height(b) + 1
+		diff := 2*run - total // left minus right
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < bestDiff {
+			best, bestDiff = i+1, diff
+		}
+	}
+	return best
 }
 
 // capWidths splits the terminal into the two columns the overlay renders in, so

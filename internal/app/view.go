@@ -48,6 +48,10 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderRenameOne())
 	case modeRename:
 		return m.renderRename()
+	case modePack:
+		return overlay(m.width, m.height, m.renderPack())
+	case modeUnpackPw:
+		return overlay(m.width, m.height, m.renderUnpackPw())
 	default:
 		return base
 	}
@@ -66,8 +70,8 @@ func (m Model) renderHelp() string {
 		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
-	// split the groups across two columns
-	mid := (len(blocks) + 1) / 2
+	// split the groups across two columns, balanced by line count
+	mid := balancePoint(blocks)
 	left := joinBlocks(blocks[:mid])
 	right := joinBlocks(blocks[mid:])
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
@@ -221,7 +225,10 @@ func (m Model) renderConfirm() string {
 		body = "This cannot be undone."
 	case fileops.OpPack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Pack %d %s", n, items(n)))
-		body = "→ " + truncTail(j.Out, 44)
+		body = "→ " + truncTail(j.Out, 44) + "\n" + ui.Faint.Render(packSummary(j.Pack))
+		if j.Pack.Weak() {
+			body += "\n" + ui.Danger.Render("ZipCrypto is weak — install p7zip for AES-256")
+		}
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
 		body = "→ " + truncTail(j.Dest, 44)

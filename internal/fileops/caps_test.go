@@ -29,8 +29,9 @@ func TestCapabilitiesAllToolsPresent(t *testing.T) {
 
 func TestCapabilitiesNoToolsPresent(t *testing.T) {
 	for _, c := range capabilities(haveNone) {
+		table := byName(capabilityTable(), c.Group, c.Name)
 		switch {
-		case len(c.Needs) == 0:
+		case len(table.Needs) == 0 && len(table.AnyOf) == 0:
 			// built-in or unsupported: PATH cannot change the answer
 			if c.Absent && c.Status() != StatusMissing {
 				t.Errorf("%s: unsupported capability reported as available", c.Name)
@@ -46,8 +47,8 @@ func TestCapabilitiesNoToolsPresent(t *testing.T) {
 			if got := c.Status(); got != StatusMissing {
 				t.Errorf("%s/%s: status = %v, want StatusMissing", c.Group, c.Name, got)
 			}
-			if len(c.Missing) != len(c.Needs) {
-				t.Errorf("%s/%s: missing = %v, want all of %v", c.Group, c.Name, c.Missing, c.Needs)
+			if want := len(table.Needs) + len(table.AnyOf); len(c.Missing) != want {
+				t.Errorf("%s/%s: missing = %v, want %d entries", c.Group, c.Name, c.Missing, want)
 			}
 		}
 	}
@@ -56,7 +57,14 @@ func TestCapabilitiesNoToolsPresent(t *testing.T) {
 // A missing tool has to name itself and say what to do, since the overlay is
 // the only place the user finds out before an operation fails.
 func TestCapabilityDetail(t *testing.T) {
-	only7z := func(bin string) bool { return bin != "7z" }
+	// 7-Zip ships under three names; missing means none of them is there.
+	only7z := func(bin string) bool {
+		switch bin {
+		case "7z", "7zz", "7za":
+			return false
+		}
+		return true
+	}
 
 	var short, full string
 	for _, c := range capabilities(only7z) {
@@ -67,7 +75,7 @@ func TestCapabilityDetail(t *testing.T) {
 	if !strings.Contains(short, "7z") {
 		t.Fatalf("detail for missing 7z = %q, want the binary named", short)
 	}
-	if !strings.Contains(full, "7z") || !strings.Contains(full, "p7zip") {
+	if !strings.Contains(full, "7z") || !strings.Contains(full, "install") {
 		t.Fatalf("full detail for missing 7z = %q, want the binary and the hint", full)
 	}
 	if len(full) <= len(short) {
@@ -117,5 +125,66 @@ func TestCapabilityTableIsWellFormed(t *testing.T) {
 		if !c.Absent && len(c.Needs) > 0 && c.Hint == "" {
 			t.Errorf("%s/%s: a row with tools needs a hint for when they are missing", c.Group, c.Name)
 		}
+	}
+}
+
+// 7-Zip is packaged under three different command names. A machine with only
+// one of them can do everything, and the overlay names the one it will run.
+func TestCapabilitiesResolveSevenZipVariants(t *testing.T) {
+	for _, bin := range []string{"7z", "7zz", "7za"} {
+		t.Run(bin, func(t *testing.T) {
+			only := func(b string) bool { return b == bin }
+
+			var row Capability
+			for _, c := range capabilities(only) {
+				if c.Group == "Unpack" && c.Name == ".7z" {
+					row = c
+				}
+			}
+			if got := row.Status(); got != StatusOK {
+				t.Fatalf("status with only %s installed = %v, want StatusOK", bin, got)
+			}
+			if got := row.Detail(); got != bin {
+				t.Errorf("detail = %q, want the installed name %q", got, bin)
+			}
+		})
+	}
+}
+
+// byName finds a row in the table, so a test can compare what a capability
+// asked for against what probing made of it.
+func byName(caps []Capability, group, name string) Capability {
+	for _, c := range caps {
+		if c.Group == group && c.Name == name {
+			return c
+		}
+	}
+	return Capability{}
+}
+
+// A .zip needs either Info-ZIP or 7-Zip, and the row names whichever is there.
+func TestCapabilitiesEitherToolSatisfiesZip(t *testing.T) {
+	only := func(want string) func(string) bool {
+		return func(bin string) bool { return bin == want }
+	}
+	for _, tc := range []struct{ have, want string }{
+		{"unzip", "unzip"},
+		{"7zz", "7zz"},
+	} {
+		row := byName(capabilities(only(tc.have)), "Unpack", ".zip")
+		if got := row.Status(); got != StatusOK {
+			t.Errorf("unpacking .zip with only %s = %v, want StatusOK", tc.have, got)
+		}
+		if got := row.Detail(); got != tc.want {
+			t.Errorf("detail with only %s = %q, want %q", tc.have, got, tc.want)
+		}
+	}
+
+	row := byName(capabilities(haveNone), "Unpack", ".zip")
+	if got := row.Status(); got != StatusMissing {
+		t.Errorf("status with neither tool = %v, want StatusMissing", got)
+	}
+	if got := row.Detail(); !strings.Contains(got, " or ") {
+		t.Errorf("detail with neither tool = %q, want both named as alternatives", got)
 	}
 }

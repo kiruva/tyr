@@ -20,8 +20,10 @@ to Windows, reimagined for the terminal.
 - **Rename.** `F2` for one name, `M` for the multi-rename tool: regex, wildcards or
   name masks over a whole selection, recursively, with a live preview of every
   `old → new` before anything moves — and `Ctrl+Z` to put it back.
-- **Archives.** Pack and unpack `tar`/`zip`/`7z`/`rar`, browse an archive as though it were a
-  directory, and add files to one without unpacking it.
+- **Archives.** Pack with a choice of format, compression level and password (AES-256 where
+  `7z` is installed); unpack `tar`/`zip`/`7z`/`rar`, with encrypted ones prompting for the
+  password; browse an archive as though it were a directory, and add files to one without
+  unpacking it.
 - **Text viewer and editor.** Read or edit a file in place — including a file **inside** an
   archive.
 - **ssh.** Browse a remote host in either pane and transfer in either direction, with
@@ -48,9 +50,12 @@ Pre-built binaries for Linux and macOS (amd64/arm64) are attached to each
 [release](https://github.com/kiruva/tyr/releases).
 
 Browsing, copying, and editing need nothing but the binary. Archive actions call the system
-tool for the format you touch (`tar`, `unzip`, `7z`, `unrar`), and ssh transfers need `tar`
-and a POSIX shell on the far side. Press `C` in the app to see which of those this machine
-actually has (see [Capabilities](#capabilities)).
+tool for the format you touch (`tar` plus `gzip`/`bzip2`/`xz`/`zstd`, `zip`/`unzip`, `7z`,
+`unrar`), and ssh transfers need `tar` and a POSIX shell on the far side. 7-Zip is the one
+worth installing: it gives AES-256 encryption for `.7z` and `.zip`, and it also stands in for
+`zip`/`unzip` where those are missing. Whichever name it is packaged under — `7z` (p7zip),
+`7zz` (the official build) or `7za` — tyr finds it and runs that one. Press `C` in the app to
+see which of those this machine actually has (see [Capabilities](#capabilities)).
 
 ## Run it
 
@@ -86,7 +91,7 @@ tyr --version
 | `r` / `F2`          | Rename the highlighted entry    |
 | `M`                 | Multi-rename tool (batch)       |
 | `Ctrl+Z`            | Undo the last rename            |
-| `p`                 | Pack selection → other pane     |
+| `p`                 | Pack dialog: format/level/password |
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
 | `v`                 | View file (read-only)           |
@@ -470,21 +475,72 @@ responsive. Both panes refresh when it finishes. **Delete is permanent**: no tra
 
 ## Archives
 
-`p` packs the selection into a `.tar.gz` in the other pane, `u` unpacks an archive into the
-other pane, and `U` unpacks it in place. Archive actions shell out to standard CLIs, and only
-the tool for the format you touch is required:
+`p` opens the pack dialog, `u` unpacks an archive into the other pane, and `U` unpacks it in
+place. Archive actions shell out to standard CLIs, and only the tool for the format you touch
+is required:
 
-| Format                                                      | Extract | Create              |
-| ----------------------------------------------------------- | ------- | ------------------- |
-| `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` | `tar`   | `tar` (pack target) |
-| `.zip`                                                      | `unzip` | —                   |
-| `.7z`                                                       | `7z`    | —                   |
-| `.rar`                                                      | `unrar` | —                   |
+| Format                     | Extract          | Create         |
+| -------------------------- | ---------------- | -------------- |
+| `.tar`                     | `tar`            | `tar`          |
+| `.tar.gz` / `.tgz`         | `tar`            | `tar` + `gzip` |
+| `.tar.bz2` / `.tbz2`       | `tar`            | `tar` + `bzip2`|
+| `.tar.xz` / `.txz`         | `tar`            | `tar` + `xz`   |
+| `.tar.zst` / `.tzst`       | `tar`            | `tar` + `zstd` |
+| `.zip`                     | `unzip` or 7-Zip | `zip` or 7-Zip |
+| `.7z`                      | 7-Zip            | 7-Zip          |
+| `.rar`                     | `unrar`          | —              |
 
-Extract progress counts entries with `tar -t` / `zipinfo`; `7z` and `unrar` show an
+Extract progress counts entries with `tar -t` / `zipinfo`; 7-Zip and `unrar` show an
 indeterminate bar. `C` reports which of these tools are on your `PATH` right now.
 
 Editing a member of a `.zip` also needs `zip`, and `zipinfo` lists its entries.
+
+### Packing
+
+`p` opens a dialog rather than packing straight away, because a `.tar.gz` at the default level
+is rarely the only thing you want:
+
+| Field      | Keys | What it is                                                                                                                |
+| ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Format`   | `←→` | `tar.gz`, `tar.bz2`, `tar.xz`, `tar.zst`, `tar`, `zip`, `7z` — only the formats this machine has the tools for are offered |
+| `Level`    | `←→` | how hard to compress: `1`–`9` for gzip and bzip2, `0`–`9` for xz, `1`–`19` for zstd, `0` (store) to `9` for zip and 7z     |
+| `Password` | type | encrypts the archive — `zip` and `7z` only, see below                                                                      |
+| `Name`     | type | the output name; its extension follows the format until you type your own                                                  |
+
+`↑`/`↓` (or `Tab`) move between the fields, `←`/`→` change the highlighted one, `Enter` goes on
+to the usual confirm prompt — which restates the format, level and encryption before anything
+is written — and `Esc` cancels. Each format opens on its own sensible level (gzip 6, bzip2 9,
+xz 6, zstd 3, zip 6, 7z 5), and the level is a real setting: it reaches the compressor rather
+than being decoration.
+
+The tar formats are streamed as `tar -cvf - | <compressor>`, which is what makes the level
+reachable at all — and keeps the per-file progress bar, since `tar -v` still names every file
+as it goes by.
+
+### Passwords
+
+Encryption is 7-Zip's whenever it is installed — under any of its command names, `7z`, `7zz`
+or `7za`: **AES-256** for both `.7z` and `.zip`, and in a `.7z` the file names are encrypted as
+well. Without 7-Zip, a `.zip` falls back to Info-ZIP's
+legacy **ZipCrypto**, which is weak — the dialog and the confirm prompt both say so, so it is
+never used by accident. The tar formats compress but cannot encrypt: the password field says as
+much and the cursor skips it.
+
+Unpacking an encrypted archive needs no preparation. Press `u`, and when the tool reports that
+the archive is protected, tyr asks for the password and runs the same job again with it. A
+wrong password comes back to the prompt saying so; `Esc` gives up. Encrypted `.zip` files are
+extracted with `7z` when it is installed, because Info-ZIP's `unzip` cannot read the AES
+entries that 7-Zip and most modern zip tools write.
+
+Passwords are never written to disk, never saved into the config, and never kept past the
+dialog or prompt that collected them. One caveat worth knowing: `7z` is fed the password on
+**stdin** while packing, so it stays out of the process list, but `zip -P`, `unzip -P` and
+`7z x -p…` accept one only as a command-line argument — while those run, the password is
+visible to other users on the same machine (`ps`, `/proc/<pid>/cmdline`). On a shared box,
+prefer `.7z`.
+
+Adding files to an archive in place (`F5`/`c` from a pane inside an archive) does not take a
+password, so it works on unencrypted archives only.
 
 Press `Enter` on any tar or `.zip` to browse it as a virtual directory tree — `Enter` and `h`
 walk it, `v`/`e` open members (see below). `.7z` and `.rar` have to be unpacked to disk first.
@@ -495,10 +551,9 @@ destination pane.
 
 ## Capabilities
 
-`C` opens the capabilities overlay: every archive, remote, and local action, with the tool it
-runs and whether that tool is on your `PATH`. `✓` works here, `✗` does not (the row names the
-missing binary and what to install), `~` is an optional helper — the per-format compressors
-that only matter if your `tar` shells out instead of handling compression itself. The header
+`C` opens the capabilities overlay: every packing format, unpacking format, password feature,
+remote and local action, with the tool it runs and whether that tool is on your `PATH`. `✓`
+works here and `✗` does not — the row names the missing binary and what to install. The header
 counts what is unavailable, so a fresh box is one keypress away from telling you what to
 install. `?` swaps to the keybindings and back; any other key closes.
 

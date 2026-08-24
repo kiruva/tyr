@@ -1,9 +1,6 @@
 package fileops
 
-import (
-	"os/exec"
-	"strings"
-)
+import "strings"
 
 // Every archive operation shells out to a command-line tool, so what tyr can do
 // depends on what is installed. Capabilities() probes PATH and reports it, which
@@ -21,14 +18,17 @@ const (
 
 // Capability is one thing tyr can do, and the tools it needs to do it.
 type Capability struct {
-	Group    string   // section it belongs to in the overlay
-	Name     string   // what the user can (or cannot) do
-	Needs    []string // binaries it runs, in the order tyr calls them
-	Optional bool     // missing tools degrade rather than break the capability
-	Absent   bool     // tyr has no support for this at all; no tool would help
-	Hint     string   // what to do about it, shown when something is missing
+	Group string   // section it belongs to in the overlay
+	Name  string   // what the user can (or cannot) do
+	Needs []string // binaries it runs, in the order tyr calls them
+	// AnyOf are binaries that can each do the job on their own — a .zip is
+	// unpacked by unzip or by 7-Zip, and either one is enough.
+	AnyOf    []string
+	Optional bool   // missing tools degrade rather than break the capability
+	Absent   bool   // tyr has no support for this at all; no tool would help
+	Hint     string // what to do about it, shown when something is missing
 
-	Missing []string // the Needs not found on PATH, filled in by Capabilities
+	Missing []string // what was not found on PATH, filled in by Capabilities
 }
 
 // Status reports whether the capability is usable on this machine.
@@ -51,12 +51,15 @@ func (c Capability) Detail() string {
 	switch {
 	case c.Absent:
 		return c.Hint
+	case len(c.Missing) > 0 && len(c.Needs) == 0 && len(c.AnyOf) > 0:
+		// Nothing required, one of several would have done: name them all.
+		return "no " + strings.Join(c.Missing, " or ")
+	case len(c.Missing) > 0:
+		return "no " + strings.Join(c.Missing, ", ")
 	case len(c.Needs) == 0:
 		return "built in"
-	case len(c.Missing) == 0:
-		return strings.Join(c.Needs, ", ")
 	default:
-		return "no " + strings.Join(c.Missing, ", ")
+		return strings.Join(c.Needs, ", ")
 	}
 }
 
@@ -73,29 +76,54 @@ func (c Capability) DetailFull() string {
 // Capabilities probes PATH and reports what tyr can do here. Each binary is
 // looked up once however many capabilities need it.
 func Capabilities() []Capability {
-	return capabilities(func(bin string) bool {
-		_, err := exec.LookPath(bin)
-		return err == nil
-	})
+	return capabilities(installed)
 }
 
-// capabilities is Capabilities with the PATH lookup injected, for testing.
+// capabilities is Capabilities with the PATH lookup injected, for testing. A
+// tool that ships under several names (7z / 7zz / 7za) is reported under the
+// name that is actually installed, so the row names the command that will run.
 func capabilities(have func(string) bool) []Capability {
 	caps := capabilityTable()
-	found := make(map[string]bool, 8)
+	found := make(map[string]string, 8)
+	resolve := func(bin string) string {
+		real, seen := found[bin]
+		if !seen {
+			real = resolveTool(bin, have)
+			found[bin] = real
+		}
+		return real
+	}
+
 	for i := range caps {
-		for _, bin := range caps[i].Needs {
-			ok, seen := found[bin]
-			if !seen {
-				ok = have(bin)
-				found[bin] = ok
-			}
-			if !ok {
+		for j, bin := range caps[i].Needs {
+			real := resolve(bin)
+			if real == "" {
 				caps[i].Missing = append(caps[i].Missing, bin)
+				continue
 			}
+			caps[i].Needs[j] = real
+		}
+		if len(caps[i].AnyOf) == 0 {
+			continue
+		}
+		// Whichever of the alternatives is installed is the one that will run;
+		// only when none is does the row name them all.
+		if pick := firstResolved(caps[i].AnyOf, resolve); pick != "" {
+			caps[i].Needs = append(caps[i].Needs, pick)
+		} else {
+			caps[i].Missing = append(caps[i].Missing, caps[i].AnyOf...)
 		}
 	}
 	return caps
+}
+
+func firstResolved(bins []string, resolve func(string) string) string {
+	for _, b := range bins {
+		if real := resolve(b); real != "" {
+			return real
+		}
+	}
+	return ""
 }
 
 // capabilityTable lists every capability in overlay order. The Needs of each
@@ -103,29 +131,36 @@ func capabilities(have func(string) bool) []Capability {
 // to move whenever archive.go, member.go or remote/transfer.go changes tools.
 func capabilityTable() []Capability {
 	const (
-		p7zip = "install p7zip"
+		p7zip = "install 7-Zip"
 		unrar = "install unrar"
 		zip   = "install zip"
 		tarh  = "install tar"
 	)
 	return []Capability{
-		{Group: "Pack", Name: "pack to .tar.gz", Needs: []string{"tar"}, Hint: tarh},
+		{Group: "Pack", Name: ".tar.gz", Needs: []string{"tar", "gzip"}, Hint: "install gzip"},
+		{Group: "Pack", Name: ".tar.bz2", Needs: []string{"tar", "bzip2"}, Hint: "install bzip2"},
+		{Group: "Pack", Name: ".tar.xz", Needs: []string{"tar", "xz"}, Hint: "install xz"},
+		{Group: "Pack", Name: ".tar.zst", Needs: []string{"tar", "zstd"}, Hint: "install zstd"},
+		{Group: "Pack", Name: ".tar", Needs: []string{"tar"}, Hint: tarh},
+		{Group: "Pack", Name: ".zip", AnyOf: []string{"zip", "7z"}, Hint: zip},
+		{Group: "Pack", Name: ".7z", Needs: []string{"7z"}, Hint: p7zip},
 		{Group: "Pack", Name: "add files to .tar*", Needs: []string{"tar"}, Hint: tarh},
 		{Group: "Pack", Name: "add files to .zip", Needs: []string{"zip"}, Hint: zip},
 
+		{Group: "Passwords", Name: "AES-256 .7z / .zip", Needs: []string{"7z"}, Hint: p7zip},
+		{Group: "Passwords", Name: "ZipCrypto .zip (weak)", Needs: []string{"zip"}, Hint: zip},
+		{Group: "Passwords", Name: "unpack encrypted .zip", AnyOf: []string{"7z", "unzip"}, Hint: "7-Zip reads AES"},
+		{Group: "Passwords", Name: "unpack encrypted .7z", Needs: []string{"7z"}, Hint: p7zip},
+		{Group: "Passwords", Name: "unpack encrypted .rar", Needs: []string{"unrar"}, Hint: unrar},
+
 		{Group: "Unpack", Name: ".tar .tgz .txz …", Needs: []string{"tar"}, Hint: tarh},
-		{Group: "Unpack", Name: ".zip", Needs: []string{"unzip"}, Hint: zip},
+		{Group: "Unpack", Name: ".zip", AnyOf: []string{"unzip", "7z"}, Hint: zip},
 		{Group: "Unpack", Name: ".7z", Needs: []string{"7z"}, Hint: p7zip},
 		{Group: "Unpack", Name: ".rar", Needs: []string{"unrar"}, Hint: unrar},
 
 		{Group: "Browse & edit inside", Name: ".tar family", Needs: []string{"tar"}, Hint: tarh},
 		{Group: "Browse & edit inside", Name: ".zip", Needs: []string{"zipinfo", "unzip", "zip"}, Hint: zip},
 		{Group: "Browse & edit inside", Name: ".7z, .rar", Absent: true, Hint: "unpack to disk first"},
-
-		{Group: "tar compressors", Name: ".gz", Needs: []string{"gzip"}, Optional: true, Hint: "if tar shells out"},
-		{Group: "tar compressors", Name: ".bz2", Needs: []string{"bzip2"}, Optional: true, Hint: "if tar shells out"},
-		{Group: "tar compressors", Name: ".xz", Needs: []string{"xz"}, Optional: true, Hint: "if tar shells out"},
-		{Group: "tar compressors", Name: ".zst", Needs: []string{"zstd"}, Optional: true, Hint: "if tar shells out"},
 
 		{Group: "Remote (SSH)", Name: "connect, browse, delete", Needs: nil},
 		{Group: "Remote (SSH)", Name: "copy / move on the host", Needs: nil},

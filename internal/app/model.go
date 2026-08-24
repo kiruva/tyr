@@ -29,6 +29,8 @@ const (
 	modeCreate                // naming a new file or directory
 	modeRenameOne             // renaming the highlighted entry
 	modeRename                // the batch rename tool
+	modePack                  // the pack dialog: format, level, password, name
+	modeUnpackPw              // password prompt for an encrypted archive
 )
 
 // editTarget records what an edit session is writing back to.
@@ -74,6 +76,10 @@ type Model struct {
 
 	// new file / new folder prompt state
 	create createState
+
+	// pack dialog, and the password prompt an encrypted archive triggers
+	pack     packState
+	unpackPw unpackPwState
 
 	// rename state: the one-field prompt, the batch tool, and the undo history
 	renOne    renameOneState

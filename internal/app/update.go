@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +67,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.ren.fields[m.ren.focus], cmd = m.ren.fields[m.ren.focus].Update(msg)
 		return m, cmd
+	case modePack:
+		var cmd tea.Cmd
+		switch m.pack.focus {
+		case packFieldPassword:
+			m.pack.pw, cmd = m.pack.pw.Update(msg)
+		case packFieldName:
+			m.pack.name, cmd = m.pack.name.Update(msg)
+		}
+		return m, cmd
+	case modeUnpackPw:
+		var cmd tea.Cmd
+		m.unpackPw.input, cmd = m.unpackPw.input.Update(msg)
+		return m, cmd
 	case modeEdit:
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
@@ -118,6 +132,10 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onRenameOneKey(msg)
 	case modeRename:
 		return m.onRenameKey(msg)
+	case modePack:
+		return m.onPackKey(msg)
+	case modeUnpackPw:
+		return m.onUnpackPwKey(msg)
 	default:
 		return m.onNormalKey(msg)
 	}
@@ -491,11 +509,10 @@ func (m *Model) beginOp(op fileops.Op) {
 			m.errText = "source and destination are the same directory"
 			return
 		}
-		job.Dest = other
-		job.Out = filepath.Join(other, packName(names))
-		if _, err := os.Stat(job.Out); err == nil {
-			m.willOverwrite = true
-		}
+		// Packing has settings worth choosing, so it opens the pack dialog and
+		// reaches the confirm prompt from there.
+		m.openPack(srcs, names, other)
+		return
 	}
 
 	m.pending = job
@@ -522,14 +539,6 @@ func firstNonArchive(names []string) string {
 	return ""
 }
 
-// packName picks the output archive name for a pack job.
-func packName(names []string) string {
-	if len(names) == 1 {
-		return names[0] + ".tar.gz"
-	}
-	return "archive.tar.gz"
-}
-
 // startPending launches the confirmed job and enters progress mode.
 func (m *Model) startPending() tea.Cmd {
 	ch := fileops.Run(m.pending)
@@ -544,6 +553,13 @@ func (m *Model) startPending() tea.Cmd {
 func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
 	m.progressCh = nil
+
+	// An encrypted archive is not a failure yet: ask for the password and run
+	// the same job again with it.
+	if errors.Is(res.Err, fileops.ErrNeedPassword) {
+		cmd := m.askUnpackPassword(m.pending)
+		return m, cmd
+	}
 
 	switch res.Op {
 	case fileops.OpRename:

@@ -125,7 +125,7 @@ func defaultKeys() keyMap {
 		),
 		Pack: key.NewBinding(
 			key.WithKeys("p"),
-			key.WithHelp("p", "pack"),
+			key.WithHelp("p", "pack…"),
 		),
 		Unpack: key.NewBinding(
 			key.WithKeys("u"),

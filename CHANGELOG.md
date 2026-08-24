@@ -23,6 +23,30 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **Pack dialog** (`p`): pick the format, the compression level and a password before anything
+  runs, instead of always writing a default `.tar.gz`.
+  - Formats: `tar.gz`, `tar.bz2`, `tar.xz`, `tar.zst`, `tar`, `zip`, `7z`. Only the formats
+    whose tools are installed are offered.
+  - Compression level per format (gzip/bzip2 `1`–`9`, xz `0`–`9`, zstd `1`–`19`, zip and 7z
+    `0` store to `9`), passed to the compressor rather than ignored: the tar formats now stream
+    `tar -cvf - | <compressor>`, which keeps the per-file progress bar.
+  - The output name is prefilled and its extension follows the format until you type your own;
+    `Enter` goes on to the usual confirm prompt, which restates format, level and encryption.
+- **7-Zip is found under any of its names** — `7z` (p7zip), `7zz` (the official build) or
+  `7za` — for packing, unpacking, encryption and the capabilities overlay, which names the
+  command it actually found. 7-Zip also stands in for Info-ZIP now: a `.zip` is created and
+  extracted with it when `zip`/`unzip` are not installed.
+- **Password-protected archives.**
+  - Packing a `.7z` or `.zip` with a password uses **AES-256** through `7z` when it is
+    installed — and in a `.7z` the file names are encrypted too. Without `7z`, a `.zip` falls
+    back to Info-ZIP's legacy ZipCrypto, which the dialog and confirm prompt both flag as weak.
+  - Unpacking an encrypted archive prompts for the password when the tool reports one is
+    needed, then runs the same job again; a wrong password says so and asks again. Encrypted
+    `.zip` files are extracted with `7z` where available, since `unzip` cannot read AES entries.
+  - Passwords are never written to disk or into the config, and are dropped when the dialog or
+    prompt closes. `7z` is fed the password on stdin while packing, so it stays out of the
+    process list; `zip -P`, `unzip -P` and `7z x -p…` take it as an argument, which is visible
+    to other local users while the tool runs.
 - **Capabilities overlay** (`C`): every archive, remote and local action with the tool it runs
   and whether that tool is on `PATH` — `✓` available, `✗` missing (with the binary named and
   what to install), `~` an optional per-format compressor that only matters if your `tar`

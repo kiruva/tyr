@@ -109,6 +109,13 @@ type Job struct {
 	VDir string   // virtual directory within the archive (add-to-archive)
 	Move bool     // delete the sources once the transfer succeeded
 
+	// Pack is the format, level and password OpPack builds Out with.
+	Pack PackOpts
+
+	// Password decrypts an encrypted archive (OpUnpack / OpUnwrap). It is held
+	// only for as long as the job runs and is never written anywhere.
+	Password string
+
 	// Renames is the batch for OpRename, or the inverted batch for OpRenameUndo,
 	// relative to Dest.
 	Renames []rename.Change
