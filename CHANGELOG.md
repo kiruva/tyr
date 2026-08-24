@@ -23,6 +23,12 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **Capabilities overlay** (`C`): every archive, remote and local action with the tool it runs
+  and whether that tool is on `PATH` — `✓` available, `✗` missing (with the binary named and
+  what to install), `~` an optional per-format compressor that only matters if your `tar`
+  shells out. The header counts what is unavailable. `?` and `C` swap between the keybindings
+  and the capabilities; `PATH` is probed each time the overlay opens, so installing a tool
+  takes effect without restarting tyr.
 - **Rename.** `r` (or `F2`) renames the highlighted entry through a prefilled prompt.
 - **Multi-rename tool** (`M`), a full-screen batch rename over the pane's selection:
   - find/replace read as a Go regex with `$1` backreferences, as literal text, or as an

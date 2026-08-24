@@ -36,6 +36,8 @@ func (m Model) View() string {
 		return m.renderEditor()
 	case modeHelp:
 		return overlay(m.width, m.height, m.renderHelp())
+	case modeCaps:
+		return overlay(m.width, m.height, m.renderCaps())
 	case modeTheme:
 		return overlay(m.width, m.height, m.renderThemePicker())
 	case modeConn:
@@ -71,7 +73,7 @@ func (m Model) renderHelp() string {
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
 
 	header := ui.DialogTitle.Render("tyr — keys")
-	footer := ui.Faint.Render("any key to close")
+	footer := ui.Faint.Render("C capabilities · any key to close")
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
 	return ui.Dialog.Render(content)
 }

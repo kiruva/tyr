@@ -94,7 +94,19 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeEdit:
 		return m.onEditKey(msg)
 	case modeHelp:
-		m.mode = modeNormal // any key dismisses the help overlay
+		// The two overlays swap into each other; anything else dismisses.
+		if key.Matches(msg, m.keys.Caps) {
+			m.mode = modeCaps
+			return m, nil
+		}
+		m.mode = modeNormal
+		return m, nil
+	case modeCaps:
+		if key.Matches(msg, m.keys.Help) {
+			m.mode = modeHelp
+			return m, nil
+		}
+		m.mode = modeNormal
 		return m, nil
 	case modeTheme:
 		return m.onThemeKey(msg)
@@ -163,6 +175,8 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.Help):
 		m.mode = modeHelp
+	case key.Matches(msg, m.keys.Caps):
+		m.mode = modeCaps
 	case key.Matches(msg, m.keys.View):
 		cmd := m.openViewer()
 		return m, cmd

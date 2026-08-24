@@ -23,6 +23,7 @@ const (
 	modeView                  // read-only text pager
 	modeEdit                  // nano-style text editor
 	modeHelp                  // keybinding overlay
+	modeCaps                  // capabilities overlay: what the tools on PATH allow
 	modeTheme                 // theme picker overlay
 	modeConn                  // ssh connection picker / form / password prompt
 	modeCreate                // naming a new file or directory

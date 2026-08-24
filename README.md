@@ -27,6 +27,8 @@ to Windows, reimagined for the terminal.
 - **ssh.** Browse a remote host in either pane and transfer in either direction, with
   `~/.ssh/config` aliases, agent and key authentication, and host-key verification.
 - **Themes.** Eight built-in colour schemes with a live-preview picker.
+- **Capabilities.** `C` lists what works on this machine and which tool is missing where it
+  does not, instead of finding out when an operation fails.
 
 > **Status:** pre-1.0 and under active development. See [CHANGELOG.md](CHANGELOG.md).
 
@@ -47,7 +49,8 @@ Pre-built binaries for Linux and macOS (amd64/arm64) are attached to each
 
 Browsing, copying, and editing need nothing but the binary. Archive actions call the system
 tool for the format you touch (`tar`, `unzip`, `7z`, `unrar`), and ssh transfers need `tar`
-and a POSIX shell on the far side.
+and a POSIX shell on the far side. Press `C` in the app to see which of those this machine
+actually has (see [Capabilities](#capabilities)).
 
 ## Run it
 
@@ -91,11 +94,13 @@ tyr --version
 | `S` / `Ctrl+S`      | ssh connections                 |
 | `t`                 | Theme picker                    |
 | `?`                 | Show all keybindings            |
+| `C`                 | Show capabilities on this box   |
 | `y` / `n`           | Confirm / cancel a prompt       |
 | `q` / `Ctrl+C`      | Quit                            |
 
-Press `?` any time for the full keybinding overlay, grouped by what each key does. Directories
-always sort before files; `s` orders the entries within each group.
+Press `?` any time for the full keybinding overlay, grouped by what each key does, and `C`
+for the capabilities overlay (see [Capabilities](#capabilities)) — the two swap into each
+other. Directories always sort before files; `s` orders the entries within each group.
 
 ## Address bar
 
@@ -477,7 +482,9 @@ the tool for the format you touch is required:
 | `.rar`                                                      | `unrar` | —                   |
 
 Extract progress counts entries with `tar -t` / `zipinfo`; `7z` and `unrar` show an
-indeterminate bar.
+indeterminate bar. `C` reports which of these tools are on your `PATH` right now.
+
+Editing a member of a `.zip` also needs `zip`, and `zipinfo` lists its entries.
 
 Press `Enter` on any tar or `.zip` to browse it as a virtual directory tree — `Enter` and `h`
 walk it, `v`/`e` open members (see below). `.7z` and `.rar` have to be unpacked to disk first.
@@ -485,6 +492,18 @@ walk it, `v`/`e` open members (see below). `.7z` and `.rar` have to be unpacked 
 With one pane inside an archive and the other on real files, `F5`/`c` or `F6`/`m` **adds** the
 selection to the archive at its current virtual directory. `p`/`u` still need a real
 destination pane.
+
+## Capabilities
+
+`C` opens the capabilities overlay: every archive, remote, and local action, with the tool it
+runs and whether that tool is on your `PATH`. `✓` works here, `✗` does not (the row names the
+missing binary and what to install), `~` is an optional helper — the per-format compressors
+that only matter if your `tar` shells out instead of handling compression itself. The header
+counts what is unavailable, so a fresh box is one keypress away from telling you what to
+install. `?` swaps to the keybindings and back; any other key closes.
+
+Nothing is probed until you open the overlay, and nothing is cached — install `p7zip`, reopen
+it, and the `.7z` row turns green without restarting tyr.
 
 ## View & edit
 

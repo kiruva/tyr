@@ -33,6 +33,7 @@ type keyMap struct {
 	Theme       key.Binding
 	Connect     key.Binding
 	Help        key.Binding
+	Caps        key.Binding
 	Quit        key.Binding
 }
 
@@ -154,6 +155,10 @@ func defaultKeys() keyMap {
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
 		),
+		Caps: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("C", "capabilities"),
+		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
@@ -176,6 +181,6 @@ func (k keyMap) groups() []helpGroup {
 		{"Operations", []key.Binding{k.Copy, k.Move, k.Rename, k.RenameMulti, k.Undo, k.Delete}},
 		{"Archives", []key.Binding{k.Pack, k.Unpack, k.Unwrap}},
 		{"Remote", []key.Binding{k.Connect}},
-		{"App", []key.Binding{k.Theme, k.Help, k.Quit}},
+		{"App", []key.Binding{k.Theme, k.Help, k.Caps, k.Quit}},
 	}
 }
