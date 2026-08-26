@@ -23,6 +23,42 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **A collision asks instead of clobbering.** A copy or move onto a name already in use stops
+  and shows both files, with the newer one marked: overwrite, skip, keep both (the incoming
+  file becomes `name (2).ext`), or overwrite only when the source is newer. The capital of each
+  key answers the same way for every remaining collision, and `Esc` cancels the job — what it
+  had already copied stays, and is still undoable. Two directories of the same name merge, and
+  the question is asked file by file inside them.
+- **Delete goes to the trash** — `$XDG_DATA_HOME/Trash` with a `.trashinfo` record on Linux,
+  `~/.Trash` on macOS — and `Ctrl+Z` puts it back. `D` (or `Shift+F8`) is the permanent delete,
+  and `delete = remove` in the config makes `F8` that one. Trashing across a filesystem
+  boundary is refused rather than silently turned into a copy.
+- **Undo covers more than renames**: a move goes back where it came from, a copy has the copies
+  it made removed (and only those — a copy that overwrote something records nothing), a trashed
+  delete is restored, and a rename still renames back. Twenty operations deep, in memory, for
+  the session.
+- **Compare & synchronize** (`F9` / `Y`): pairs the two panes' trees recursively and lists what
+  differs, with a direction proposed for every row — missing files go across, the newer side
+  wins. `→`/`←` change a row, `s` skips it, `a` restores the proposal, `e` shows the matching
+  files, `.` includes dotfiles and `c` compares byte for byte instead of by timestamp. `Enter`
+  states how many copies go each way before anything is overwritten.
+- **Properties** (`i`): type, size, modification time, owner and group, hard links, symlink
+  target, and the mode — with the permissions editable as octal, recursively for a directory,
+  run as a normal job with a progress bar. Symlinks are left alone.
+- **Bookmarks**: `B` saves the directory the pane is in, `b` lists them, `Enter` goes there and
+  `d` removes one. They are one `bookmark.<name> = <path>` line each in the config file.
+- **Shell integration**: `!` hands the terminal to `$SHELL` in the active pane's directory and
+  refreshes the pane when it exits; `x` runs one command line there and shows the output in the
+  pager, with `%f`, `%F`, `%s`, `%d` and `%D` standing in for the pane's state — each shell
+  quoted — and `Esc` to cancel. `--cd-file PATH` (or `$TYR_CD_FILE`) writes the directory tyr
+  exits in, so a shell wrapper can follow it there.
+- `--help` prints the flags.
+
+### Changed
+
+- The help and capabilities overlays scroll (`↑`/`↓`, `PgUp`/`PgDn`) when the terminal is too
+  short to hold them; any other key still closes them.
+
 - **Filter** (`/`): narrows the active pane as you type — glob (`*.go`) or substring, both
   case-insensitive. `Enter` keeps it, `Esc` in the prompt restores the previous one, and `Esc`
   with nothing else open clears it. The filter survives a refresh, is dropped when the pane

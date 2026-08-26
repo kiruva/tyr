@@ -219,10 +219,14 @@ func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, erro
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
+	// Staging is tyr's own scratch directory: nothing there can collide with
+	// anything, so the copy answers its own (non-existent) conflicts.
+	rn := &runner{r: r, rv: newResolver(nil, ConflictOverwrite)}
+
 	rels := make([]string, 0, len(srcs))
 	for _, s := range srcs {
 		base := filepath.Base(s)
-		if err := copyPath(s, filepath.Join(destDir, base), r); err != nil {
+		if _, err := rn.copyPath(s, filepath.Join(destDir, base)); err != nil {
 			return nil, err
 		}
 		rels = append(rels, path.Join(vdir, base))

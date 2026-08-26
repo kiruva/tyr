@@ -18,10 +18,21 @@ var version = "dev"
 func main() {
 	args := os.Args[1:]
 
-	var themeFlag string
+	var themeFlag, cdFile string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
+		case arg == "--help" || arg == "-h":
+			fmt.Print(usage)
+			return
+		case arg == "--cd-file":
+			if i+1 >= len(args) {
+				fail("--cd-file needs a path")
+			}
+			i++
+			cdFile = args[i]
+		case strings.HasPrefix(arg, "--cd-file="):
+			cdFile = strings.TrimPrefix(arg, "--cd-file=")
 		case arg == "--version" || arg == "-v":
 			fmt.Println("tyr", version)
 			return
@@ -48,12 +59,40 @@ func main() {
 		fail(err.Error())
 	}
 
+	if cdFile == "" {
+		cdFile = os.Getenv(app.CDFileEnv)
+	}
+
 	p := tea.NewProgram(app.New().WithSession(cfg).WithNotice(notice), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "tyr:", err)
 		os.Exit(1)
 	}
+
+	// The shell wrapper reads this to follow tyr to wherever it ended up; a
+	// child process cannot change its parent's directory any other way.
+	if m, ok := final.(app.Model); ok {
+		if err := app.WriteCDFile(cdFile, m.ActiveDir()); err != nil {
+			fmt.Fprintln(os.Stderr, "tyr: could not write", cdFile+":", err)
+		}
+	}
 }
+
+// usage is what --help prints.
+const usage = `tyr — a TUI file manager to rule them all
+
+usage: tyr [options]
+
+  --theme NAME     start with a colour scheme
+  --themes         list the built-in themes
+  --cd-file PATH   write the directory tyr exits in to PATH, for a shell
+                   wrapper to cd into (also read from $TYR_CD_FILE)
+  --version        print the version
+  --help           print this
+
+press ? inside tyr for the keys.
+`
 
 // migrateConfig moves a config directory left behind by the rename from
 // lazyfiles, and returns what to tell the user about it. It runs before the

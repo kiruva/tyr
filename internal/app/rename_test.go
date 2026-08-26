@@ -760,11 +760,11 @@ func TestUndoCancelKeepsTheHistory(t *testing.T) {
 
 func TestUndoStackIsBounded(t *testing.T) {
 	var m Model
-	for i := range renameUndoDepth + 5 {
-		m.pushUndo("/root", []rename.Change{{Rel: fmt.Sprintf("%d.txt", i), New: "x.txt", Changed: true}})
+	for i := range undoDepth + 5 {
+		m.pushUndoRename("/root", []rename.Change{{Rel: fmt.Sprintf("%d.txt", i), New: "x.txt", Changed: true}})
 	}
-	if got := len(m.undoStack); got != renameUndoDepth {
-		t.Errorf("undo stack has %d entries, want it capped at %d", got, renameUndoDepth)
+	if got := len(m.undoStack); got != undoDepth {
+		t.Errorf("undo stack has %d entries, want it capped at %d", got, undoDepth)
 	}
 	// The oldest are the ones dropped.
 	if got := m.undoStack[0].changes[0].Rel; got != "5.txt" {
@@ -774,7 +774,7 @@ func TestUndoStackIsBounded(t *testing.T) {
 
 func TestPushUndoIgnoresAnEmptyBatch(t *testing.T) {
 	var m Model
-	m.pushUndo("/root", nil)
+	m.pushUndoRename("/root", nil)
 	if len(m.undoStack) != 0 {
 		t.Error("an empty batch should not be recorded")
 	}

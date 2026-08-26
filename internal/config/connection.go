@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,19 +48,7 @@ func (c Connection) Label() string {
 
 // ValidConnectionName reports whether name can be used as a config key. The
 // separator and comment characters are what would make the file ambiguous.
-func ValidConnectionName(name string) error {
-	trimmed := strings.TrimSpace(name)
-	switch {
-	case trimmed == "":
-		return fmt.Errorf("name cannot be empty")
-	case strings.ContainsAny(trimmed, "=#"):
-		return fmt.Errorf("name cannot contain '=' or '#'")
-	case strings.ContainsAny(trimmed, " \t"):
-		return fmt.Errorf("name cannot contain spaces")
-	default:
-		return nil
-	}
-}
+func ValidConnectionName(name string) error { return validKeyName(name) }
 
 // Connections lists the saved connections, most recently used first.
 func Connections() ([]Connection, error) {

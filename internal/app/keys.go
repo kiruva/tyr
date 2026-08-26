@@ -23,6 +23,12 @@ type keyMap struct {
 	Filter      key.Binding
 	Find        key.Binding
 	SizeDirs    key.Binding
+	Props       key.Binding
+	Bookmarks   key.Binding
+	BookmarkAdd key.Binding
+	Shell       key.Binding
+	Command     key.Binding
+	Sync        key.Binding
 	Hidden      key.Binding
 	Sort        key.Binding
 	NewFile     key.Binding
@@ -30,6 +36,7 @@ type keyMap struct {
 	Copy        key.Binding
 	Move        key.Binding
 	Delete      key.Binding
+	DeletePerm  key.Binding
 	Rename      key.Binding
 	RenameMulti key.Binding
 	Undo        key.Binding
@@ -111,6 +118,30 @@ func defaultKeys() keyMap {
 			key.WithKeys("-"),
 			key.WithHelp("-", "deselect by mask"),
 		),
+		Props: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "properties"),
+		),
+		Bookmarks: key.NewBinding(
+			key.WithKeys("b"),
+			key.WithHelp("b", "bookmarks"),
+		),
+		BookmarkAdd: key.NewBinding(
+			key.WithKeys("B"),
+			key.WithHelp("B", "bookmark this dir"),
+		),
+		Shell: key.NewBinding(
+			key.WithKeys("!"),
+			key.WithHelp("!", "drop to a shell"),
+		),
+		Command: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "run a command"),
+		),
+		Sync: key.NewBinding(
+			key.WithKeys("f9", "Y"),
+			key.WithHelp("F9/Y", "compare & sync"),
+		),
 		Filter: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "filter (esc clears)"),
@@ -150,6 +181,10 @@ func defaultKeys() keyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("f8", "delete", "d"),
 			key.WithHelp("F8/del", "delete"),
+		),
+		DeletePerm: key.NewBinding(
+			key.WithKeys("shift+f8", "D"),
+			key.WithHelp("D", "delete for good"),
 		),
 		Rename: key.NewBinding(
 			key.WithKeys("f2", "r"),
@@ -217,10 +252,12 @@ func (k keyMap) groups() []helpGroup {
 	return []helpGroup{
 		{"Navigate", []key.Binding{k.Up, k.Down, k.PageDown, k.Top, k.Bottom, k.Enter, k.Back, k.Address, k.Switch, k.Refresh}},
 		{"Select", []key.Binding{k.Select, k.SelectAll, k.Invert, k.SelectMask, k.Deselect}},
-		{"Look", []key.Binding{k.Filter, k.Find, k.Sort, k.Hidden, k.SizeDirs, k.View, k.Edit}},
+		{"Look", []key.Binding{k.Filter, k.Find, k.Sort, k.Hidden, k.SizeDirs, k.Props, k.View, k.Edit}},
 		{"Create", []key.Binding{k.NewFile, k.NewDir}},
-		{"Operations", []key.Binding{k.Copy, k.Move, k.Rename, k.RenameMulti, k.Undo, k.Delete}},
+		{"Operations", []key.Binding{k.Copy, k.Move, k.Rename, k.RenameMulti, k.Undo, k.Delete, k.DeletePerm, k.Sync}},
 		{"Archives", []key.Binding{k.Pack, k.Unpack, k.Unwrap}},
+		{"Go to", []key.Binding{k.Bookmarks, k.BookmarkAdd}},
+		{"Shell", []key.Binding{k.Shell, k.Command}},
 		{"Remote", []key.Binding{k.Connect}},
 		{"App", []key.Binding{k.Theme, k.Help, k.Caps, k.Quit}},
 	}

@@ -21,6 +21,10 @@ type Config struct {
 	// shell was, "last" restores the directories from the previous run.
 	Startup string
 
+	// Delete is what F8 does: "trash" (the default) moves to the desktop trash,
+	// "remove" unlinks straight away.
+	Delete string
+
 	// Panes is the view state each side was left in, saved on exit.
 	Panes [2]PaneState
 }
@@ -36,6 +40,11 @@ type PaneState struct {
 
 // RestorePaths reports whether the saved directories should be reopened.
 func (c Config) RestorePaths() bool { return strings.EqualFold(c.Startup, "last") }
+
+// TrashDeletes reports whether a delete should go to the desktop trash. Only an
+// explicit "remove" turns it off: an unset or misspelled value keeps the
+// reversible behaviour, which is the one that cannot lose anything.
+func (c Config) TrashDeletes() bool { return !strings.EqualFold(c.Delete, "remove") }
 
 // paneKeys names the config keys for one side. The prefix is what a hand-edited
 // file reads as: "left.path", "right.sort", and so on.
@@ -85,6 +94,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Theme:   lookup(pairs, "theme"),
 		Startup: lookup(pairs, "startup"),
+		Delete:  lookup(pairs, "delete"),
 	}
 	for i, prefix := range paneKeys {
 		cfg.Panes[i] = PaneState{

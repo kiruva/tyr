@@ -182,3 +182,86 @@ func TestHiddenSpellings(t *testing.T) {
 		t.Error("right.hidden = 0 read as true")
 	}
 }
+
+func TestBookmarksRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if err := Save(Config{Theme: "nord"}); err != nil {
+		t.Fatalf("save theme: %v", err)
+	}
+	for _, b := range []Bookmark{{Name: "src", Path: "/home/kim/src"}, {Name: "dl", Path: "/home/kim/downloads"}} {
+		if err := SaveBookmark(b); err != nil {
+			t.Fatalf("save %s: %v", b.Name, err)
+		}
+	}
+
+	marks, err := Bookmarks()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(marks) != 2 || marks[0].Name != "dl" || marks[1].Name != "src" {
+		t.Fatalf("bookmarks = %+v, want dl then src", marks)
+	}
+
+	cfg, _ := Load()
+	if cfg.Theme != "nord" {
+		t.Errorf("Theme = %q, want the bookmark writes to have left it alone", cfg.Theme)
+	}
+
+	if err := DeleteBookmark("src"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	marks, _ = Bookmarks()
+	if len(marks) != 1 || marks[0].Name != "dl" {
+		t.Fatalf("after deleting src: %+v", marks)
+	}
+}
+
+// Deleting one bookmark must not take a longer name that starts the same way.
+func TestDeleteBookmarkIsExact(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	for _, b := range []Bookmark{{Name: "src", Path: "/a"}, {Name: "srcold", Path: "/b"}} {
+		if err := SaveBookmark(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := DeleteBookmark("src"); err != nil {
+		t.Fatal(err)
+	}
+
+	marks, _ := Bookmarks()
+	if len(marks) != 1 || marks[0].Name != "srcold" {
+		t.Fatalf("bookmarks = %+v, want only srcold left", marks)
+	}
+}
+
+func TestSaveBookmarkRejectsBadInput(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	for _, b := range []Bookmark{
+		{Name: "", Path: "/a"},
+		{Name: "two words", Path: "/a"},
+		{Name: "with=equals", Path: "/a"},
+		{Name: "ok", Path: ""},
+	} {
+		if err := SaveBookmark(b); err == nil {
+			t.Errorf("SaveBookmark(%+v) was accepted", b)
+		}
+	}
+}
+
+func TestTrashDeletesSetting(t *testing.T) {
+	if !(Config{}).TrashDeletes() {
+		t.Error("an unset delete setting should use the trash")
+	}
+	if (Config{Delete: "REMOVE"}).TrashDeletes() {
+		t.Error("delete = remove should unlink")
+	}
+	if !(Config{Delete: "trash"}).TrashDeletes() {
+		t.Error("delete = trash should use the trash")
+	}
+	if !(Config{Delete: "nonsense"}).TrashDeletes() {
+		t.Error("an unreadable value should keep the reversible behaviour")
+	}
+}

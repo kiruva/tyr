@@ -9,6 +9,7 @@ import (
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/rename"
+	"github.com/kiruva/tyr/internal/trash"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -52,6 +53,20 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderPack())
 	case modeUnpackPw:
 		return overlay(m.width, m.height, m.renderUnpackPw())
+	case modeConflict:
+		return overlay(m.width, m.height, m.renderConflict())
+	case modeProps:
+		return overlay(m.width, m.height, m.renderProps())
+	case modeSync:
+		return m.renderSync()
+	case modeBookmarks:
+		return overlay(m.width, m.height, m.renderBookmarks())
+	case modeBookmarkAdd:
+		return overlay(m.width, m.height, m.renderBookmarkAdd())
+	case modeCommand:
+		return overlay(m.width, m.height, m.renderCommand())
+	case modeRunning:
+		return overlay(m.width, m.height, m.renderRunning())
 	case modeSelectMask:
 		return overlay(m.width, m.height, m.renderSelectMask())
 	case modeFind:
@@ -80,10 +95,35 @@ func (m Model) renderHelp() string {
 	right := joinBlocks(blocks[mid:])
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
 
+	body, more := scrollBlock(cols, m.overlayRows(), m.overlayScroll)
+
 	header := ui.DialogTitle.Render("tyr — keys")
 	footer := ui.Faint.Render("C capabilities · any key to close")
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
+	if more {
+		footer = ui.Faint.Render("↑/↓ more · C capabilities · any key to close")
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 	return ui.Dialog.Render(content)
+}
+
+// overlayRows is how many lines of a full-height overlay fit on the terminal,
+// after the border, the padding, the header and the footer have had theirs.
+func (m Model) overlayRows() int {
+	return max(m.height-8, 3)
+}
+
+// scrollBlock windows a rendered block to rows lines, starting at offset. The
+// offset is clamped here rather than where the key was pressed: the view is the
+// only place that knows how tall the content turned out to be.
+func scrollBlock(block string, rows, offset int) (string, bool) {
+	lines := strings.Split(block, "\n")
+	if len(lines) <= rows {
+		return block, false
+	}
+
+	offset = min(max(offset, 0), len(lines)-rows)
+	window := lines[offset : offset+rows]
+	return strings.Join(window, "\n"), true
 }
 
 // renderThemePicker lists the themes with a colour swatch each, above a sample
@@ -229,8 +269,27 @@ func (m Model) renderConfirm() string {
 	var title, body string
 	switch j.Op {
 	case fileops.OpDelete:
+		if m.undoing {
+			title = ui.Danger.Render(fmt.Sprintf("Remove %d copied %s?", n, items(n)))
+			body = "Undoing a copy deletes what the copy created."
+			break
+		}
 		title = ui.Danger.Render(fmt.Sprintf("Delete %d %s?", n, items(n)))
 		body = "This cannot be undone."
+	case fileops.OpTrash:
+		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s to the trash?", n, items(n)))
+		body = "→ " + truncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
+	case fileops.OpRestore:
+		title = ui.DialogTitle.Render("Restore from the trash")
+		body = "put " + trash.Label(j.Trash) + " back"
+	case fileops.OpSync:
+		toRight, toLeft := syncDirections(j.Pairs, j.Dest)
+		title = ui.DialogTitle.Render("Synchronize " + syncLabel(j))
+		body = fmt.Sprintf("%d → right\n%d ← left", toRight, toLeft) + "\n" +
+			ui.Faint.Render("files in the way are replaced")
+	case fileops.OpMovePairs:
+		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s back", len(j.Pairs), items(len(j.Pairs))))
+		body = "→ " + truncTail(j.Dest, 44)
 	case fileops.OpPack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Pack %d %s", n, items(n)))
 		body = "→ " + truncTail(j.Out, 44) + "\n" + ui.Faint.Render(packSummary(j.Pack))
@@ -295,6 +354,11 @@ func (m Model) renderConfirm() string {
 	default: // copy / move
 		title = ui.DialogTitle.Render(fmt.Sprintf("%s %d %s", j.Op, n, items(n)))
 		body = "→ " + truncTail(j.Dest, 44)
+	}
+	if m.undoing {
+		if label := m.undoLabel(); label != "" {
+			body += "\n" + ui.Faint.Render("undoing the "+label)
+		}
 	}
 	if m.willOverwrite {
 		body += "\n" + ui.Danger.Render("Existing files will be overwritten.")

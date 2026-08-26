@@ -75,17 +75,6 @@ type renameOneState struct {
 	status  string
 }
 
-// renameUndoDepth is how many batches back the undo stack remembers. It is a
-// session-only history: nothing about it is written to disk.
-const renameUndoDepth = 20
-
-// renameBatch is a rename that happened, kept so it can be put back. The changes
-// are what the engine reported doing, not what was planned.
-type renameBatch struct {
-	root    string
-	changes []rename.Change
-}
-
 // renameCollectedMsg carries the candidate sweep back from off the UI thread.
 type renameCollectedMsg struct {
 	pane      int
@@ -158,7 +147,7 @@ func (m Model) commitRenameOne() (tea.Model, tea.Cmd) {
 
 	root := p.Path
 	m.closeRenameOne()
-	m.pushUndo(root, applied)
+	m.pushUndoRename(root, applied)
 	p.Refresh()
 	p.Focus(name)
 	m.noticeText = "renamed · ctrl+z to undo"
@@ -350,50 +339,6 @@ func (m *Model) closeRename() {
 	m.mode = modeNormal
 	m.ren.fields[m.ren.focus].Blur()
 	m.ren = renameState{}
-}
-
-// Undo -----------------------------------------------------------------------
-
-// pushUndo records a batch that landed. Renames are the one operation here that
-// can be put back exactly, so they are the one operation with a history.
-func (m *Model) pushUndo(root string, applied []rename.Change) {
-	if len(applied) == 0 {
-		return
-	}
-	m.undoStack = append(m.undoStack, renameBatch{root: root, changes: applied})
-	if len(m.undoStack) > renameUndoDepth {
-		m.undoStack = m.undoStack[len(m.undoStack)-renameUndoDepth:]
-	}
-}
-
-// openUndo plans the reverse of the most recent rename and asks to confirm it.
-// A batch nothing can be done with is dropped rather than left at the top of the
-// stack blocking the ones under it.
-func (m *Model) openUndo() {
-	if len(m.undoStack) == 0 {
-		m.errText = "nothing to undo — rename history is this session only"
-		return
-	}
-	last := m.undoStack[len(m.undoStack)-1]
-
-	plan := rename.PlanUndo(last.root, last.changes)
-	if rename.Summarize(plan).Renamed == 0 {
-		m.undoStack = m.undoStack[:len(m.undoStack)-1]
-		m.errText = "cannot undo that rename — those names have moved on since"
-		return
-	}
-
-	m.pending = fileops.Job{Op: fileops.OpRenameUndo, Dest: last.root, Renames: plan}
-	m.willOverwrite = false // Undo never renames onto an existing name either
-	m.mode = modeConfirm
-}
-
-// popUndo drops the batch an undo just consumed. A partial undo is dropped too:
-// what is left of it is no longer the batch that was recorded.
-func (m *Model) popUndo() {
-	if n := len(m.undoStack); n > 0 {
-		m.undoStack = m.undoStack[:n-1]
-	}
 }
 
 // focusRenameField moves the cursor between inputs.

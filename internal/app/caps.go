@@ -44,8 +44,13 @@ func (m Model) renderCaps() string {
 	if s := capSummary(caps); s != "" {
 		header += "  " + ui.Faint.Render(s)
 	}
+	body, more := scrollBlock(cols, m.overlayRows(), m.overlayScroll)
+
 	footer := ui.Faint.Render("? keys · any key to close")
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
+	if more {
+		footer = ui.Faint.Render("↑/↓ more · ? keys · any key to close")
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 	return ui.Dialog.Render(content)
 }
 

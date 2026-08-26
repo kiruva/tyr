@@ -18,24 +18,31 @@ import (
 type mode int
 
 const (
-	modeNormal     mode = iota // navigating the panes
-	modeAddress                // typing a path into the active pane's address bar
-	modeConfirm                // awaiting y/n on a pending operation
-	modeProgress               // an operation is running
-	modeView                   // read-only text pager
-	modeEdit                   // nano-style text editor
-	modeHelp                   // keybinding overlay
-	modeCaps                   // capabilities overlay: what the tools on PATH allow
-	modeTheme                  // theme picker overlay
-	modeConn                   // ssh connection picker / form / password prompt
-	modeCreate                 // naming a new file or directory
-	modeRenameOne              // renaming the highlighted entry
-	modeRename                 // the batch rename tool
-	modePack                   // the pack dialog: format, level, password, name
-	modeUnpackPw               // password prompt for an encrypted archive
-	modeFilter                 // typing a filter that narrows the active pane
-	modeFind                   // the find tool: query form, search, hit list
-	modeSelectMask             // selecting or deselecting entries by mask
+	modeNormal      mode = iota // navigating the panes
+	modeAddress                 // typing a path into the active pane's address bar
+	modeConfirm                 // awaiting y/n on a pending operation
+	modeProgress                // an operation is running
+	modeView                    // read-only text pager
+	modeEdit                    // nano-style text editor
+	modeHelp                    // keybinding overlay
+	modeCaps                    // capabilities overlay: what the tools on PATH allow
+	modeTheme                   // theme picker overlay
+	modeConn                    // ssh connection picker / form / password prompt
+	modeCreate                  // naming a new file or directory
+	modeRenameOne               // renaming the highlighted entry
+	modeRename                  // the batch rename tool
+	modePack                    // the pack dialog: format, level, password, name
+	modeUnpackPw                // password prompt for an encrypted archive
+	modeFilter                  // typing a filter that narrows the active pane
+	modeFind                    // the find tool: query form, search, hit list
+	modeSelectMask              // selecting or deselecting entries by mask
+	modeConflict                // a destination exists: overwrite, skip, keep both?
+	modeProps                   // file properties, with the permissions editable
+	modeSync                    // the compare-and-synchronize tool
+	modeBookmarks               // the bookmark list
+	modeBookmarkAdd             // naming a new bookmark
+	modeCommand                 // typing a shell command to run
+	modeRunning                 // a shell command is running
 )
 
 // editTarget records what an edit session is writing back to.
@@ -72,6 +79,10 @@ type Model struct {
 	editOrig   string // content as loaded, for dirty detection
 	editStatus string // transient footer message ("saved", etc.)
 
+	// how far the help and capabilities overlays are scrolled, for a terminal
+	// too short to hold either of them at once
+	overlayScroll int
+
 	// theme picker state
 	themeCursor int    // highlighted row in the picker
 	themeOrig   string // theme to restore if the picker is cancelled
@@ -86,10 +97,33 @@ type Model struct {
 	pack     packState
 	unpackPw unpackPwState
 
-	// rename state: the one-field prompt, the batch tool, and the undo history
-	renOne    renameOneState
-	ren       renameState
-	undoStack []renameBatch
+	// rename state: the one-field prompt and the batch tool
+	renOne renameOneState
+	ren    renameState
+
+	// what can be put back, most recent last, and whether the job running now
+	// is one of those reversals
+	undoStack []undoEntry
+	undoing   bool
+
+	// the collision question a copy or move is currently blocked on
+	conflict conflictState
+
+	// the properties dialog, with the permissions field in it
+	props propsState
+
+	// the compare-and-synchronize tool
+	sync syncState
+
+	// bookmarks: the list, and the prompt that adds one
+	bookmarks   bookmarkState
+	bookmarkAdd bookmarkAddState
+
+	// the shell command prompt and the run it starts
+	command commandState
+
+	// deleteToTrash sends a delete to the desktop trash rather than unlinking
+	deleteToTrash bool
 
 	// narrowing the view: the filter prompt, the find tool, the mask prompt
 	filter  filterState
@@ -110,11 +144,12 @@ func New() Model {
 	ta.Prompt = ""
 
 	return Model{
-		panes:    [2]pane.Model{pane.New(wd), pane.New(wd)},
-		active:   0,
-		keys:     defaultKeys(),
-		viewport: viewport.New(0, 0),
-		editor:   ta,
+		panes:         [2]pane.Model{pane.New(wd), pane.New(wd)},
+		active:        0,
+		keys:          defaultKeys(),
+		viewport:      viewport.New(0, 0),
+		editor:        ta,
+		deleteToTrash: true, // the config can turn it off; see WithSession
 	}
 }
 
@@ -123,6 +158,8 @@ func New() Model {
 // config asks for that. A directory that has since gone away is skipped, so a
 // removed mount cannot stop the app from starting.
 func (m Model) WithSession(cfg config.Config) Model {
+	m.deleteToTrash = cfg.TrashDeletes()
+
 	restore := cfg.RestorePaths()
 	for i := range m.panes {
 		saved := cfg.Panes[i]

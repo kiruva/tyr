@@ -169,5 +169,11 @@ func capabilityTable() []Capability {
 		{Group: "Local", Name: "copy, move, delete", Needs: nil},
 		{Group: "Local", Name: "view / edit files", Needs: nil},
 		{Group: "Local", Name: "rename, batch, undo", Needs: nil},
+		{Group: "Local", Name: "trash & restore", Needs: nil},
+		{Group: "Local", Name: "compare & synchronize", Needs: nil},
+		{Group: "Local", Name: "properties & chmod", Needs: nil},
+
+		{Group: "Shell", Name: "drop to $SHELL", Needs: nil},
+		{Group: "Shell", Name: "run a command", Needs: []string{"sh"}, Hint: "no POSIX shell on PATH"},
 	}
 }

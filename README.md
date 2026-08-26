@@ -20,7 +20,12 @@ to Windows, reimagined for the terminal.
 - **Selection that scales.** `Ctrl+A` takes everything on screen, `*` inverts, `+`/`-` mark and
   unmark by mask — all bounded by the filter, so they reach only what you can see.
 - **File operations.** Create, copy, move, and delete, all recursive, each confirmed first and
-  run off the UI thread with a live progress bar.
+  run off the UI thread with a live progress bar. A name already taken stops and asks —
+  overwrite, skip, keep both, or only when newer — once, or for the rest of the batch.
+- **Nothing is lost by accident.** `F8` goes to the desktop trash and `Ctrl+Z` puts it back;
+  the same key undoes a move, a copy, or a rename.
+- **Compare and synchronize.** `F9` pairs up both panes' trees, proposes a direction for every
+  difference, and runs only what you agree to.
 - **Rename.** `F2` for one name, `M` for the multi-rename tool: regex, wildcards or
   name masks over a whole selection, recursively, with a live preview of every
   `old → new` before anything moves — and `Ctrl+Z` to put it back.
@@ -35,6 +40,10 @@ to Windows, reimagined for the terminal.
 - **Themes.** Eight built-in colour schemes with a live-preview picker.
 - **Directory sizes.** `Space` measures the directory under the cursor, `=` measures the whole
   pane — off the UI thread, and the sort follows.
+- **Properties.** `i` shows what an entry is — type, size, times, owner, link target — and
+  edits the one thing worth editing: its permissions, recursively if you ask.
+- **Bookmarks and the shell.** `B` saves a directory, `b` goes back to one; `!` drops to
+  `$SHELL` where the pane is, and `x` runs a command line with the pane's state in it.
 - **Capabilities.** `C` lists what works on this machine and which tool is missing where it
   does not, instead of finding out when an operation fails.
 - **It remembers.** Each pane's sort order and hidden-file setting come back on the next run,
@@ -68,11 +77,15 @@ see which of those this machine actually has (see [Capabilities](#capabilities))
 ## Run it
 
 ```sh
-tyr                  # or: go run .
-tyr --theme nord     # start with a theme
-tyr --themes         # list the built-in themes
+tyr                       # or: go run .
+tyr --theme nord          # start with a theme
+tyr --themes              # list the built-in themes
+tyr --cd-file /tmp/where  # write the directory it exits in, for a shell wrapper
 tyr --version
+tyr --help
 ```
+
+See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` is for.
 
 ## Keys
 
@@ -102,10 +115,15 @@ tyr --version
 | `N` / `F7`          | New folder in active pane       |
 | `F5` / `c`          | Copy selection → other pane     |
 | `F6` / `m`          | Move selection → other pane     |
-| `F8` / `Del` / `d`  | Delete selection                |
+| `F8` / `Del` / `d`  | Delete selection (to the trash) |
+| `D` / `Shift+F8`    | Delete permanently              |
 | `r` / `F2`          | Rename the highlighted entry    |
 | `M`                 | Multi-rename tool (batch)       |
-| `Ctrl+Z`            | Undo the last rename            |
+| `Ctrl+Z`            | Undo the last operation         |
+| `F9` / `Y`          | Compare & synchronize the panes |
+| `i`                 | Properties & permissions        |
+| `b` / `B`           | Bookmarks / bookmark this dir   |
+| `!` / `x`           | Shell here / run a command      |
 | `p`                 | Pack dialog: format/level/password |
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
@@ -548,9 +566,9 @@ the usual confirmation:
 ╰─────────────────────────────────────────────────╯
 ```
 
-Press it again to walk further back. The history is 20 batches deep, kept in memory for the
-session and never written to disk; there is no redo, and cancelling the prompt leaves the
-history alone.
+Press it again to walk further back. The history is 20 operations deep — renames among them —
+kept in memory for the session and never written to disk; there is no redo, and cancelling the
+prompt leaves the history alone.
 
 What is recorded is what actually happened rather than what was planned, so a batch that
 stopped part-way is still undoable, and a recursive batch that renamed directories as well as
@@ -559,7 +577,8 @@ moved on since — renamed by hand, or its old name taken again — is skipped a
 prompt; the rest still goes back. When nothing in a batch can be put back, tyr says so and
 drops it from the history rather than leaving it in the way of the ones underneath.
 
-Undo is renames only. Copy, move and delete have no history — **delete is still permanent**.
+A rename shares the history with everything else that can be put back — see
+[Undo](#undo-1) for what a copy, a move or a delete does there.
 
 ## Operations
 
@@ -567,9 +586,166 @@ Copy (`F5`/`c`), move (`F6`/`m`), and delete (`F8`/`Del`/`d`) act on the entries
 `Space`, or on the highlighted entry when nothing is marked. Copy, move, pack, and unpack all
 go from the **active** pane to the **other** pane, so direction is whatever `Tab` says it is.
 
-Every operation is recursive, asks for confirmation first — warning when it would overwrite
-something — and runs off the UI thread, streaming progress into a bar while the interface stays
-responsive. Both panes refresh when it finishes. **Delete is permanent**: no trash, no undo.
+Every operation is recursive, asks for confirmation first, and runs off the UI thread,
+streaming progress into a bar while the interface stays responsive. Both panes refresh when it
+finishes.
+
+### When a name is taken
+
+A copy or a move that lands on a name already in use stops and asks, with both files side by
+side and the newer one marked:
+
+```
+╭──────────────────────────────────────────────────────────╮
+│   Already there                                          │
+│                                                          │
+│   in /home/kim/backup                                    │
+│   report.pdf                                             │
+│                                                          │
+│   incoming       1.2MB     2026-08-24 15:04  newer       │
+│   already there  980KB     2026-08-02 09:12              │
+│                                                          │
+│    o  overwrite               s  skip                    │
+│    b  keep both               u  overwrite if newer      │
+│                                                          │
+│   capitals answer the rest · esc cancels                 │
+╰──────────────────────────────────────────────────────────╯
+```
+
+`o` replaces it, `s` leaves it, `b` writes the incoming file as `report (2).pdf`, and `u`
+decides on the timestamps. The capital of each key — `O`, `S`, `B`, `U` — answers the same way
+for every remaining collision, so a hundred-file copy takes one keypress. `Esc` cancels the
+job; whatever it had already copied stays, and is still in the undo history.
+
+Two directories of the same name **merge** rather than colliding — the question is asked file
+by file, inside them. A job that already knows the answer never asks: a synchronize overwrites
+by design, and says so on its own prompt.
+
+### Deleting, and getting it back
+
+`F8` (or `Del`, or `d`) moves the selection to the desktop trash — `$XDG_DATA_HOME/Trash` on
+Linux, with the `.trashinfo` record that lets any file manager restore it, and `~/.Trash` on
+macOS. `Ctrl+Z` puts it straight back. `D` (or `Shift+F8`) skips the trash and unlinks, which
+is the one thing here that cannot be undone; the prompt says which of the two you are about to
+do. Trashing needs the file to be on the same filesystem as the trash — when it is not, tyr
+says so rather than quietly copying gigabytes across a disk boundary.
+
+Put `delete = remove` in the config file to make `F8` the permanent one.
+
+### Undo
+
+`Ctrl+Z` reverses the last operation, and keeps twenty of them:
+
+| What happened      | What Ctrl+Z does                                     |
+| ------------------ | ----------------------------------------------------- |
+| rename (`F2`, `M`) | renames back                                           |
+| move               | moves the files back where they came from              |
+| copy               | removes the copies it made — and only those            |
+| delete to trash    | restores from the trash                                |
+
+A copy that overwrote something records nothing: undoing it would mean deleting a file that
+was already there. The history lives in memory for the session only, and nothing over ssh or
+inside an archive goes into it.
+
+## Comparing and synchronizing
+
+`F9` (or `Y`) compares the two panes, recursively, and lists what does not match:
+
+```
+ compare · 3 differ · 2 only left · 1 only right · 40 same          5 → · 1 ←
+ /home/kim/src/tyr                              /media/backup/tyr
+────────────────────────────────────────────────────────────────────────────
+ README.md              12KB 2026-08-24 15:04  →   9KB 2026-08-02 09:12
+ internal/app/view.go    8KB 2026-08-24 14:51  →    —
+ notes/old.md              —                   ←   2KB 2026-08-01 11:20
+```
+
+Every row arrives with a direction already proposed: a file only one side has gets copied
+across, and where both have it the newer one wins. `→` and `←` change a row's direction, `s`
+skips it, and each of them steps down so a column of decisions takes one keypress each. `a`
+puts every row back to what was proposed.
+
+`e` shows the files that match as well, `.` includes dotfiles, and `c` compares same-size files
+byte for byte rather than trusting their timestamps — each re-runs the walk. `Enter` goes to
+the usual confirm prompt, which states how many copies go each way before anything is
+overwritten. Files are compared by size and modification time, with a two-second tolerance,
+because filesystems disagree about the fractions.
+
+Comparing is local: transfer files across first, and unpack an archive before comparing it.
+
+## Properties & permissions
+
+`i` opens what an entry is:
+
+```
+╭──────────────────────────────────────────────────────────╮
+│   deploy.sh                                              │
+│   /home/kim/src/tyr/deploy.sh                            │
+│                                                          │
+│   type        file                                       │
+│   size        4.2KB  (4302 bytes)                        │
+│   modified    2026-08-24 15:04:11                        │
+│   owner       kim:staff                                  │
+│   mode        -rw-r--r--                                 │
+│                                                          │
+│   permissions 0644                                       │
+│                                                          │
+│    enter  apply     esc  close                           │
+╰──────────────────────────────────────────────────────────╯
+```
+
+The permissions field takes octal — `644`, `755`, `0600` — and `Enter` applies it. On a
+directory, `Tab` reaches a switch that applies the change to everything inside, which runs as a
+normal job with a progress bar. A symlink is left alone: `chmod` would follow it and change
+something you did not point at.
+
+## Bookmarks
+
+`B` saves the directory the active pane is in, suggesting its own name as the label; `b` lists
+what is saved, `Enter` goes there, `d` removes one. They are one line each in the config file:
+
+```ini
+bookmark.src = /home/kim/src
+bookmark.dl = /home/kim/downloads
+```
+
+## The shell
+
+`!` hands the terminal to `$SHELL`, started in the active pane's directory. tyr comes back when
+the shell exits, and refreshes the pane — you were in a shell, so something in there has
+probably changed.
+
+`x` runs one command line in that directory and shows what it printed in the pager. The pane's
+state goes in through placeholders, each quoted so a filename cannot be read as shell syntax:
+
+| Placeholder | What it becomes                       |
+| ----------- | ------------------------------------- |
+| `%f`        | the name under the cursor             |
+| `%F`        | its full path                         |
+| `%s`        | every marked entry, space separated   |
+| `%d`        | the active pane's directory           |
+| `%D`        | the other pane's directory            |
+| `%%`        | a literal `%`                         |
+
+`Esc` cancels a command that is taking too long.
+
+### Following tyr out
+
+A program cannot change its parent shell's directory, so tyr writes where it ended up and lets
+the shell read it:
+
+```sh
+tyr() {
+  local dir
+  dir=$(mktemp -t tyr-cd)
+  command tyr --cd-file "$dir" "$@"
+  [ -s "$dir" ] && cd "$(cat "$dir")"
+  rm -f "$dir"
+}
+```
+
+`$TYR_CD_FILE` works in place of the flag. A pane left on a remote host writes nothing, so the
+shell stays where it was.
 
 ## Archives
 
@@ -821,6 +997,7 @@ not**, unless you ask for them:
 ```ini
 startup = last     # reopen where you left off; anything else (or nothing) means the
                    # directory you launched tyr from
+delete = remove    # make F8 unlink instead of using the trash (default: trash)
 ```
 
 A saved directory that has since gone away is skipped rather than argued about, and a pane
