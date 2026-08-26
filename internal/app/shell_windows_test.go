@@ -11,9 +11,14 @@ func TestShellQuote(t *testing.T) {
 		"plain":           `"plain"`,
 		"":                `""`,
 		"a b":             `"a b"`,
-		`say "hi"`:        `"say "^"hi"^""`,
-		"& del C:\\":      `"& del C:\"`,
 		"it's a file.txt": `"it's a file.txt"`,
+		// `say "hi"` splits into `say `, `hi` and an empty tail; each is quoted,
+		// and the pieces are joined by a caret-escaped quote.
+		`say "hi"`: `"say "^""hi"^"""`,
+		// A trailing backslash is doubled so it escapes itself rather than the
+		// quote that closes the argument.
+		`C:\dir\`:   `"C:\dir\\"`,
+		`& del C:\`: `"& del C:\\"`,
 	}
 	for in, want := range cases {
 		if got := shellQuote(in); got != want {

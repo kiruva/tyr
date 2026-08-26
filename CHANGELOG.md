@@ -33,9 +33,10 @@ from the commit history by GitVersion and tagged by CI; see
   (tyr's own, with the same origin records, since the Recycle Bin cannot be restored from by
   `Ctrl+Z`), `!` opens `%COMSPEC%` and `x` runs through `cmd /C` with cmd's quoting. A drive
   letter in the address bar is no longer mistaken for an ssh host, a cross-volume move is
-  detected by the error Windows actually returns, and the properties dialog leaves out the
-  owner and link rows that platform has no answer for. See
-  [On Windows](MAN.md#on-windows).
+  detected by the error Windows actually returns, a recursive batch rename orders itself by
+  depth whichever separator the paths carry, `.zip` extraction goes to 7-Zip rather than the
+  Unix `unzip` that Git for Windows ships, and the properties dialog leaves out the owner and
+  link rows that platform has no answer for. See [On Windows](MAN.md#on-windows).
 
 - **The viewer got the four things a pager is asked for.** `/` finds text (with `n` / `N`
   walking the hits and wrapping around the file), `w` wraps long lines, `#` numbers them, and

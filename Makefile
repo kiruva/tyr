@@ -26,6 +26,7 @@ vet:
 
 lint:
 	golangci-lint run
+	GOOS=windows golangci-lint run   # the _windows.go half of each platform pair
 
 fmt:
 	gofmt -w .

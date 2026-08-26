@@ -68,7 +68,7 @@ func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
 	// A fresh HOME means an empty known_hosts, so this host is unknown again.
 	key := os.Getenv("TYR_TEST_SSH_KEY")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Cleanup(func() { Forget(h) })
 
 	err := Connect(h, Options{IdentityFile: key})

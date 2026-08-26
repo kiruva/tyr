@@ -17,7 +17,10 @@ func ownership(info os.FileInfo) (owner, group string, links uint64) {
 	if !ok {
 		return "", "", 0
 	}
-	links = uint64(st.Nlink)
+	// Nlink is uint16 on darwin and the BSDs and uint64 on Linux, so the
+	// conversion is redundant on exactly one of the platforms this file builds
+	// for.
+	links = uint64(st.Nlink) //nolint:unconvert // needed off Linux
 
 	uid, gid := strconv.FormatUint(uint64(st.Uid), 10), strconv.FormatUint(uint64(st.Gid), 10)
 	owner, group = uid, gid

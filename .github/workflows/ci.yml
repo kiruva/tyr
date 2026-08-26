@@ -46,3 +46,12 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+
+      # The linter only ever sees one platform's files. Without this pass the
+      # _windows.go half of every platform pair goes unlinted.
+      - name: golangci-lint (windows build tags)
+        uses: golangci/golangci-lint-action@v8
+        env:
+          GOOS: windows
+        with:
+          version: latest

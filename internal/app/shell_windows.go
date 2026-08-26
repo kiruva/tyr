@@ -32,16 +32,24 @@ func shellCommand(line string) (name string, args []string) {
 	return shell, []string{"/C", line}
 }
 
-// shellQuote wraps a value so cmd.exe reads it as one word. cmd has no escape
-// for a double quote inside a quoted string, so a value containing one is
-// quoted around it: `a"b` becomes `"a"^"b"`. A caret escapes outside quotes.
+// shellQuote wraps a value so cmd.exe reads it as one word. Two rules meet here:
+//
+//   - cmd has no escape for a double quote inside a quoted string, so a value
+//     containing one is quoted around it. `a"b` becomes `"a"^"b"`: the quoted
+//     `"a"`, then a caret-escaped quote, which works only outside quotes, then
+//     the quoted `"b"`. The pieces are one argument because nothing separates
+//     them.
+//   - The program on the other end splits its own command line, and there a
+//     backslash run immediately before a closing quote escapes that quote. So
+//     `C:\dir\` has to be written `"C:\dir\"` to arrive intact.
 func shellQuote(s string) string {
 	if s == "" {
 		return `""`
 	}
 	parts := strings.Split(s, `"`)
 	for i, part := range parts {
-		parts[i] = `"` + part + `"`
+		trailing := len(part) - len(strings.TrimRight(part, `\`))
+		parts[i] = `"` + part + strings.Repeat(`\`, trailing) + `"`
 	}
 	return strings.Join(parts, `^"`)
 }

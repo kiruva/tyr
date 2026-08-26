@@ -60,7 +60,7 @@ func newRSAKey(t *testing.T) ssh.PublicKey {
 func writeKnownHosts(t *testing.T, entries map[string]ssh.PublicKey) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	dir := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

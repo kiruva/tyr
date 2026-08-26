@@ -133,9 +133,10 @@ func extractCommand(f format, arc, dest, password string) (bin string, args []st
 		return "tar", a, parseTarLine
 	case f == fmtZip:
 		// unzip reports progress per file, so it handles a plain zip; 7-Zip takes
-		// over for encrypted entries (unzip cannot read AES) and wherever unzip
-		// is not installed at all.
-		if password != "" || tool("unzip") == "" {
+		// over for encrypted entries (unzip cannot read AES), wherever unzip is
+		// not installed at all, and on Windows, where the unzip on PATH is a
+		// Unix build that does not read a native path reliably.
+		if password != "" || preferSevenZipForZip || tool("unzip") == "" {
 			if bin, args, parse := sevenZipExtract(arc, dest, password); bin != "" {
 				return bin, args, parse
 			}

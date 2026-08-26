@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,7 +72,7 @@ func TestKeysFromHandwrittenFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	path, _ := Path()
-	if err := os.MkdirAll(strings.TrimSuffix(path, "/config"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	body := "key.copy = f5, c\nkey.SELECT = space\nkey.empty =\ntheme = nord\n"

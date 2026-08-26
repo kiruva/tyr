@@ -144,14 +144,12 @@ func TestMigrateIgnoresLegacyFile(t *testing.T) {
 	}
 }
 
-// Without XDG_CONFIG_HOME both paths fall back to ~/.config, which is the case
-// most users will actually hit.
+// Without XDG_CONFIG_HOME both paths fall back to the platform's own config
+// base, which is the case most users will actually hit.
 func TestMigrateUsesHomeFallback(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", home)
+	base := setFallbackBase(t)
 
-	old := filepath.Join(home, ".config", legacyName)
+	old := filepath.Join(base, legacyName)
 	if err := os.MkdirAll(old, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +164,7 @@ func TestMigrateUsesHomeFallback(t *testing.T) {
 	if mig == nil {
 		t.Fatal("Migrate reported no move, want one")
 	}
-	if want := filepath.Join(home, ".config", dirName); mig.To != want {
+	if want := filepath.Join(base, dirName); mig.To != want {
 		t.Fatalf("To = %q, want %q", mig.To, want)
 	}
 	cfg, err := Load()

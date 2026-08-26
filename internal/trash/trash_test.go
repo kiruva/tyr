@@ -1,6 +1,7 @@
 package trash
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -139,8 +140,10 @@ func TestTrashInfoRecord(t *testing.T) {
 	if !strings.Contains(string(body), "[Trash Info]") || !strings.Contains(string(body), "Path=") {
 		t.Errorf("record is not in the expected format:\n%s", body)
 	}
-	if !strings.Contains(string(body), file) {
-		t.Errorf("record does not name the original path:\n%s", body)
+	// The record stores the path URL-encoded, which on Windows means the
+	// separators are escaped too.
+	if want := (&url.URL{Path: file}).EscapedPath(); !strings.Contains(string(body), want) {
+		t.Errorf("record does not name the original path %s:\n%s", want, body)
 	}
 
 	// Restoring takes the record with it.

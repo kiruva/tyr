@@ -27,6 +27,8 @@ shell runs a command:
 | `x` | Runs the line through `cmd /C`, and quotes the placeholders by cmd's rules rather than a POSIX shell's. |
 | `i` | No owner row and no hard-link count: a Windows file has an ACL, not a uid and gid. The permissions field still applies, but `chmod` there sets the read-only attribute and nothing more. |
 | `.` | Toggles dotfiles, as everywhere else. The Windows *hidden attribute* is not consulted, so a hidden file without a leading dot is always listed. |
+| `.zip` | Extracted with 7-Zip when it is installed, in preference to `unzip`: an `unzip` on PATH there is a Unix build that does not reliably open an archive named by a native path. |
+| Config file permissions | Not restricted. On Unix the config is written `0600` because it holds ssh connection details; Windows has no such bit, and the file inherits the ACL of the directory it sits in. |
 
 Paths work the way the platform does: drive letters (`C:\Users\kim`), backslashes, and UNC
 shares (`\\server\share`) are all valid in the address bar, and a drive letter is never
