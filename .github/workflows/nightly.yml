@@ -1,0 +1,109 @@
+name: Nightly
+
+# A prerelease built from whatever is on main, refreshed once a day — but only
+# when there is something new. The `nightly` tag is rolling: it is moved to the
+# commit each build came from, which is also how the next run knows whether
+# anything has landed since.
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC, off the hour so it is not queued with everyone else
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if nothing has landed since the last nightly"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    # Scheduled workflows run on forks too, where there is nothing to publish.
+    if: github.repository == 'kiruva/tyr'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # GoReleaser and the "anything new?" check both read history
+
+      - id: check
+        name: Anything new since the last nightly?
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          previous=$(git rev-list -n 1 nightly 2>/dev/null || true)
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$previous" ]; then
+            echo "No nightly tag yet — building the first one." >> "$GITHUB_STEP_SUMMARY"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif [ "$previous" = "$GITHUB_SHA" ]; then
+            echo "build=${FORCE:-false}" >> "$GITHUB_OUTPUT"
+            echo "Nothing has landed since ${previous:0:7} — no nightly to build." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            count=$(git rev-list --count "$previous..$GITHUB_SHA")
+            echo "$count commit(s) since ${previous:0:7}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-go@v6
+        if: steps.check.outputs.build == 'true'
+        with:
+          go-version: stable
+          cache: true
+
+      # Tests gate the nightly: a prerelease people install should at least be
+      # one that builds and passes on the platform it was built on.
+      - name: Test
+        if: steps.check.outputs.build == 'true'
+        run: go test ./...
+
+      - name: Build the archives
+        if: steps.check.outputs.build == 'true'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          # --snapshot builds every target and publishes nothing; the release
+          # below is made with the gh CLI so the tag can keep moving.
+          args: release --clean --snapshot
+
+      - name: Publish the nightly
+        if: steps.check.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS: ${{ steps.check.outputs.previous }}
+        run: |
+          {
+            echo "Built from \`${GITHUB_SHA:0:7}\` on $(date -u +'%Y-%m-%d %H:%M UTC')."
+            echo
+            echo "Unversioned, and replaced by the next one. For something to rely on, take a"
+            echo "[tagged release](https://github.com/kiruva/tyr/releases/latest)."
+            if [ -n "$PREVIOUS" ]; then
+              echo
+              echo "## Since the last nightly"
+              echo
+              git log --no-merges --pretty='- %s' "$PREVIOUS..$GITHUB_SHA"
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+
+          # Collected by name rather than by glob: an unmatched glob would be
+          # passed through as a literal path and fail the upload.
+          find dist -maxdepth 1 -type f \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name 'checksums.txt' \) \
+            -print0 > "$RUNNER_TEMP/assets"
+          [ -s "$RUNNER_TEMP/assets" ] || { echo "::error::GoReleaser produced no archives"; exit 1; }
+
+          # Delete the old prerelease and its tag, then make both again on this
+          # commit. gh creates the tag itself with --target.
+          gh release delete nightly --yes --cleanup-tag || true
+          xargs -0 gh release create nightly \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Nightly $(date -u +%Y-%m-%d)" \
+            --notes-file "$RUNNER_TEMP/notes.md" < "$RUNNER_TEMP/assets"

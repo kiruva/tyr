@@ -190,6 +190,20 @@ from the commit history by GitVersion and tagged by CI; see
   never overwrite settings you have under the new name, and it is a no-op on every run after
   the first. A migration that fails is reported but does not stop the app from starting.
 
+### Infrastructure
+
+- **Nightly prereleases.** A scheduled workflow builds every released target from `main` once
+  a day and publishes them under a rolling `nightly` tag. It compares `main` against the
+  commit the last nightly was built from and does nothing when they are the same, so a quiet
+  week costs one skipped job a day rather than seven identical prereleases.
+- **The changelog cuts the release.** Tagging now promotes `## [Unreleased]` to
+  `## [X.Y.Z] - <date>` itself, commits that, and tags the commit it made; the release notes
+  GitHub shows are that section, read out of `CHANGELOG.md` by `scripts/changelog.sh` rather
+  than assembled from commit subjects. The dry run prints the notes the release would carry.
+  The commit reaches `main` past its ruleset with a write deploy key, since Actions itself
+  cannot be a bypass actor on a user-owned repository — see
+  [CONTRIBUTING.md](CONTRIBUTING.md#how-the-bot-gets-past-the-ruleset).
+
 ## [0.1.0] - 2026-08-18
 
 First public release.

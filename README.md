@@ -51,7 +51,8 @@ go install github.com/kiruva/tyr@latest    # needs Go 1.26 or newer
 
 Prebuilt Linux, macOS and Windows binaries (amd64/arm64) hang on every
 [release](https://github.com/kiruva/tyr/releases). Windows ships a `.zip`, rest ship
-`.tar.gz`.
+`.tar.gz`. Want newest? [Nightly](https://github.com/kiruva/tyr/releases/tag/nightly) build
+tracks `main`, rebuilt each day something lands.
 
 From source:
 
