@@ -408,6 +408,14 @@ func (m Model) renderConfirm() string {
 func (m Model) renderProgress() string {
 	p := m.progress
 	title := ui.DialogTitle.Render(m.pending.Op.Present() + "…")
+	// A job stops between files, and an archive tool stops when it is killed, so
+	// there is a moment where the answer is "asked, not done yet". Saying so
+	// beats a dialog that looks like it ignored the key.
+	foot := ui.DialogHint.Render("esc") + ui.Faint.Render(" stop")
+	if m.cancelling {
+		title = ui.DialogTitle.Render("Stopping…")
+		foot = ui.Faint.Render("finishing what is in hand")
+	}
 
 	var line string
 	if p.Total > 0 {
@@ -418,7 +426,7 @@ func (m Model) renderProgress() string {
 	}
 	cur := ui.Faint.Render(truncTail(p.Current, 44))
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", line, cur)
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", line, cur, "", foot)
 	return ui.Dialog.Render(content)
 }
 

@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,13 +17,13 @@ func applyAndUndo(t *testing.T, root string, s Spec, cands []Candidate) (after, 
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	applied, err := Apply(root, changes, func(string) {})
+	applied, err := Apply(context.Background(), root, changes, func(string) {})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	after = listing(t, root)
 
-	if _, err := Undo(root, PlanUndo(root, applied), func(string) {}); err != nil {
+	if _, err := Undo(context.Background(), root, PlanUndo(root, applied), func(string) {}); err != nil {
 		t.Fatalf("Undo: %v", err)
 	}
 	return after, listing(t, root)
@@ -68,14 +69,14 @@ func TestUndoRestoresADirectoryBeforeWhatIsInside(t *testing.T) {
 func TestUndoOfASwapAndAChain(t *testing.T) {
 	t.Run("swap", func(t *testing.T) {
 		root := tree(t, "a.txt", "b.txt")
-		applied, err := Apply(root, []Change{
+		applied, err := Apply(context.Background(), root, []Change{
 			{Rel: "a.txt", New: "b.txt", Changed: true},
 			{Rel: "b.txt", New: "a.txt", Changed: true},
 		}, func(string) {})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Undo(root, PlanUndo(root, applied), func(string) {}); err != nil {
+		if _, err := Undo(context.Background(), root, PlanUndo(root, applied), func(string) {}); err != nil {
 			t.Fatalf("Undo: %v", err)
 		}
 		if got := read(t, root, "a.txt"); got != "a.txt" {
@@ -121,7 +122,7 @@ func TestUndoOfACaseOnlyChange(t *testing.T) {
 func TestPlanUndoMarksWhatCannotBeUndone(t *testing.T) {
 	root := tree(t, "a.txt", "b.txt")
 
-	applied, err := Apply(root, []Change{
+	applied, err := Apply(context.Background(), root, []Change{
 		{Rel: "a.txt", New: "a2.txt", Changed: true},
 		{Rel: "b.txt", New: "b2.txt", Changed: true},
 	}, func(string) {})
@@ -156,7 +157,7 @@ func TestPlanUndoMarksWhatCannotBeUndone(t *testing.T) {
 func TestUndoOfAPartialApply(t *testing.T) {
 	root := tree(t, "a.txt", "b.txt", "keep.txt")
 
-	applied, err := Apply(root, []Change{
+	applied, err := Apply(context.Background(), root, []Change{
 		{Rel: "a.txt", New: "a2.txt", Changed: true},
 		{Rel: "b.txt", New: "keep.txt", Changed: true},
 	}, func(string) {})
@@ -167,7 +168,7 @@ func TestUndoOfAPartialApply(t *testing.T) {
 		t.Fatalf("applied = %+v, want just the first rename", applied)
 	}
 
-	if _, err := Undo(root, PlanUndo(root, applied), func(string) {}); err != nil {
+	if _, err := Undo(context.Background(), root, PlanUndo(root, applied), func(string) {}); err != nil {
 		t.Fatalf("Undo: %v", err)
 	}
 	if want := []string{"a.txt", "b.txt", "keep.txt"}; !equal(listing(t, root), want) {
@@ -229,11 +230,11 @@ func TestUnder(t *testing.T) {
 
 func TestUndoIsIdempotentlySafeWhenNothingIsLeft(t *testing.T) {
 	root := tree(t, "a.txt")
-	applied, err := Apply(root, []Change{{Rel: "a.txt", New: "b.txt", Changed: true}}, func(string) {})
+	applied, err := Apply(context.Background(), root, []Change{{Rel: "a.txt", New: "b.txt", Changed: true}}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Undo(root, PlanUndo(root, applied), func(string) {}); err != nil {
+	if _, err := Undo(context.Background(), root, PlanUndo(root, applied), func(string) {}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,7 +244,7 @@ func TestUndoIsIdempotentlySafeWhenNothingIsLeft(t *testing.T) {
 	if got := Summarize(plan); got.Conflicts != 1 || got.Renamed != 0 {
 		t.Errorf("Summarize = %+v, want the entry held back", got)
 	}
-	done, err := Undo(root, plan, func(string) {})
+	done, err := Undo(context.Background(), root, plan, func(string) {})
 	if err != nil || len(done) != 0 {
 		t.Errorf("Undo = %v, %v — want a no-op", done, err)
 	}

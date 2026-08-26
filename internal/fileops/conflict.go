@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -88,12 +89,13 @@ func (c Conflict) SrcNewer() bool {
 // resolver answers collisions for one job: from the job's standing policy when
 // it has one, from the UI when it does not, remembering an "all" answer.
 type resolver struct {
+	ctx      context.Context
 	ch       chan<- any
 	standing ConflictAction // ConflictAsk means "ask every time"
 }
 
-func newResolver(ch chan<- any, policy ConflictAction) *resolver {
-	return &resolver{ch: ch, standing: policy}
+func newResolver(ctx context.Context, ch chan<- any, policy ConflictAction) *resolver {
+	return &resolver{ctx: ctx, ch: ch, standing: policy}
 }
 
 // resolve decides what to do about dst, which is known to exist. The action it
@@ -102,13 +104,27 @@ func newResolver(ch chan<- any, policy ConflictAction) *resolver {
 func (rv *resolver) resolve(src, dst string) (ConflictAction, error) {
 	action := rv.standing
 	if action == ConflictAsk {
+		// Asking parks this goroutine on the UI. Both halves have to give way to
+		// a cancellation: the question may never be read, and once it has been
+		// read the answer may never come, if the user pressed Esc instead.
 		reply := make(chan Resolution, 1)
-		rv.ch <- Conflict{
+		conflict := Conflict{
 			Src: src, Dst: dst,
 			SrcInfo: metaOf(src), DstInfo: metaOf(dst),
 			Reply: reply,
 		}
-		answer := <-reply
+		select {
+		case rv.ch <- conflict:
+		case <-rv.ctx.Done():
+			return ConflictCancel, rv.ctx.Err()
+		}
+
+		var answer Resolution
+		select {
+		case answer = <-reply:
+		case <-rv.ctx.Done():
+			return ConflictCancel, rv.ctx.Err()
+		}
 		action = answer.Action
 		if answer.All && action != ConflictCancel {
 			rv.standing = action

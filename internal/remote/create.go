@@ -1,17 +1,20 @@
 package remote
 
-import "path"
+import (
+	"context"
+	"path"
+)
 
 // Mkdir creates a directory on the far side, including missing parents. It
 // fails if the name is already taken — `mkdir -p` alone would succeed silently.
 func Mkdir(h Host, p string) error {
-	return run(h, refuseExisting(p)+"mkdir -p -- "+shQuote(p))
+	return run(context.Background(), h, refuseExisting(p)+"mkdir -p -- "+shQuote(p))
 }
 
 // Touch creates an empty file on the far side, including missing parents, and
 // fails if the name is already taken.
 func Touch(h Host, p string) error {
-	return run(h, refuseExisting(p)+
+	return run(context.Background(), h, refuseExisting(p)+
 		"mkdir -p -- "+shQuote(path.Dir(p))+" && : > "+shQuote(p))
 }
 

@@ -10,7 +10,9 @@ package remote
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 )
@@ -155,10 +157,26 @@ func quoteAll(names []string) string {
 	return strings.Join(out, " ")
 }
 
+// closeOnCancel closes c once ctx is done, and returns a function that stops
+// watching — call it with defer, before the deferred Close. An ssh.Session has
+// no context of its own, and closing it is the only thing that makes a blocked
+// Run or Wait return, so this is how a transfer is cut short.
+func closeOnCancel(ctx context.Context, c io.Closer) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
+
 // output runs a script on the far side and returns its stdout. The remote end
 // runs it through the login shell, exactly as `ssh host '<script>'` would, so
 // every path embedded in a script must go through shQuote.
-func output(h Host, script string) (string, error) {
+func output(ctx context.Context, h Host, script string) (string, error) {
 	c, err := client(h)
 	if err != nil {
 		return "", err
@@ -168,6 +186,7 @@ func output(h Host, script string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = sess.Close() }()
+	defer closeOnCancel(ctx, sess)()
 
 	var stdout, stderr strings.Builder
 	sess.Stdout = &stdout
@@ -180,8 +199,8 @@ func output(h Host, script string) (string, error) {
 }
 
 // run executes a remote script, discarding stdout.
-func run(h Host, script string) error {
-	_, err := output(h, script)
+func run(ctx context.Context, h Host, script string) error {
+	_, err := output(ctx, h, script)
 	return err
 }
 

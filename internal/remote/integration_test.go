@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path"
@@ -33,10 +34,10 @@ func testHost(t *testing.T) (Host, string) {
 	}
 
 	connectForTest(t, h)
-	if err := run(h, "rm -rf -- "+shQuote(base)+" && mkdir -p -- "+shQuote(base)); err != nil {
+	if err := run(context.Background(), h, "rm -rf -- "+shQuote(base)+" && mkdir -p -- "+shQuote(base)); err != nil {
 		t.Fatalf("prepare remote scratch dir: %v", err)
 	}
-	t.Cleanup(func() { _ = run(h, "rm -rf -- "+shQuote(base)) })
+	t.Cleanup(func() { _ = run(context.Background(), h, "rm -rf -- "+shQuote(base)) })
 	return h, base
 }
 
@@ -150,7 +151,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		filepath.Join(src, "it's quoted.txt"),
 		filepath.Join(src, "sub"),
 	}
-	if err := Upload(h, srcs, base, func(n string) { uploaded = append(uploaded, n) }); err != nil {
+	if err := Upload(context.Background(), h, srcs, base, func(n string) { uploaded = append(uploaded, n) }); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 	if len(uploaded) == 0 {
@@ -199,7 +200,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		path.Join(base, "sub"),
 	}
 	var downloaded []string
-	if err := Download(h, remoteSrcs, dst, func(n string) { downloaded = append(downloaded, n) }); err != nil {
+	if err := Download(context.Background(), h, remoteSrcs, dst, func(n string) { downloaded = append(downloaded, n) }); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 	if len(downloaded) == 0 {
@@ -223,13 +224,13 @@ func TestIntegrationTransferAndDelete(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "a file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Upload(h, []string{filepath.Join(src, "a file.txt")}, base, func(string) {}); err != nil {
+	if err := Upload(context.Background(), h, []string{filepath.Join(src, "a file.txt")}, base, func(string) {}); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
 	// Copy within the host.
 	dest := path.Join(base, "copied")
-	if err := Transfer(h, []string{path.Join(base, "a file.txt")}, dest, false, func(string) {}); err != nil {
+	if err := Transfer(context.Background(), h, []string{path.Join(base, "a file.txt")}, dest, false, func(string) {}); err != nil {
 		t.Fatalf("transfer: %v", err)
 	}
 	if exists, _, _ := Stat(h, path.Join(dest, "a file.txt")); !exists {
@@ -241,7 +242,7 @@ func TestIntegrationTransferAndDelete(t *testing.T) {
 
 	// Move within the host.
 	moved := path.Join(base, "moved")
-	if err := Transfer(h, []string{path.Join(base, "a file.txt")}, moved, true, func(string) {}); err != nil {
+	if err := Transfer(context.Background(), h, []string{path.Join(base, "a file.txt")}, moved, true, func(string) {}); err != nil {
 		t.Fatalf("transfer move: %v", err)
 	}
 	if exists, _, _ := Stat(h, path.Join(base, "a file.txt")); exists {
@@ -250,7 +251,7 @@ func TestIntegrationTransferAndDelete(t *testing.T) {
 
 	// Delete.
 	var deleted []string
-	if err := Delete(h, []string{moved, dest}, func(n string) { deleted = append(deleted, n) }); err != nil {
+	if err := Delete(context.Background(), h, []string{moved, dest}, func(n string) { deleted = append(deleted, n) }); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if len(deleted) != 2 {

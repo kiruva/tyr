@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -73,8 +74,8 @@ func PlanUndo(root string, applied []Change) []Change {
 // Undo restores an inverted batch, shallowest path first. It is Apply in reverse
 // and keeps every one of its promises: nothing is renamed onto an existing name,
 // and a collision inside one directory is staged through temporary names.
-func Undo(root string, inverted []Change, step func(string)) ([]Change, error) {
-	return applyGroups(root, byDir(Applicable(inverted), false), step)
+func Undo(ctx context.Context, root string, inverted []Change, step func(string)) ([]Change, error) {
+	return applyGroups(ctx, root, byDir(Applicable(inverted), false), step)
 }
 
 // deferredDirs is the set of old directory paths the batch has yet to restore.

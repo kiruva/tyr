@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func TestCopyConflictOverwrite(t *testing.T) {
 	seed(t, filepath.Join(dst, "notes.txt"), "old", time.Hour)
 
 	res, asked := answerWith(t,
-		Run(Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
+		Run(context.Background(), Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
 		Resolution{Action: ConflictOverwrite})
 
 	if res.Err != nil {
@@ -86,7 +87,7 @@ func TestCopyConflictSkip(t *testing.T) {
 	seed(t, filepath.Join(dst, "notes.txt"), "old", time.Hour)
 
 	res, _ := answerWith(t,
-		Run(Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
+		Run(context.Background(), Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
 		Resolution{Action: ConflictSkip})
 
 	if res.Err != nil {
@@ -104,7 +105,7 @@ func TestCopyConflictKeepBoth(t *testing.T) {
 	seed(t, filepath.Join(dst, "notes.txt"), "old", time.Hour)
 
 	res, _ := answerWith(t,
-		Run(Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
+		Run(context.Background(), Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "notes.txt")}, Dest: dst}),
 		Resolution{Action: ConflictKeepBoth})
 
 	if res.Err != nil {
@@ -131,7 +132,7 @@ func TestCopyConflictNewer(t *testing.T) {
 	seed(t, filepath.Join(dst, "new.txt"), "dst", time.Hour)
 
 	res, _ := answerWith(t,
-		Run(Job{Op: OpCopy, Dest: dst, Srcs: []string{
+		Run(context.Background(), Job{Op: OpCopy, Dest: dst, Srcs: []string{
 			filepath.Join(src, "old.txt"),
 			filepath.Join(src, "new.txt"),
 		}}),
@@ -159,7 +160,7 @@ func TestConflictAllAnswersOnce(t *testing.T) {
 	}
 
 	res, asked := answerWith(t,
-		Run(Job{Op: OpCopy, Srcs: srcs, Dest: dst}),
+		Run(context.Background(), Job{Op: OpCopy, Srcs: srcs, Dest: dst}),
 		Resolution{Action: ConflictOverwrite, All: true})
 
 	if res.Err != nil {
@@ -183,7 +184,7 @@ func TestConflictCancel(t *testing.T) {
 	seed(t, filepath.Join(src, "b.txt"), "new", 0)
 
 	res, _ := answerWith(t,
-		Run(Job{Op: OpCopy, Dest: dst, Srcs: []string{
+		Run(context.Background(), Job{Op: OpCopy, Dest: dst, Srcs: []string{
 			filepath.Join(src, "a.txt"),
 			filepath.Join(src, "b.txt"),
 		}}),
@@ -209,7 +210,7 @@ func TestCopyDirectoriesMerge(t *testing.T) {
 	seed(t, filepath.Join(dst, "docs", "only-dst.txt"), "old", time.Hour)
 
 	res, asked := answerWith(t,
-		Run(Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "docs")}, Dest: dst}),
+		Run(context.Background(), Job{Op: OpCopy, Srcs: []string{filepath.Join(src, "docs")}, Dest: dst}),
 		Resolution{Action: ConflictOverwrite})
 
 	if res.Err != nil {
@@ -235,7 +236,7 @@ func TestMoveRecordsWhatItMoved(t *testing.T) {
 	seed(t, filepath.Join(src, "one.txt"), "one", 0)
 
 	res, _ := answerWith(t,
-		Run(Job{Op: OpMove, Srcs: []string{filepath.Join(src, "one.txt")}, Dest: dst}),
+		Run(context.Background(), Job{Op: OpMove, Srcs: []string{filepath.Join(src, "one.txt")}, Dest: dst}),
 		Resolution{Action: ConflictSkip})
 
 	if res.Err != nil {
@@ -261,7 +262,7 @@ func TestPolicyJobDoesNotAsk(t *testing.T) {
 		Pairs:      []Pair{{Src: filepath.Join(src, "a.txt"), Dst: filepath.Join(dst, "a.txt")}},
 		OnConflict: ConflictOverwrite,
 	}
-	res, asked := answerWith(t, Run(job), Resolution{Action: ConflictCancel})
+	res, asked := answerWith(t, Run(context.Background(), job), Resolution{Action: ConflictCancel})
 
 	if res.Err != nil {
 		t.Fatalf("sync: %v", res.Err)

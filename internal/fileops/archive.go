@@ -3,6 +3,7 @@ package fileops
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -93,19 +94,22 @@ func isTar(f format) bool {
 }
 
 // extractAll extracts each archive in job.Srcs into job.Dest.
-func extractAll(job Job, r *reporter) error {
+func extractAll(ctx context.Context, job Job, r *reporter) error {
 	if err := os.MkdirAll(job.Dest, 0o755); err != nil {
 		return err
 	}
 	for _, arc := range job.Srcs {
-		if err := extractOne(arc, job.Dest, job.Password, r); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := extractOne(ctx, arc, job.Dest, job.Password, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extractOne(arc, dest, password string, r *reporter) error {
+func extractOne(ctx context.Context, arc, dest, password string, r *reporter) error {
 	f := detectFormat(arc)
 	cmd, parse := extractCommand(f, arc, dest, password)
 	switch {
@@ -115,7 +119,7 @@ func extractOne(arc, dest, password string, r *reporter) error {
 		// The format is known; what is missing is the tool for it.
 		return fmt.Errorf("no tool installed to unpack %s", filepath.Base(arc))
 	}
-	return runTool(cmd, r, parse)
+	return runTool(ctx, cmd, r, parse)
 }
 
 // extractCommand returns the command and line parser to extract arc into dest.
@@ -202,7 +206,7 @@ func sevenZipExtract(arc, dest, password string) (toolCmd, func(string) string) 
 
 // countArchiveEntries returns the number of members in an archive, or 0 if it
 // cannot be determined cheaply (progress falls back to indeterminate).
-func countArchiveEntries(arc string) int {
+func countArchiveEntries(ctx context.Context, arc string) int {
 	f := detectFormat(arc)
 	switch {
 	case isTar(f):
@@ -211,11 +215,11 @@ func countArchiveEntries(arc string) int {
 			a = append(a, c)
 		}
 		a = append(a, "-f", arc)
-		return countLines(exec.Command("tar", a...))
+		return countLines(exec.CommandContext(ctx, "tar", a...))
 	case f == fmtZip:
 		// Entry names stay readable in an encrypted zip, so the bar is exact
 		// even when the contents need a password.
-		return countLines(exec.Command("zipinfo", "-1", argPath(arc)))
+		return countLines(exec.CommandContext(ctx, "zipinfo", "-1", argPath(arc)))
 	default:
 		return 0
 	}
@@ -240,14 +244,14 @@ func boolToInt(b bool) int {
 
 // runStreamingIn runs a command in dir, optionally feeding it stdin (a password
 // prompt, which is how 7z takes one without it landing in the process table).
-func runStreamingIn(dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
-	return runTool(toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
+func runStreamingIn(ctx context.Context, dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
+	return runTool(ctx, toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
 }
 
 // runInto runs a command whose stdout is the archive itself, so only stderr
 // carries progress.
-func runInto(bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
-	return runTool(toolCmd{bin: bin, args: args, stdout: out}, r, parse)
+func runInto(ctx context.Context, bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
+	return runTool(ctx, toolCmd{bin: bin, args: args, stdout: out}, r, parse)
 }
 
 // toolCmd is one child process in a pack/unpack pipeline.
@@ -260,12 +264,14 @@ type toolCmd struct {
 }
 
 // runTool runs one command, reporting progress from the lines parse accepts.
-func runTool(c toolCmd, r *reporter, parse func(string) string) error {
+// Cancelling ctx kills the child, which is the only way to stop a tool that is
+// half-way through a large archive.
+func runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(c.bin, c.args...)
+	cmd := exec.CommandContext(ctx, c.bin, c.args...)
 	cmd.Dir = c.dir
 	cmd.Stderr = prog.w
 	cmd.Stdout = c.stdout
@@ -289,7 +295,7 @@ func runTool(c toolCmd, r *reporter, parse func(string) string) error {
 // runPiped runs `bin | filter > out`: the first command writes the archive
 // stream to the second, which compresses it into out. Both report progress on
 // stderr, and a failure in either is reported.
-func runPiped(bin string, args []string, filter string, filterArgs []string, out io.Writer, r *reporter, parse func(string) string) error {
+func runPiped(ctx context.Context, bin string, args []string, filter string, filterArgs []string, out io.Writer, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
@@ -300,11 +306,11 @@ func runPiped(bin string, args []string, filter string, filterArgs []string, out
 		return err
 	}
 
-	src := exec.Command(bin, args...)
+	src := exec.CommandContext(ctx, bin, args...)
 	src.Stdout = pw
 	src.Stderr = prog.w
 
-	dst := exec.Command(filter, filterArgs...)
+	dst := exec.CommandContext(ctx, filter, filterArgs...)
 	dst.Stdin = pr
 	dst.Stdout = out
 	dst.Stderr = prog.w

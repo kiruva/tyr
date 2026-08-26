@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +72,14 @@ type Model struct {
 	progress      fileops.Progress
 	progressCh    <-chan any
 	errText       string
-	noticeText    string // non-error banner, cleared by the next keypress
+
+	// cancelOp stops the job that is running now, and cancelling reports that
+	// it has been asked to stop but has not finished unwinding yet — a job is
+	// never abandoned, only asked, so there is a moment between the two.
+	cancelOp   context.CancelFunc
+	cancelling bool
+
+	noticeText string // non-error banner, cleared by the next keypress
 
 	// view/edit state
 	viewport   viewport.Model

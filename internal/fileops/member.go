@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -206,13 +207,13 @@ func topLevel(dir string) ([]string, error) {
 // addToArchive adds real files/dirs (job.Srcs) into archive job.Dest at the
 // virtual directory job.VDir, preserving the archive's format. If job.Move is
 // set, the sources are removed afterward.
-func addToArchive(job Job, r *reporter) error {
+func addToArchive(ctx context.Context, job Job, r *reporter) error {
 	var err error
 	switch f := detectFormat(job.Dest); {
 	case isTar(f):
-		err = addToTar(f, job.Dest, job.VDir, job.Srcs, r)
+		err = addToTar(ctx, f, job.Dest, job.VDir, job.Srcs, r)
 	case f == fmtZip:
-		err = addToZip(job.Dest, job.VDir, job.Srcs, r)
+		err = addToZip(ctx, job.Dest, job.VDir, job.Srcs, r)
 	default:
 		return fmt.Errorf("adding to this archive type is not supported")
 	}
@@ -231,14 +232,14 @@ func addToArchive(job Job, r *reporter) error {
 
 // stageSources copies each src into <root>/<vdir>/<basename>, reporting progress,
 // and returns the slash-separated relative paths that were staged.
-func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, error) {
+func stageSources(ctx context.Context, root, vdir string, srcs []string, r *reporter) ([]string, error) {
 	destDir := filepath.Join(root, filepath.FromSlash(vdir))
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
 	// Staging is tyr's own scratch directory: nothing there can collide with
 	// anything, so the copy answers its own (non-existent) conflicts.
-	rn := &runner{r: r, rv: newResolver(nil, ConflictOverwrite)}
+	rn := &runner{ctx: ctx, r: r, rv: newResolver(ctx, nil, ConflictOverwrite)}
 
 	rels := make([]string, 0, len(srcs))
 	for _, s := range srcs {
@@ -253,7 +254,7 @@ func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, erro
 
 // addToTar rewrites the tar with the new files spliced in at vdir. Rewriting
 // (rather than -r append) keeps one code path for both plain and compressed tar.
-func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error {
+func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string, r *reporter) error {
 	tmp, err := os.MkdirTemp("", "tyr-add-")
 	if err != nil {
 		return err
@@ -265,11 +266,11 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 		ex = append(ex, c)
 	}
 	ex = append(ex, "-f", archive, "-C", tmp)
-	if err := runQuiet(exec.Command("tar", ex...)); err != nil {
+	if err := runQuiet(exec.CommandContext(ctx, "tar", ex...)); err != nil {
 		return err
 	}
 
-	if _, err := stageSources(tmp, vdir, srcs, r); err != nil {
+	if _, err := stageSources(ctx, tmp, vdir, srcs, r); err != nil {
 		return err
 	}
 
@@ -283,23 +284,23 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 	}
 	create = append(create, "-f", archive, "-C", tmp, "--")
 	create = append(create, names...)
-	return runQuiet(exec.Command("tar", create...))
+	return runQuiet(exec.CommandContext(ctx, "tar", create...))
 }
 
 // addToZip stages the sources and lets `zip` splice them in (updates existing
 // members in place, so no full rewrite is needed).
-func addToZip(archive, vdir string, srcs []string, r *reporter) error {
+func addToZip(ctx context.Context, archive, vdir string, srcs []string, r *reporter) error {
 	tmp, err := os.MkdirTemp("", "tyr-addzip-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
 
-	rels, err := stageSources(tmp, vdir, srcs, r)
+	rels, err := stageSources(ctx, tmp, vdir, srcs, r)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", append([]string{"-r", "-q", argPath(archive), "--"}, rels...)...)
+	cmd := exec.CommandContext(ctx, "zip", append([]string{"-r", "-q", argPath(archive), "--"}, rels...)...)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }

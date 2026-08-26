@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -160,7 +161,7 @@ func (o PackOpts) Weak() bool { return o.Password != "" && o.Encrypt == "zip" }
 
 // pack creates job.Out from job.Srcs. All sources come from the same pane, so
 // they share a parent directory.
-func pack(job Job, r *reporter) error {
+func pack(ctx context.Context, job Job, r *reporter) error {
 	if len(job.Srcs) == 0 {
 		return fmt.Errorf("nothing to pack")
 	}
@@ -176,33 +177,33 @@ func pack(job Job, r *reporter) error {
 	if _, err := os.Stat(job.Out); err == nil {
 		existed = true
 	}
-	err := runPack(job, opts, r)
+	err := runPack(ctx, job, opts, r)
 	if err != nil && !existed {
 		_ = os.Remove(job.Out)
 	}
 	return err
 }
 
-func runPack(job Job, opts PackOpts, r *reporter) error {
+func runPack(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 	switch opts.Format {
 	case Pack7z:
-		return packWith7z(job, opts, r)
+		return packWith7z(ctx, job, opts, r)
 	case PackZip:
 		// 7-Zip writes the zip when it is doing the encryption, or when
 		// Info-ZIP's zip is not installed.
 		if (opts.Password != "" && opts.Encrypt == "7z") || tool("zip") == "" {
-			return packWith7z(job, opts, r)
+			return packWith7z(ctx, job, opts, r)
 		}
-		return packWithZip(job, opts, r)
+		return packWithZip(ctx, job, opts, r)
 	default:
-		return packTar(job, opts, r)
+		return packTar(ctx, job, opts, r)
 	}
 }
 
 // packTar streams `tar -cvf -` through a compressor into the output file. The
 // pipe (rather than tar's own -z/-J) is what makes the compression level
 // reachable, and tar's verbose output on stderr drives the progress bar.
-func packTar(job Job, opts PackOpts, r *reporter) error {
+func packTar(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 	parent := filepath.Dir(job.Srcs[0])
 	args := []string{"-c", "-v", "-f", "-", "-C", parent, "--"}
 	for _, s := range job.Srcs {
@@ -217,9 +218,9 @@ func packTar(job Job, opts PackOpts, r *reporter) error {
 
 	comp, compArgs := tarCompressor(opts.Format, opts.Level)
 	if comp == "" {
-		return runInto("tar", args, out, r, parseTarLine)
+		return runInto(ctx, "tar", args, out, r, parseTarLine)
 	}
-	return runPiped("tar", args, comp, compArgs, out, r, parseTarLine)
+	return runPiped(ctx, "tar", args, comp, compArgs, out, r, parseTarLine)
 }
 
 // tarCompressor maps a tar format and level onto the filter that compresses the
@@ -242,7 +243,7 @@ func tarCompressor(f PackFormat, level int) (bin string, args []string) {
 // packWithZip runs Info-ZIP. -P puts the password on the command line, which is
 // the only way `zip` takes one without a terminal; packWith7z is preferred
 // wherever 7z exists.
-func packWithZip(job Job, opts PackOpts, r *reporter) error {
+func packWithZip(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 	args := []string{"-r", "-" + strconv.Itoa(opts.Level)}
 	if opts.Password != "" {
 		args = append(args, "-P", opts.Password)
@@ -251,13 +252,13 @@ func packWithZip(job Job, opts PackOpts, r *reporter) error {
 	for _, s := range job.Srcs {
 		args = append(args, filepath.Base(s))
 	}
-	return runStreamingIn(filepath.Dir(job.Srcs[0]), "", "zip", args, r, parseZipAddLine)
+	return runStreamingIn(ctx, filepath.Dir(job.Srcs[0]), "", "zip", args, r, parseZipAddLine)
 }
 
 // packWith7z runs 7-Zip, which also writes .zip with AES-256. The password goes
 // in on stdin (asked for twice) so it never appears in the process arguments;
 // -mhe encrypts the file names as well, which only the .7z container supports.
-func packWith7z(job Job, opts PackOpts, r *reporter) error {
+func packWith7z(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 	args := []string{"a", "-bb1", "-bd", "-y", "-mx=" + strconv.Itoa(opts.Level)}
 	if opts.Format == PackZip {
 		args = append(args, "-tzip")
@@ -281,7 +282,7 @@ func packWith7z(job Job, opts PackOpts, r *reporter) error {
 	if bin == "" {
 		return fmt.Errorf("7-Zip is not installed (7z, 7zz or 7za)")
 	}
-	return runStreamingIn(filepath.Dir(job.Srcs[0]), stdin, bin, args, r, parse7zLine)
+	return runStreamingIn(ctx, filepath.Dir(job.Srcs[0]), stdin, bin, args, r, parse7zLine)
 }
 
 // parseZipAddLine: `zip` prints "  adding: path (deflated 42%)".
