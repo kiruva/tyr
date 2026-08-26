@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// These are the worked examples in README.md, one test case each. If a change
+// These are the worked examples in MAN.md, one test case each. If a change
 // here makes one of them fail, the documented recipe is what is wrong — fix the
-// README with it.
+// manual with it.
 
 func TestDocumentedExamples(t *testing.T) {
 	mod := time.Date(2026, 8, 24, 9, 41, 12, 0, time.UTC)
 
 	tests := []struct {
-		recipe string   // what the README calls it
+		recipe string   // what the manual calls it
 		files  []string // in, in listing order
 		want   []string // out
 		spec   func(*Spec)
@@ -215,7 +215,7 @@ func TestDocumentedExampleParentToken(t *testing.T) {
 	}
 }
 
-// The README's worked trace of how one name is built, step by step.
+// The manual's worked trace of how one name is built, step by step.
 func TestDocumentedPipelineTrace(t *testing.T) {
 	s := DefaultSpec()
 	s.Name, s.Ext = "[N]", "[E]"

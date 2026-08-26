@@ -50,7 +50,7 @@ CI runs the same checks on every push and pull request.
   overlay automatically via `keyMap.groups()`.
 - Anything remote must stay off the UI thread too: the pane records where it wants
   to be and the app layer fills it in from a `tea.Cmd`.
-- The rename recipes in `README.md` are pinned by `TestDocumentedExamples` in
+- The rename recipes in `MAN.md` are pinned by `TestDocumentedExamples` in
   `internal/rename/examples_test.go`. Change one and the other has to follow.
 - Note user-facing changes in `CHANGELOG.md` under `## [Unreleased]`.
 

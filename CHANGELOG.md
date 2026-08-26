@@ -21,6 +21,10 @@ from the commit history by GitVersion and tagged by CI; see
     `TYR_TEST_SSH_KEY`. Unlike the config directory, the old names are no longer read —
     update whatever exports them.
 
+- **Docs split in two.** `README.md` is now a short tour for people deciding whether to use
+  tyr; the full reference — every key, dialog, rename recipe, archive and ssh detail, and config
+  line — moved to `MAN.md`.
+
 ### Added
 
 - **The viewer got the four things a pager is asked for.** `/` finds text (with `n` / `N`
