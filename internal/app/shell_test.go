@@ -80,7 +80,7 @@ func TestExpandCommand(t *testing.T) {
 	m := focusEntry(t, twoPanes(t, left, right), awkward).(Model)
 
 	got := m.expandCommand("wc -c %f in %d then %D")
-	want := "wc -c 'it'\\''s a file.txt' in '" + left + "' then '" + right + "'"
+	want := "wc -c " + shellQuote(awkward) + " in " + shellQuote(left) + " then " + shellQuote(right)
 	if got != want {
 		t.Fatalf("expanded to\n%s\nwant\n%s", got, want)
 	}
@@ -105,28 +105,13 @@ func TestExpandCommandSelection(t *testing.T) {
 
 	app := m.(Model)
 	got := app.expandCommand("cat %s")
-	if !strings.Contains(got, "'a.txt'") || !strings.Contains(got, "'b.txt'") {
+	if !strings.Contains(got, shellQuote("a.txt")) || !strings.Contains(got, shellQuote("b.txt")) {
 		t.Fatalf("expanded to %q, want both marked files", got)
 	}
 
 	full := app.expandCommand("stat %F")
 	if !strings.Contains(full, dir) {
 		t.Errorf("%%F expanded to %q, want the full path", full)
-	}
-}
-
-func TestShellQuote(t *testing.T) {
-	cases := map[string]string{
-		"plain":    "'plain'",
-		"":         "''",
-		"it's":     `'it'\''s'`,
-		"a b":      "'a b'",
-		"$(rm -r)": "'$(rm -r)'",
-	}
-	for in, want := range cases {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
-		}
 	}
 }
 

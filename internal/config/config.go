@@ -64,21 +64,24 @@ var paneKeys = [2]string{"left", "right"}
 // dirName is the config directory tyr owns, under whichever base applies.
 const dirName = "tyr"
 
-// Dir is the directory holding the config file: $XDG_CONFIG_HOME/tyr,
-// falling back to ~/.config/tyr.
+// Dir is the directory holding the config file: $XDG_CONFIG_HOME/tyr, falling
+// back to ~/.config/tyr, and %AppData%\tyr on Windows.
 func Dir() (string, error) { return dirNamed(dirName) }
 
 // dirNamed resolves a config directory by name. Migrate uses it for the
 // pre-rename name, so the two paths cannot drift apart.
+//
+// XDG_CONFIG_HOME wins wherever it is set, Windows included: somebody who
+// exports it has said where their configuration goes.
 func dirNamed(name string) (string, error) {
 	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
 		return filepath.Join(base, name), nil
 	}
-	home, err := os.UserHomeDir()
+	base, err := configBase()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", name), nil
+	return filepath.Join(base, name), nil
 }
 
 // Path is the full path of the config file.

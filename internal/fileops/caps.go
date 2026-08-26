@@ -173,7 +173,7 @@ func capabilityTable() []Capability {
 		{Group: "Local", Name: "compare & synchronize", Needs: nil},
 		{Group: "Local", Name: "properties & chmod", Needs: nil},
 
-		{Group: "Shell", Name: "drop to $SHELL", Needs: nil},
-		{Group: "Shell", Name: "run a command", Needs: []string{"sh"}, Hint: "no POSIX shell on PATH"},
+		{Group: "Shell", Name: "drop to " + shellLabel, Needs: nil},
+		{Group: "Shell", Name: "run a command", Needs: []string{shellBinary}, Hint: "no " + shellBinary + " on PATH"},
 	}
 }

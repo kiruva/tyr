@@ -13,8 +13,8 @@
 Mouse slow. Menus slower. tyr put two folders side by side. Active pane is source, other pane
 is target, `Tab` swap them. That is whole mental model.
 
-Total Commander spirit, terminal body. Built for Linux first, happy on macOS. Keyboard driven,
-intuitive like lazygit.
+Total Commander spirit, terminal body. Built for Linux first, happy on macOS, runs on Windows
+too. Keyboard driven, intuitive like lazygit.
 
 ## What tyr do
 
@@ -49,8 +49,9 @@ intuitive like lazygit.
 go install github.com/kiruva/tyr@latest    # needs Go 1.26 or newer
 ```
 
-Prebuilt Linux and macOS binaries (amd64/arm64) hang on every
-[release](https://github.com/kiruva/tyr/releases).
+Prebuilt Linux, macOS and Windows binaries (amd64/arm64) hang on every
+[release](https://github.com/kiruva/tyr/releases). Windows ships a `.zip`, rest ship
+`.tar.gz`.
 
 From source:
 
@@ -62,6 +63,9 @@ make build     # makes ./tyr
 
 Binary alone enough for browsing, copying, editing. Archives and ssh transfers call standard
 system tools. Press `C` inside tyr to see what this machine has and what missing.
+
+Windows works best in Windows Terminal. Few things differ there, see
+[MAN.md](MAN.md#on-windows).
 
 ## Start here
 

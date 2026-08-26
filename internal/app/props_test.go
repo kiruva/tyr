@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 
 // i shows what the entry is, and the permissions field can change it.
 func TestPropsShowsAndChmods(t *testing.T) {
+	skipWithoutUnixPerms(t)
+
 	dir := t.TempDir()
 	file := filepath.Join(dir, "script.sh")
 	if err := os.WriteFile(file, []byte("#!/bin/sh\n"), 0o644); err != nil {
@@ -55,6 +58,8 @@ func TestPropsShowsAndChmods(t *testing.T) {
 
 // A recursive change reaches everything inside a directory.
 func TestPropsChmodRecursive(t *testing.T) {
+	skipWithoutUnixPerms(t)
+
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "tree")
 	if err := os.MkdirAll(filepath.Join(sub, "inner"), 0o755); err != nil {
@@ -132,5 +137,15 @@ func TestParseMode(t *testing.T) {
 		if _, err := parseMode(in); err == nil {
 			t.Errorf("parseMode(%q) was accepted", in)
 		}
+	}
+}
+
+// skipWithoutUnixPerms skips a test that asserts on permission bits. Windows has
+// none to assert on: os.Chmod there flips the read-only attribute and nothing
+// else, so a mode of 0755 is not a thing a file can come back with.
+func skipWithoutUnixPerms(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits")
 	}
 }

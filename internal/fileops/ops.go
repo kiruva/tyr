@@ -4,13 +4,12 @@
 package fileops
 
 import (
-	"errors"
 	"io"
 	iofs "io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 
+	"github.com/kiruva/tyr/internal/fsutil"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/trash"
@@ -542,7 +541,7 @@ func (rn *runner) movePath(src, dst string) (string, error) {
 	if err := os.Rename(src, dst); err == nil {
 		rn.r.step(src)
 		return dst, nil
-	} else if !errors.Is(err, syscall.EXDEV) {
+	} else if !fsutil.CrossDevice(err) {
 		return "", err
 	}
 	// Cross-device: copy then remove the original.

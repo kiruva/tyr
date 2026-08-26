@@ -52,6 +52,10 @@ CI runs the same checks on every push and pull request.
   to be and the app layer fills it in from a `tea.Cmd`.
 - The rename recipes in `MAN.md` are pinned by `TestDocumentedExamples` in
   `internal/rename/examples_test.go`. Change one and the other has to follow.
+- Anything platform-dependent goes in a `_unix.go` / `_windows.go` pair behind one
+  neutral function, rather than a `runtime.GOOS` branch in the middle of the logic.
+  `make crossbuild` compiles every released target and is the cheap way to catch a
+  pair that does not build.
 - Note user-facing changes in `CHANGELOG.md` under `## [Unreleased]`.
 
 ## Commit messages

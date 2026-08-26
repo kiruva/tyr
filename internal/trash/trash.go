@@ -6,7 +6,10 @@
 // $XDG_DATA_HOME/Trash/info says where it came from, which is what makes it
 // restorable from any file manager and not just this one. On macOS it is
 // ~/.Trash, which keeps no such record — Finder's "Put Back" is backed by
-// metadata tyr does not write, so a restore from there is a plain move.
+// metadata tyr does not write, so a restore from there is a plain move. On
+// Windows it is %LocalAppData%\tyr\Trash, with the same records: tyr's own
+// trash rather than the Recycle Bin, which no API restores from the way Ctrl+Z
+// needs to (see base_windows.go).
 //
 // The trash is one directory on one filesystem. Something on another volume
 // cannot be renamed into it, and rather than quietly copying gigabytes across a
@@ -21,8 +24,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // Item is one thing in the trash and where it came from.
@@ -96,7 +100,7 @@ func Move(path string) (Item, error) {
 		if item.Info != "" {
 			_ = os.Remove(item.Info)
 		}
-		if errors.Is(err, syscall.EXDEV) {
+		if fsutil.CrossDevice(err) {
 			return Item{}, fmt.Errorf("%s: %w", filepath.Base(abs), ErrOtherFilesystem)
 		}
 		return Item{}, err
@@ -166,16 +170,13 @@ func infoDir() (string, error) {
 	return filepath.Join(base, "Trash", "info"), nil
 }
 
-// dataDir is $XDG_DATA_HOME, or ~/.local/share.
+// dataDir is $XDG_DATA_HOME, or ~/.local/share, or %LocalAppData%\tyr on
+// Windows. XDG_DATA_HOME wins wherever it is set.
 func dataDir() (string, error) {
 	if base := os.Getenv("XDG_DATA_HOME"); base != "" {
 		return base, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "share"), nil
+	return dataBase()
 }
 
 // withInfo reports whether this platform's trash keeps origin records.

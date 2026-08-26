@@ -59,12 +59,7 @@ func (m *Model) openShell() tea.Cmd {
 		dir = filepath.Dir(p.ArchivePath())
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-
-	c := exec.Command(shell)
+	c := exec.Command(interactiveShell())
 	c.Dir = dir
 	c.Env = append(os.Environ(), "TYR=1")
 
@@ -143,7 +138,8 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	dir := m.command.dir
 	return m, func() tea.Msg {
-		c := exec.CommandContext(ctx, "sh", "-c", expanded)
+		name, args := shellCommand(expanded)
+		c := exec.CommandContext(ctx, name, args...)
 		c.Dir = dir
 		c.Env = append(os.Environ(), "TYR=1")
 		out, err := c.CombinedOutput()
@@ -228,14 +224,6 @@ func (m Model) expandCommand(line string) string {
 		"%s", strings.Join(selection, " "),
 	)
 	return strings.ReplaceAll(replacer.Replace(line), "\x00", "%")
-}
-
-// shellQuote wraps a value so the shell reads it as one word, whatever is in it.
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // renderCommand draws the prompt.

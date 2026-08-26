@@ -11,7 +11,35 @@ tool for the format you touch (`tar` plus `gzip`/`bzip2`/`xz`/`zstd`, `zip`/`unz
 worth installing: it gives AES-256 encryption for `.7z` and `.zip`, and it also stands in for
 `zip`/`unzip` where those are missing. Whichever name it is packaged under, `7z` (p7zip),
 `7zz` (the official build) or `7za`, tyr finds it and runs that one. Press `C` in the app to
-see which of those this machine actually has (see [Capabilities](#capabilities)).
+see which of those this machine actually has (see [Capabilities](#capabilities)). A fresh
+Windows box has `tar` and little else; [On Windows](#on-windows) says what that costs.
+
+## On Windows
+
+Everything in this manual applies on Windows. What differs is where things live and which
+shell runs a command:
+
+| What | On Windows |
+| --- | --- |
+| Config file | `%AppData%\tyr\config`, themes in `%AppData%\tyr\themes`. `XDG_CONFIG_HOME` still wins where it is set. |
+| Trash | `%LocalAppData%\tyr\Trash`, with the same origin records, so `Ctrl+Z` restores. It is tyr's own trash, **not** the Recycle Bin. |
+| `!` | Opens `%COMSPEC%` (`cmd.exe` on a stock install), or `$SHELL` where that is set. |
+| `x` | Runs the line through `cmd /C`, and quotes the placeholders by cmd's rules rather than a POSIX shell's. |
+| `i` | No owner row and no hard-link count: a Windows file has an ACL, not a uid and gid. The permissions field still applies, but `chmod` there sets the read-only attribute and nothing more. |
+| `.` | Toggles dotfiles, as everywhere else. The Windows *hidden attribute* is not consulted, so a hidden file without a leading dot is always listed. |
+
+Paths work the way the platform does: drive letters (`C:\Users\kim`), backslashes, and UNC
+shares (`\\server\share`) are all valid in the address bar, and a drive letter is never
+mistaken for an ssh target even though scp syntax puts a colon in the same place. Remote paths
+stay POSIX, because the far side is.
+
+Archive tools are where a fresh Windows box is thinnest. Windows 10 and 11 ship `tar.exe`, so
+the tar formats extract out of the box, but `gzip`, `bzip2`, `xz`, `zstd`, `zip` and `unzip`
+are usually not there. Installing 7-Zip covers `.7z`, `.zip`, and AES-256 passwords for both.
+Press `C` to see what this machine actually has.
+
+Run it in Windows Terminal, or any console with VT support. The legacy `conhost` window draws
+the box characters and colours poorly.
 
 ## Run it
 
@@ -621,8 +649,9 @@ by design, and says so on its own prompt.
 ### Deleting, and getting it back
 
 `F8` (or `Del`, or `d`) moves the selection to the desktop trash — `$XDG_DATA_HOME/Trash` on
-Linux, with the `.trashinfo` record that lets any file manager restore it, and `~/.Trash` on
-macOS. `Ctrl+Z` puts it straight back. `D` (or `Shift+F8`) skips the trash and unlinks, which
+Linux, with the `.trashinfo` record that lets any file manager restore it, `~/.Trash` on
+macOS, and `%LocalAppData%\tyr\Trash` on Windows (tyr's own, not the Recycle Bin: see
+[On Windows](#on-windows)). `Ctrl+Z` puts it straight back. `D` (or `Shift+F8`) skips the trash and unlinks, which
 is the one thing here that cannot be undone; the prompt says which of the two you are about to
 do. Trashing needs the file to be on the same filesystem as the trash — when it is not, tyr
 says so rather than quietly copying gigabytes across a disk boundary.
@@ -738,6 +767,18 @@ tyr() {
   command tyr --cd-file "$dir" "$@"
   [ -s "$dir" ] && cd "$(cat "$dir")"
   rm -f "$dir"
+}
+```
+
+In PowerShell:
+
+```powershell
+function tyr {
+  $cd = New-TemporaryFile
+  & tyr.exe --cd-file $cd.FullName @args
+  $dir = (Get-Content $cd -Raw).Trim()
+  Remove-Item $cd
+  if ($dir) { Set-Location -LiteralPath $dir }
 }
 ```
 
@@ -986,8 +1027,8 @@ tyr --theme gruvbox
 TYR_THEME=dracula tyr
 ```
 
-The picker writes the choice to `$XDG_CONFIG_HOME/tyr/config` (or
-`~/.config/tyr/config`), a plain `key = value` file you can also edit by hand:
+The picker writes the choice to `$XDG_CONFIG_HOME/tyr/config` (or `~/.config/tyr/config`, or
+`%AppData%\tyr\config` on Windows), a plain `key = value` file you can also edit by hand:
 
 ```ini
 # tyr configuration
@@ -1000,8 +1041,8 @@ writes on the way out — see below.
 ### Your own themes
 
 A theme is eight colours, so a theme is eight lines. Drop a `.theme` file in
-`$XDG_CONFIG_HOME/tyr/themes` (or `~/.config/tyr/themes`) and it is in the picker on the next
-start — sending someone a theme is sending them a file.
+`$XDG_CONFIG_HOME/tyr/themes` (or `~/.config/tyr/themes`, or `%AppData%\tyr\themes`) and it
+is in the picker on the next start — sending someone a theme is sending them a file.
 
 ```sh
 tyr --new-theme rose     # writes themes/rose.theme from the theme you are using

@@ -51,7 +51,8 @@ func (h Host) Display(p string) string { return h.String() + ":" + p }
 //	[user@]host:/path            (scp style; empty path means the login dir)
 //
 // It deliberately rejects anything that looks like a local path so that typing
-// "/etc" or "./sub" in the address bar never tries to open a connection.
+// "/etc", "./sub" or "C:\Users" in the address bar never tries to open a
+// connection.
 func Parse(s string) (Host, string, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -71,6 +72,11 @@ func Parse(s string) (Host, string, bool) {
 	}
 
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "~") {
+		return Host{}, "", false
+	}
+	// On Windows a local path carries a colon of its own: "C:\Users" would
+	// otherwise parse as the host "C" with the path "\Users".
+	if looksLocal(s) {
 		return Host{}, "", false
 	}
 	hostPart, p, ok := strings.Cut(s, ":")
