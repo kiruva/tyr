@@ -46,7 +46,7 @@ too. Keyboard driven, intuitive like lazygit.
 ## Install
 
 ```sh
-go install github.com/kiruva/tyr@latest    # needs Go 1.26 or newer
+go install github.com/kiruva/tyr@latest    # needs Go 1.26.6 or newer
 ```
 
 Prebuilt Linux, macOS and Windows binaries (amd64/arm64) hang on every

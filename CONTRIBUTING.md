@@ -5,7 +5,8 @@ file manager. Contributions of all sizes are welcome.
 
 ## Getting started
 
-Go 1.26 or newer is required.
+Go 1.26.6 or newer is required — 1.26.6 is the release that fixes an
+`encoding/asn1` flaw tyr reaches when it parses an ssh private key.
 
 ```sh
 git clone https://github.com/kiruva/tyr

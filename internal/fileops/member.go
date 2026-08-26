@@ -37,7 +37,7 @@ func ListMembers(archive string) ([]Member, error) {
 		a = append(a, "-f", archive)
 		out, err = exec.Command("tar", a...).Output()
 	case f == fmtZip:
-		out, err = exec.Command("zipinfo", "-1", archive).Output()
+		out, err = exec.Command("zipinfo", "-1", argPath(archive)).Output()
 	default:
 		return nil, fmt.Errorf("browsing this archive type is not supported (unpack it instead)")
 	}
@@ -62,7 +62,9 @@ func parseMembers(out []byte) []Member {
 	return ms
 }
 
-// ReadMember streams a single member's bytes into memory.
+// ReadMember streams a single member's bytes into memory. The member name comes
+// out of the archive, so it is attacker-controlled and never goes on a command
+// line where a tool could read it as an option — see argsafe.go.
 func ReadMember(archive, member string) ([]byte, error) {
 	f := detectFormat(archive)
 	switch {
@@ -71,10 +73,19 @@ func ReadMember(archive, member string) ([]byte, error) {
 		if c := tarComp(f); c != "" {
 			a = append(a, c)
 		}
-		a = append(a, "-O", "-f", archive, member)
+		a = append(a, "-O", "-f", archive, "--", member)
 		return exec.Command("tar", a...).Output()
 	case f == fmtZip:
-		return exec.Command("unzip", "-p", archive, member).Output()
+		// 7-Zip honours "--" and unzip does not, so an entry whose name starts
+		// with a "-" is only readable where 7-Zip is installed. unzip stays the
+		// default otherwise: it is the native tool for a zip on Unix.
+		if bin := tool("7z"); bin != "" && optionLike(member) {
+			return exec.Command(bin, "x", "-so", "--", argPath(archive), member).Output()
+		}
+		if err := checkUnzipMember(member); err != nil {
+			return nil, err
+		}
+		return exec.Command("unzip", "-p", argPath(archive), member).Output()
 	default:
 		return nil, fmt.Errorf("reading members of this archive type is not supported")
 	}
@@ -95,9 +106,15 @@ func WriteMember(archive, member string, data []byte) error {
 	}
 }
 
-// writeMemberFile writes data to <dir>/<member>, creating parent dirs.
+// writeMemberFile writes data to <dir>/<member>, creating parent dirs. The
+// member name is whatever the archive says, so it is confined to dir first:
+// "../../.bashrc" is a legal member name and filepath.Join would resolve the
+// escape rather than stop it.
 func writeMemberFile(dir, member string, data []byte) (string, error) {
-	dst := filepath.Join(dir, filepath.FromSlash(member))
+	dst, err := containedPath(dir, member)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
@@ -116,13 +133,13 @@ func writeZipMember(archive, member string, data []byte) error {
 	if _, err := writeMemberFile(tmp, member, data); err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", "-q", archive, member)
+	cmd := exec.Command("zip", "-q", argPath(archive), "--", member)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }
 
 func writeUncompressedTarMember(archive, member string, data []byte) error {
-	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, member)); err != nil {
+	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, "--", member)); err != nil {
 		return err
 	}
 	tmp, err := os.MkdirTemp("", "tyr-tar-")
@@ -133,7 +150,7 @@ func writeUncompressedTarMember(archive, member string, data []byte) error {
 	if _, err := writeMemberFile(tmp, member, data); err != nil {
 		return err
 	}
-	return runQuiet(exec.Command("tar", "-r", "-f", archive, "-C", tmp, member))
+	return runQuiet(exec.Command("tar", "-r", "-f", archive, "-C", tmp, "--", member))
 }
 
 // rewriteCompressedTarMember extracts the whole archive, replaces one member,
@@ -169,7 +186,7 @@ func rewriteCompressedTarMember(f format, archive, member string, data []byte) e
 	if c := tarComp(f); c != "" {
 		create = append(create, c)
 	}
-	create = append(create, "-f", archive, "-C", tmp)
+	create = append(create, "-f", archive, "-C", tmp, "--")
 	create = append(create, names...)
 	return runQuiet(exec.Command("tar", create...))
 }
@@ -264,7 +281,7 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 	if c := tarComp(f); c != "" {
 		create = append(create, c)
 	}
-	create = append(create, "-f", archive, "-C", tmp)
+	create = append(create, "-f", archive, "-C", tmp, "--")
 	create = append(create, names...)
 	return runQuiet(exec.Command("tar", create...))
 }
@@ -282,7 +299,7 @@ func addToZip(archive, vdir string, srcs []string, r *reporter) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", append([]string{"-r", "-q", archive}, rels...)...)
+	cmd := exec.Command("zip", append([]string{"-r", "-q", argPath(archive), "--"}, rels...)...)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }

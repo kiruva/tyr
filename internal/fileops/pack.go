@@ -204,7 +204,7 @@ func runPack(job Job, opts PackOpts, r *reporter) error {
 // reachable, and tar's verbose output on stderr drives the progress bar.
 func packTar(job Job, opts PackOpts, r *reporter) error {
 	parent := filepath.Dir(job.Srcs[0])
-	args := []string{"-c", "-v", "-f", "-", "-C", parent}
+	args := []string{"-c", "-v", "-f", "-", "-C", parent, "--"}
 	for _, s := range job.Srcs {
 		args = append(args, filepath.Base(s))
 	}
@@ -247,7 +247,7 @@ func packWithZip(job Job, opts PackOpts, r *reporter) error {
 	if opts.Password != "" {
 		args = append(args, "-P", opts.Password)
 	}
-	args = append(args, job.Out)
+	args = append(args, argPath(job.Out), "--")
 	for _, s := range job.Srcs {
 		args = append(args, filepath.Base(s))
 	}
@@ -273,7 +273,7 @@ func packWith7z(job Job, opts PackOpts, r *reporter) error {
 		}
 		stdin = opts.Password + "\n" + opts.Password + "\n"
 	}
-	args = append(args, job.Out)
+	args = append(args, argPath(job.Out), "--")
 	for _, s := range job.Srcs {
 		args = append(args, filepath.Base(s))
 	}
