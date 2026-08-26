@@ -27,6 +27,8 @@ func (m *Model) EnterArchive(archivePath string) error {
 	m.members = members
 	m.Cursor = 0
 	m.selected = map[string]bool{}
+	m.filter = ""
+	m.clearDirSizes()
 	m.reload()
 	return nil
 }
@@ -37,6 +39,8 @@ func (m *Model) exitArchive() {
 	m.members = nil
 	m.Cursor = 0
 	m.selected = map[string]bool{}
+	m.filter = ""
+	m.clearDirSizes()
 	m.reload()
 }
 
@@ -53,6 +57,8 @@ func (m *Model) navigateArchive(name string) {
 	}
 	m.Cursor = 0
 	m.selected = map[string]bool{}
+	m.filter = ""
+	m.clearDirSizes()
 	m.reload()
 }
 
@@ -121,7 +127,7 @@ func virtualEntries(members []fileops.Member, vpath string) []Entry {
 				entries = append(entries, Entry{Name: rest, IsDir: true})
 			}
 		} else {
-			entries = append(entries, Entry{Name: rest, IsDir: false, Size: mem.Size})
+			entries = append(entries, Entry{Name: rest, IsDir: false, Size: mem.Size, HasSize: true})
 		}
 	}
 	return entries

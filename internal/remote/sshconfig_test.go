@@ -9,7 +9,7 @@ import (
 func writeSSHConfig(t *testing.T, body string) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	dir := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestSSHConfigInclude(t *testing.T) {
 }
 
 func TestSSHConfigMissingFile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	cfg := parseSSHConfig(filepath.Join(t.TempDir(), "nope"), "box", 0)
 	if cfg.HostName != "" || cfg.User != "" || cfg.Port != "" || cfg.ProxyJump != "" || len(cfg.IdentityFiles) != 0 {
 		t.Fatalf("missing file should yield the zero config, got %+v", cfg)

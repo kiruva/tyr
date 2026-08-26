@@ -10,7 +10,13 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Every platform tyr releases for, so a Windows-only break shows up here
+    # rather than in a release archive.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,5 +44,14 @@ jobs:
           cache: true
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+      # The linter only ever sees one platform's files. Without this pass the
+      # _windows.go half of every platform pair goes unlinted.
+      - name: golangci-lint (windows build tags)
+        uses: golangci/golangci-lint-action@v8
+        env:
+          GOOS: windows
         with:
           version: latest

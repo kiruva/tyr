@@ -9,6 +9,8 @@ import (
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/rename"
+	"github.com/kiruva/tyr/internal/syntax"
+	"github.com/kiruva/tyr/internal/trash"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -36,6 +38,8 @@ func (m Model) View() string {
 		return m.renderEditor()
 	case modeHelp:
 		return overlay(m.width, m.height, m.renderHelp())
+	case modeCaps:
+		return overlay(m.width, m.height, m.renderCaps())
 	case modeTheme:
 		return overlay(m.width, m.height, m.renderThemePicker())
 	case modeConn:
@@ -46,6 +50,30 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderRenameOne())
 	case modeRename:
 		return m.renderRename()
+	case modePack:
+		return overlay(m.width, m.height, m.renderPack())
+	case modeUnpackPw:
+		return overlay(m.width, m.height, m.renderUnpackPw())
+	case modeConflict:
+		return overlay(m.width, m.height, m.renderConflict())
+	case modeProps:
+		return overlay(m.width, m.height, m.renderProps())
+	case modeSync:
+		return m.renderSync()
+	case modeBookmarks:
+		return overlay(m.width, m.height, m.renderBookmarks())
+	case modeBookmarkAdd:
+		return overlay(m.width, m.height, m.renderBookmarkAdd())
+	case modeCommand:
+		return overlay(m.width, m.height, m.renderCommand())
+	case modeRunning:
+		return overlay(m.width, m.height, m.renderRunning())
+	case modeKeys:
+		return m.renderKeyEditor()
+	case modeSelectMask:
+		return overlay(m.width, m.height, m.renderSelectMask())
+	case modeFind:
+		return overlay(m.width, m.height, m.renderFind())
 	default:
 		return base
 	}
@@ -64,16 +92,41 @@ func (m Model) renderHelp() string {
 		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
-	// split the groups across two columns
-	mid := (len(blocks) + 1) / 2
+	// split the groups across two columns, balanced by line count
+	mid := balancePoint(blocks)
 	left := joinBlocks(blocks[:mid])
 	right := joinBlocks(blocks[mid:])
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
 
+	body, more := scrollBlock(cols, m.overlayRows(), m.overlayScroll)
+
 	header := ui.DialogTitle.Render("tyr — keys")
-	footer := ui.Faint.Render("any key to close")
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", cols, "", footer)
+	footer := ui.Faint.Render("C capabilities · any key to close")
+	if more {
+		footer = ui.Faint.Render("↑/↓ more · C capabilities · any key to close")
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 	return ui.Dialog.Render(content)
+}
+
+// overlayRows is how many lines of a full-height overlay fit on the terminal,
+// after the border, the padding, the header and the footer have had theirs.
+func (m Model) overlayRows() int {
+	return max(m.height-8, 3)
+}
+
+// scrollBlock windows a rendered block to rows lines, starting at offset. The
+// offset is clamped here rather than where the key was pressed: the view is the
+// only place that knows how tall the content turned out to be.
+func scrollBlock(block string, rows, offset int) (string, bool) {
+	lines := strings.Split(block, "\n")
+	if len(lines) <= rows {
+		return block, false
+	}
+
+	offset = min(max(offset, 0), len(lines)-rows)
+	window := lines[offset : offset+rows]
+	return strings.Join(window, "\n"), true
 }
 
 // renderThemePicker lists the themes with a colour swatch each, above a sample
@@ -124,13 +177,54 @@ func padRight(s string, w int) string {
 	return s
 }
 
-// renderViewer draws the read-only pager full-screen.
+// renderViewer draws the read-only pager full-screen: what is open and how it
+// is being shown along the top, what can be done to it along the bottom.
 func (m Model) renderViewer() string {
-	header := ui.StatusBar.Width(m.width).Render(" view · " + truncTail(m.viewTitle, m.width-8))
-	footer := ui.StatusBar.Width(m.width).Render(
-		fmt.Sprintf(" ↑/↓ scroll · e edit · q close%s%3.0f%%",
-			strings.Repeat(" ", pad(m.width, 40)), m.viewport.ScrollPercent()*100))
-	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), footer)
+	right := m.viewerFlags()
+	left := " view · " + truncTail(m.viewTitle, max(m.width-lipgloss.Width(right)-10, 8))
+	header := ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), m.viewerFooter())
+}
+
+// viewerFlags says which of the pager's switches are on, and what the file is
+// being highlighted as.
+func (m Model) viewerFlags() string {
+	var on []string
+	if m.viewer.hex {
+		on = append(on, "hex")
+	}
+	if m.viewer.wrap {
+		on = append(on, "wrap")
+	}
+	if m.viewer.numbers && !m.viewer.hex {
+		on = append(on, "numbers")
+	}
+	if m.viewer.colour && !m.viewer.hex && m.viewer.lang != syntax.None {
+		on = append(on, m.viewer.lang.String())
+	}
+	if len(on) == 0 {
+		return " "
+	}
+	return strings.Join(on, " · ") + " "
+}
+
+// viewerFooter is the search field, whatever the pager has to say, or the keys.
+func (m Model) viewerFooter() string {
+	if m.viewer.prompting {
+		left := " find: " + m.viewer.input.View()
+		right := "enter keep · esc clear"
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+	}
+	if m.viewer.status != "" {
+		left := " " + truncTail(m.viewer.status, max(m.width-12, 8))
+		right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+		return ui.NoticeBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+	}
+
+	left := " / find · n next · w wrap · # numbers · x hex · s colour · e edit · q close"
+	right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 }
 
 // renderEditor draws the nano-style editor full-screen.
@@ -149,20 +243,15 @@ func (m Model) renderEditor() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)
 }
 
-// pad returns filler width so a right-aligned suffix roughly reaches the edge.
-func pad(total, used int) int {
-	if p := total - used; p > 1 {
-		return p
-	}
-	return 1
-}
-
 // overlay centers a modal box on a blank screen of the given size.
 func overlay(w, h int, dialog string) string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialog)
 }
 
 func (m Model) statusBar() string {
+	if m.mode == modeFilter {
+		return m.renderFilterBar()
+	}
 	if m.errText != "" {
 		return ui.ErrorBar.Width(m.width).Render(" " + m.errText)
 	}
@@ -175,25 +264,20 @@ func (m Model) statusBar() string {
 
 	if m.mode == modeAddress {
 		right := "enter go · tab complete · esc cancel"
-		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-		if pad < 1 {
-			pad = 1
-		}
-		return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 
 	if p.Loading() {
 		right := "connecting…"
-		pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-		if pad < 1 {
-			pad = 1
-		}
-		return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 
 	right := fmt.Sprintf("%d items", len(p.Entries))
 	if n := p.SelectedCount(); n > 0 {
 		right += fmt.Sprintf(" · %d selected", n)
+	}
+	if f := p.Filter(); f != "" {
+		right += " · filter:" + truncTail(f, 16)
 	}
 	right += fmt.Sprintf(" · sort:%s", p.SortModeLabel())
 	if p.HiddenShown() {
@@ -201,11 +285,17 @@ func (m Model) statusBar() string {
 	}
 	right += " · ? help"
 
-	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+}
+
+// spacer is the filler that pushes right up against the edge of a bar of the
+// given total width, never closing the gap entirely.
+func spacer(total int, left, right string) string {
+	pad := total - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 1 {
 		pad = 1
 	}
-	return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", pad) + right)
+	return strings.Repeat(" ", pad)
 }
 
 func (m Model) renderConfirm() string {
@@ -215,11 +305,33 @@ func (m Model) renderConfirm() string {
 	var title, body string
 	switch j.Op {
 	case fileops.OpDelete:
+		if m.undoing {
+			title = ui.Danger.Render(fmt.Sprintf("Remove %d copied %s?", n, items(n)))
+			body = "Undoing a copy deletes what the copy created."
+			break
+		}
 		title = ui.Danger.Render(fmt.Sprintf("Delete %d %s?", n, items(n)))
 		body = "This cannot be undone."
+	case fileops.OpTrash:
+		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s to the trash?", n, items(n)))
+		body = "→ " + truncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
+	case fileops.OpRestore:
+		title = ui.DialogTitle.Render("Restore from the trash")
+		body = "put " + trash.Label(j.Trash) + " back"
+	case fileops.OpSync:
+		toRight, toLeft := syncDirections(j.Pairs, j.Dest)
+		title = ui.DialogTitle.Render("Synchronize " + syncLabel(j))
+		body = fmt.Sprintf("%d → right\n%d ← left", toRight, toLeft) + "\n" +
+			ui.Faint.Render("files in the way are replaced")
+	case fileops.OpMovePairs:
+		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s back", len(j.Pairs), items(len(j.Pairs))))
+		body = "→ " + truncTail(j.Dest, 44)
 	case fileops.OpPack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Pack %d %s", n, items(n)))
-		body = "→ " + truncTail(j.Out, 44)
+		body = "→ " + truncTail(j.Out, 44) + "\n" + ui.Faint.Render(packSummary(j.Pack))
+		if j.Pack.Weak() {
+			body += "\n" + ui.Danger.Render("ZipCrypto is weak — install p7zip for AES-256")
+		}
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
 		body = "→ " + truncTail(j.Dest, 44)
@@ -278,6 +390,11 @@ func (m Model) renderConfirm() string {
 	default: // copy / move
 		title = ui.DialogTitle.Render(fmt.Sprintf("%s %d %s", j.Op, n, items(n)))
 		body = "→ " + truncTail(j.Dest, 44)
+	}
+	if m.undoing {
+		if label := m.undoLabel(); label != "" {
+			body += "\n" + ui.Faint.Render("undoing the "+label)
+		}
 	}
 	if m.willOverwrite {
 		body += "\n" + ui.Danger.Render("Existing files will be overwritten.")

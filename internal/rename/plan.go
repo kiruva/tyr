@@ -286,5 +286,8 @@ func depth(rel string) int {
 	if rel == "" || rel == "." {
 		return 0
 	}
-	return strings.Count(rel, string(filepath.Separator)) + 1
+	// ToSlash so a path that arrived with the other platform's separator still
+	// counts: on Windows the ordering is what keeps a directory from being
+	// renamed before the entries inside it.
+	return strings.Count(filepath.ToSlash(rel), "/") + 1
 }

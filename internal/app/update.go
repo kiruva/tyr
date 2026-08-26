@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
+	"github.com/kiruva/tyr/internal/trash"
 )
 
 // Update implements tea.Model.
@@ -27,6 +29,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress = msg
 		return m, waitCmd(m.progressCh)
 
+	case fileops.Conflict:
+		return m.onConflict(msg)
+
 	case fileops.Result:
 		return m.finishOp(msg)
 
@@ -41,6 +46,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case renameCollectedMsg:
 		return m.onRenameCollected(msg)
+
+	case dirSizeMsg:
+		return m.onDirSize(msg)
+
+	case findDoneMsg:
+		return m.onFindDone(msg)
+
+	case syncDoneMsg:
+		return m.onSyncDone(msg)
+
+	case shellDoneMsg:
+		return m.onShellDone(msg)
+
+	case commandDoneMsg:
+		return m.onCommandDone(msg)
+
+	case tea.MouseMsg:
+		return m.onMouse(msg)
 
 	case tea.KeyMsg:
 		return m.onKey(msg)
@@ -66,12 +89,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.ren.fields[m.ren.focus], cmd = m.ren.fields[m.ren.focus].Update(msg)
 		return m, cmd
+	case modePack:
+		var cmd tea.Cmd
+		switch m.pack.focus {
+		case packFieldPassword:
+			m.pack.pw, cmd = m.pack.pw.Update(msg)
+		case packFieldName:
+			m.pack.name, cmd = m.pack.name.Update(msg)
+		}
+		return m, cmd
+	case modeUnpackPw:
+		var cmd tea.Cmd
+		m.unpackPw.input, cmd = m.unpackPw.input.Update(msg)
+		return m, cmd
+	case modeFilter:
+		var cmd tea.Cmd
+		m.filter.input, cmd = m.filter.input.Update(msg)
+		return m, cmd
+	case modeProps:
+		var cmd tea.Cmd
+		m.props.mode, cmd = m.props.mode.Update(msg)
+		return m, cmd
+	case modeBookmarkAdd:
+		var cmd tea.Cmd
+		m.bookmarkAdd.input, cmd = m.bookmarkAdd.input.Update(msg)
+		return m, cmd
+	case modeCommand:
+		var cmd tea.Cmd
+		m.command.input, cmd = m.command.input.Update(msg)
+		return m, cmd
+	case modeSelectMask:
+		var cmd tea.Cmd
+		m.selMask.input, cmd = m.selMask.input.Update(msg)
+		return m, cmd
+	case modeFind:
+		var cmd tea.Cmd
+		switch m.find.focus {
+		case findFieldName:
+			m.find.name, cmd = m.find.name.Update(msg)
+		case findFieldContent:
+			m.find.content, cmd = m.find.content.Update(msg)
+		}
+		return m, cmd
 	case modeEdit:
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
 		return m, cmd
 	case modeView:
 		var cmd tea.Cmd
+		if m.viewer.prompting {
+			m.viewer.input, cmd = m.viewer.input.Update(msg)
+			return m, cmd
+		}
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
 	}
@@ -94,8 +163,18 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeEdit:
 		return m.onEditKey(msg)
 	case modeHelp:
-		m.mode = modeNormal // any key dismisses the help overlay
-		return m, nil
+		// The two overlays swap into each other; anything else dismisses.
+		if key.Matches(msg, m.keys.Caps) {
+			m.mode, m.overlayScroll = modeCaps, 0
+			return m, nil
+		}
+		return m.scrollOverlay(msg)
+	case modeCaps:
+		if key.Matches(msg, m.keys.Help) {
+			m.mode, m.overlayScroll = modeHelp, 0
+			return m, nil
+		}
+		return m.scrollOverlay(msg)
 	case modeTheme:
 		return m.onThemeKey(msg)
 	case modeConn:
@@ -106,9 +185,57 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onRenameOneKey(msg)
 	case modeRename:
 		return m.onRenameKey(msg)
+	case modePack:
+		return m.onPackKey(msg)
+	case modeUnpackPw:
+		return m.onUnpackPwKey(msg)
+	case modeFilter:
+		return m.onFilterKey(msg)
+	case modeConflict:
+		return m.onConflictKey(msg)
+	case modeProps:
+		return m.onPropsKey(msg)
+	case modeSync:
+		return m.onSyncKey(msg)
+	case modeBookmarks:
+		return m.onBookmarksKey(msg)
+	case modeBookmarkAdd:
+		return m.onBookmarkAddKey(msg)
+	case modeCommand:
+		return m.onCommandKey(msg)
+	case modeRunning:
+		return m.onRunningKey(msg)
+	case modeKeys:
+		return m.onKeyEditKey(msg)
+	case modeSelectMask:
+		return m.onSelectMaskKey(msg)
+	case modeFind:
+		return m.onFindKey(msg)
 	default:
 		return m.onNormalKey(msg)
 	}
+}
+
+// scrollOverlay moves through an overlay too tall for the terminal. Anything
+// that is not a scroll key closes it, which is what "any key to close" means.
+func (m Model) scrollOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	step := m.overlayRows() - 1
+
+	switch msg.String() {
+	case "up", "k":
+		m.overlayScroll = max(m.overlayScroll-1, 0)
+	case "down", "j":
+		m.overlayScroll++
+	case "pgup", "ctrl+u":
+		m.overlayScroll = max(m.overlayScroll-step, 0)
+	case "pgdown", "ctrl+d":
+		m.overlayScroll += step
+	case "home", "g":
+		m.overlayScroll = 0
+	default:
+		m.mode, m.overlayScroll = modeNormal, 0
+	}
+	return m, nil
 }
 
 // onNormalKey handles navigation and triggers operations / view / edit.
@@ -118,6 +245,7 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Quit):
+		m.saveSession()    // where the panes were, for the next run
 		remote.ForgetAll() // close sessions and drop passwords from memory
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.Up):
@@ -149,7 +277,54 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := p.BeginEditPath()
 		return m, cmd
 	case key.Matches(msg, m.keys.Select):
+		// Space marks the entry; on a directory it also asks for the one thing
+		// the listing cannot say — how much is inside it.
+		cmd := m.sizeCurrentDir()
 		p.ToggleSelect()
+		return m, cmd
+	case key.Matches(msg, m.keys.SelectAll):
+		m.selectAll()
+	case key.Matches(msg, m.keys.Invert):
+		m.invertSelection()
+	case key.Matches(msg, m.keys.SelectMask):
+		cmd := m.openSelectMask(true)
+		return m, cmd
+	case key.Matches(msg, m.keys.Deselect):
+		cmd := m.openSelectMask(false)
+		return m, cmd
+	case key.Matches(msg, m.keys.Bookmarks):
+		cmd := m.openBookmarks()
+		return m, cmd
+	case key.Matches(msg, m.keys.BookmarkAdd):
+		cmd := m.openBookmarkAdd()
+		return m, cmd
+	case key.Matches(msg, m.keys.Shell):
+		cmd := m.openShell()
+		return m, cmd
+	case key.Matches(msg, m.keys.Command):
+		cmd := m.openCommand()
+		return m, cmd
+	case key.Matches(msg, m.keys.Sync):
+		cmd := m.openSync()
+		return m, cmd
+	case key.Matches(msg, m.keys.Props):
+		cmd := m.openProps()
+		return m, cmd
+	case key.Matches(msg, m.keys.Filter):
+		cmd := m.openFilter()
+		return m, cmd
+	case key.Matches(msg, m.keys.Find):
+		cmd := m.openFind()
+		return m, cmd
+	case key.Matches(msg, m.keys.SizeDirs):
+		cmd := m.sizeAllDirs()
+		return m, cmd
+	case key.Matches(msg, m.keys.Refresh):
+		cmd := m.refreshPane(m.active)
+		return m, cmd
+	case msg.String() == "esc":
+		// Nothing modal is open, so Esc is the way out of a narrowed pane.
+		p.ClearFilter()
 	case key.Matches(msg, m.keys.Hidden):
 		p.ToggleHidden()
 	case key.Matches(msg, m.keys.Sort):
@@ -158,11 +333,15 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.active = 1 - m.active
 	case key.Matches(msg, m.keys.Theme):
 		m.openThemePicker()
+	case key.Matches(msg, m.keys.Keys):
+		m.openKeyEditor()
 	case key.Matches(msg, m.keys.Connect):
 		cmd := m.openConnPicker()
 		return m, cmd
 	case key.Matches(msg, m.keys.Help):
-		m.mode = modeHelp
+		m.mode, m.overlayScroll = modeHelp, 0
+	case key.Matches(msg, m.keys.Caps):
+		m.mode, m.overlayScroll = modeCaps, 0
 	case key.Matches(msg, m.keys.View):
 		cmd := m.openViewer()
 		return m, cmd
@@ -188,6 +367,8 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Undo):
 		m.openUndo()
 	case key.Matches(msg, m.keys.Delete):
+		m.beginOp(m.deleteOp())
+	case key.Matches(msg, m.keys.DeletePerm):
 		m.beginOp(fileops.OpDelete)
 	case key.Matches(msg, m.keys.Pack):
 		m.beginOp(fileops.OpPack)
@@ -235,6 +416,7 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.startPending()
 		return m, cmd
 	case "n", "esc", "q":
+		m.undoing = false
 		// Cancelling a batch rename goes back to the tool with the form intact:
 		// the whole point of the preview is trying patterns out.
 		if m.pending.Op == fileops.OpRename && m.ren.open {
@@ -244,21 +426,6 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 	}
 	return m, nil
-}
-
-// onViewKey drives the read-only pager.
-func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "esc":
-		m.mode = modeNormal
-		return m, nil
-	case "e":
-		cmd := m.openEditor() // hand off to the editor on the same file
-		return m, cmd
-	}
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
 }
 
 // onEditKey drives the nano-style editor.
@@ -319,24 +486,6 @@ func (m *Model) loadCurrent() (data []byte, title string, err error) {
 	full := filepath.Join(p.Path, cur.Name)
 	data, err = os.ReadFile(full)
 	return data, cur.Name, err
-}
-
-// openViewer loads the current file into the read-only pager.
-func (m *Model) openViewer() tea.Cmd {
-	data, title, err := m.loadCurrent()
-	if err != nil {
-		m.errText = err.Error()
-		return nil
-	}
-	if isBinary(data) {
-		m.errText = "not a text file: " + title
-		return nil
-	}
-	m.viewTitle = title
-	m.viewport.SetContent(string(data))
-	m.viewport.GotoTop()
-	m.mode = modeView
-	return nil
 }
 
 // openEditor loads the current file into the editor and remembers where to save.
@@ -406,6 +555,9 @@ func (m *Model) closeEditor() {
 func (m *Model) beginOp(op fileops.Op) {
 	src := &m.panes[m.active]
 	if src.IsRemote() || m.panes[1-m.active].IsRemote() {
+		if op == fileops.OpTrash {
+			op = fileops.OpDelete // there is no trash on the far side
+		}
 		m.beginRemoteOp(op)
 		return
 	}
@@ -456,6 +608,11 @@ func (m *Model) beginOp(op fileops.Op) {
 
 	case fileops.OpDelete:
 		// destructive; no destination
+	case fileops.OpTrash:
+		if err := trashAvailable(); err != nil {
+			m.errText = err.Error()
+			return
+		}
 
 	case fileops.OpUnpack, fileops.OpUnwrap:
 		if bad := firstNonArchive(names); bad != "" {
@@ -477,11 +634,10 @@ func (m *Model) beginOp(op fileops.Op) {
 			m.errText = "source and destination are the same directory"
 			return
 		}
-		job.Dest = other
-		job.Out = filepath.Join(other, packName(names))
-		if _, err := os.Stat(job.Out); err == nil {
-			m.willOverwrite = true
-		}
+		// Packing has settings worth choosing, so it opens the pack dialog and
+		// reaches the confirm prompt from there.
+		m.openPack(srcs, names, other)
+		return
 	}
 
 	m.pending = job
@@ -498,6 +654,30 @@ func anyExist(dir string, names []string) bool {
 	return false
 }
 
+// deleteOp is what F8 means here: the trash when it is switched on and usable,
+// an unlink when it is not. A remote pane has no trash to speak of, and the
+// remote branch of beginOp turns either one into OpRemoteDelete.
+func (m Model) deleteOp() fileops.Op {
+	if m.deleteToTrash && trash.Available() {
+		return fileops.OpTrash
+	}
+	return fileops.OpDelete
+}
+
+// trashAvailable explains why a trash delete cannot run, if it cannot.
+func trashAvailable() error {
+	if trash.Available() {
+		return nil
+	}
+	return fmt.Errorf("no usable trash directory — D deletes permanently")
+}
+
+// localExists reports whether anything is at path on this machine.
+func localExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
 // firstNonArchive returns the first name that isn't a supported archive, or "".
 func firstNonArchive(names []string) string {
 	for _, n := range names {
@@ -506,14 +686,6 @@ func firstNonArchive(names []string) string {
 		}
 	}
 	return ""
-}
-
-// packName picks the output archive name for a pack job.
-func packName(names []string) string {
-	if len(names) == 1 {
-		return names[0] + ".tar.gz"
-	}
-	return "archive.tar.gz"
 }
 
 // startPending launches the confirmed job and enters progress mode.
@@ -531,20 +703,41 @@ func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
 	m.progressCh = nil
 
-	switch res.Op {
-	case fileops.OpRename:
+	// An encrypted archive is not a failure yet: ask for the password and run
+	// the same job again with it.
+	if errors.Is(res.Err, fileops.ErrNeedPassword) {
+		cmd := m.askUnpackPassword(m.pending)
+		return m, cmd
+	}
+
+	wasUndo := m.undoing
+	m.undoing = false
+
+	switch {
+	case res.Op == fileops.OpRename:
 		// The batch is done; the tool it came from has nothing left to preview,
 		// and what it did becomes the top of the undo history.
 		m.ren.fields[m.ren.focus].Blur()
 		m.ren = renameState{}
-		m.pushUndo(m.pending.Dest, res.Renamed)
+		m.pushUndoRename(m.pending.Dest, res.Renamed)
 		if n := len(res.Renamed); n > 0 {
 			m.noticeText = fmt.Sprintf("renamed %s · ctrl+z to undo", rename.UndoLabel(res.Renamed))
 		}
-	case fileops.OpRenameUndo:
+	case res.Op == fileops.OpRenameUndo:
 		m.popUndo()
 		if n := len(res.Renamed); n > 0 {
 			m.noticeText = "put " + rename.UndoLabel(res.Renamed) + " back"
+		}
+	case wasUndo:
+		// The reversal ran: the entry it came from is spent either way.
+		m.popUndo()
+		if res.Err == nil {
+			m.noticeText = "put it back"
+		}
+	default:
+		m.recordUndo(res)
+		if notice := undoNotice(res); notice != "" {
+			m.noticeText = notice
 		}
 	}
 
@@ -555,10 +748,35 @@ func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
-	if res.Err != nil {
+
+	switch {
+	case errors.Is(res.Err, fileops.ErrCancelled):
+		// Cancelling at a collision is a decision, not a failure. Whatever was
+		// copied before it still counts, and is still in the undo history.
+		m.noticeText = res.Op.String() + " cancelled"
+	case res.Err != nil:
 		m.errText = res.Op.String() + " failed: " + res.Err.Error()
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// undoNotice is what to say about a job that can now be put back.
+func undoNotice(res fileops.Result) string {
+	switch res.Op {
+	case fileops.OpCopy:
+		if n := len(res.Created); n > 0 {
+			return fmt.Sprintf("copied %s · ctrl+z removes the copies", countLabel(n))
+		}
+	case fileops.OpMove:
+		if n := len(res.Moved); n > 0 {
+			return fmt.Sprintf("moved %s · ctrl+z puts it back", countLabel(n))
+		}
+	case fileops.OpTrash:
+		if n := len(res.Trashed); n > 0 {
+			return fmt.Sprintf("%s to trash · ctrl+z puts it back", countLabel(n))
+		}
+	}
+	return ""
 }
 
 // resizePanes splits the terminal into two panes above the status bar and sizes
@@ -575,6 +793,11 @@ func (m *Model) resizePanes() {
 	}
 	m.viewport.Width = m.width
 	m.viewport.Height = compH
+	if len(m.viewer.raw) > 0 {
+		// Wrapping and the hex dump are laid out against the width, so a resize
+		// is a re-render, not just a smaller window onto the old one.
+		m.refreshViewer()
+	}
 	m.editor.SetWidth(m.width)
 	m.editor.SetHeight(compH)
 }

@@ -53,6 +53,24 @@ jobs:
             echo "Next version: **$TAG**" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Preview the release notes
+        env:
+          TAG: v${{ steps.gitversion.outputs.majorMinorPatch }}
+        run: |
+          if ./scripts/changelog.sh has-entries; then
+            {
+              echo
+              echo "<details><summary>Release notes $TAG would carry</summary>"
+              echo
+              ./scripts/changelog.sh section unreleased
+              echo
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::CHANGELOG.md has nothing under ## [Unreleased]"
+            echo "**CHANGELOG.md has nothing under \`## [Unreleased]\`** — the release would have no notes." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   tag:
     name: Push tag
     needs: version
@@ -67,25 +85,63 @@ jobs:
           echo "::error::${{ needs.version.outputs.tag }} already exists. Land a change, or bump explicitly with a +semver: marker."
           exit 1
 
+      - name: Check the deploy key is there
+        env:
+          KEY: ${{ secrets.CHANGELOG_DEPLOY_KEY }}
+        run: |
+          [ -n "$KEY" ] || {
+            echo "::error::CHANGELOG_DEPLOY_KEY is not set — the changelog commit cannot reach main. See CONTRIBUTING.md#releasing."
+            exit 1
+          }
+
+      # The deploy key, not GITHUB_TOKEN: main is guarded by a ruleset requiring
+      # a pull request, and a repository ruleset cannot exempt GitHub Actions on
+      # a user-owned repo — the Actions app is not an installed integration
+      # there. A write deploy key can be exempted, so the changelog commit and
+      # the tag are pushed over SSH with one. See CONTRIBUTING.md#releasing.
       - uses: actions/checkout@v5
         with:
+          ssh-key: ${{ secrets.CHANGELOG_DEPLOY_KEY }}
           fetch-depth: 0
+
+      - name: Identify as the bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # The heading move that used to be a manual step. It lands on the branch
+      # first so that the tag points at the commit whose CHANGELOG.md describes
+      # it — which is also where the release notes are read from.
+      - name: Promote the changelog
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if ! ./scripts/changelog.sh has-entries; then
+            echo "::warning::CHANGELOG.md has nothing under ## [Unreleased]; tagging without promoting it"
+            exit 0
+          fi
+          ./scripts/changelog.sh promote "$VERSION" "$(date -u +%Y-%m-%d)"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): release v$VERSION"
+          git push origin "HEAD:$BRANCH"
 
       - name: Create and push the tag
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 
   release:
     name: Release
-    needs: tag
+    needs: [version, tag]
     # A tag pushed with GITHUB_TOKEN does not start another workflow, so the
     # release is called directly rather than waiting on the tag trigger.
     uses: ./.github/workflows/release.yml
+    with:
+      # Build the tag, not the branch as it was before the changelog commit.
+      ref: ${{ needs.version.outputs.tag }}
     permissions:
       contents: write
     secrets: inherit

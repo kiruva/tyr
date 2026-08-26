@@ -29,6 +29,8 @@ func (m *Model) OpenRemote(h remote.Host, path string) {
 	m.focusPending = ""
 	m.Cursor = 0
 	m.selected = map[string]bool{}
+	m.filter = ""
+	m.clearDirSizes()
 	m.loading = true
 	m.syncAddr()
 }
@@ -57,6 +59,7 @@ func (m *Model) SetRemoteListing(requested string, l remote.Listing) bool {
 	m.loading = false
 	m.Cursor = 0
 	m.selected = map[string]bool{}
+	m.clearDirSizes()
 
 	m.remoteRaw = make([]Entry, 0, len(l.Entries))
 	for _, e := range l.Entries {
@@ -66,6 +69,7 @@ func (m *Model) SetRemoteListing(requested string, l remote.Listing) bool {
 			Size:    e.Size,
 			Mode:    e.Mode,
 			ModTime: e.ModTime,
+			HasSize: !e.IsDir,
 		})
 	}
 	m.reload()
@@ -108,16 +112,12 @@ func (m *Model) RemoteEntryPath() (string, bool) {
 	return remote.Join(m.Path, cur.Name), true
 }
 
-// remoteEntries applies the pane's view options to the cached listing.
-func (m *Model) remoteEntries() []Entry {
+// remoteRawEntries is the cached listing with ".." in front; the view options
+// are applied by reloadEntries, the same as for a local directory.
+func (m *Model) remoteRawEntries() []Entry {
 	entries := make([]Entry, 0, len(m.remoteRaw)+1)
 	if m.Path != "/" {
 		entries = append(entries, Entry{Name: "..", IsDir: true})
 	}
-	entries = append(entries, m.remoteRaw...)
-	if !m.showHidden {
-		entries = dropDotfiles(entries)
-	}
-	sortEntries(entries, m.sort)
-	return entries
+	return append(entries, m.remoteRaw...)
 }

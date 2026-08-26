@@ -315,9 +315,9 @@ func TestSummarizeAndApplicableOrder(t *testing.T) {
 	touch(t, root, "blocked")
 
 	changes := []Change{
-		{Rel: "a/b/deep.txt", New: "deep2.txt", Changed: true},
+		{Rel: filepath.FromSlash("a/b/deep.txt"), New: "deep2.txt", Changed: true},
 		{Rel: "top.txt", New: "top2.txt", Changed: true},
-		{Rel: "a/mid.txt", New: "mid2.txt", Changed: true},
+		{Rel: filepath.FromSlash("a/mid.txt"), New: "mid2.txt", Changed: true},
 		{Rel: "keep.txt", New: "keep.txt"},
 		{Rel: "bad.txt", New: "blocked", Changed: true, Problem: "exists"},
 	}

@@ -7,6 +7,15 @@ on:
   # Called by the Tag workflow right after it pushes a tag, since a tag pushed
   # with GITHUB_TOKEN does not fire the trigger above.
   workflow_call:
+    inputs:
+      ref:
+        description: >-
+          What to build. A called workflow checks out the caller's commit by
+          default, which is the branch as it was when Tag started — before the
+          changelog commit and the tag itself. Tag passes the tag here so the
+          build is the thing that was tagged.
+        type: string
+        required: false
 
 permissions:
   contents: write
@@ -17,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v6
@@ -24,10 +34,26 @@ jobs:
           go-version: stable
           cache: true
 
+      # The release notes are the CHANGELOG.md section for this version, so what
+      # GitHub shows and what the repo says are the same text. Without a section
+      # to read, GoReleaser falls back to its commit list.
+      - id: notes
+        name: Release notes from the changelog
+        run: |
+          version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "$GITHUB_REF_NAME")
+          version=${version#v}
+          if ./scripts/changelog.sh section "$version" > "$RUNNER_TEMP/notes.md" && [ -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "Release notes for $version taken from CHANGELOG.md." >> "$GITHUB_STEP_SUMMARY"
+            echo "args=release --clean --release-notes=$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::CHANGELOG.md has no [$version] section; using the commit list"
+            echo "args=release --clean" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: ${{ steps.notes.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

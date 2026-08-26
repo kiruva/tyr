@@ -13,6 +13,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -23,9 +24,18 @@ archives:
   - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Windows gets a zip, since that is what Explorer opens without a tool.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
+
+# What --snapshot stamps a build with, which is what the nightly ships: the next
+# patch version, marked as a nightly, plus the commit it came from.
+snapshot:
+  version_template: "{{ incpatch .Version }}-nightly.{{ .ShortCommit }}"
 
 changelog:
   sort: asc

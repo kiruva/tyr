@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -87,12 +88,16 @@ func TestConnectionsNeverStorePassword(t *testing.T) {
 		}
 	}
 
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("config permissions = %o, want 600", perm)
+	// Windows has no permission bits: a file there is protected by an ACL, and
+	// os.Chmod only flips the read-only attribute.
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := fi.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("config permissions = %o, want 600", perm)
+		}
 	}
 }
 
