@@ -34,10 +34,16 @@ to Windows, reimagined for the terminal.
   password; browse an archive as though it were a directory, and add files to one without
   unpacking it.
 - **Text viewer and editor.** Read or edit a file in place — including a file **inside** an
-  archive.
+  archive. The viewer finds text, wraps or doesn't, numbers the lines, highlights the syntax,
+  and shows the bytes of anything that isn't text.
 - **ssh.** Browse a remote host in either pane and transfer in either direction, with
   `~/.ssh/config` aliases, agent and key authentication, and host-key verification.
-- **Themes.** Eight built-in colour schemes with a live-preview picker.
+- **Themes.** Eight built-in colour schemes with a live-preview picker, and your own in
+  `~/.config/tyr/themes` — eight colours in a file.
+- **Your keys.** Every action is rebindable, from the config file or from the editor `K`
+  opens; the help overlay always shows what the keys actually are.
+- **Mouse.** Click to put the cursor somewhere, double-click to open, right-click to mark,
+  wheel to scroll — and `mouse = off` if the terminal should keep the pointer.
 - **Directory sizes.** `Space` measures the directory under the cursor, `=` measures the whole
   pane — off the UI thread, and the sort follows.
 - **Properties.** `i` shows what an entry is — type, size, times, owner, link target — and
@@ -80,6 +86,7 @@ see which of those this machine actually has (see [Capabilities](#capabilities))
 tyr                       # or: go run .
 tyr --theme nord          # start with a theme
 tyr --themes              # list the built-in themes
+tyr --new-theme rose      # write a theme file to edit, then exit
 tyr --cd-file /tmp/where  # write the directory it exits in, for a shell wrapper
 tyr --version
 tyr --help
@@ -131,6 +138,7 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `e`                 | Edit file (nano-style)          |
 | `S` / `Ctrl+S`      | ssh connections                 |
 | `t`                 | Theme picker                    |
+| `K`                 | Edit the keybindings            |
 | `?`                 | Show all keybindings            |
 | `C`                 | Show capabilities on this box   |
 | `y` / `n`           | Confirm / cancel a prompt       |
@@ -138,7 +146,63 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 
 Press `?` any time for the full keybinding overlay, grouped by what each key does, and `C`
 for the capabilities overlay (see [Capabilities](#capabilities)) — the two swap into each
-other. Directories always sort before files; `s` orders the entries within each group.
+other, and both scroll when the terminal is too short to hold them. Directories always sort
+before files; `s` orders the entries within each group.
+
+### Rebinding them
+
+None of the above is fixed. `K` opens the keymap:
+
+```
+ keys · 47 actions                                    saved to the config file
+───────────────────────────────────────────────────────────────────────────────
+▸ Navigate   up                       ↑ k
+             down                     ↓ j
+  Select     select / size dir        space
+  Look       filter (esc clears)      /
+ enter rebind · a add a key · d default · D all defaults              esc close
+```
+
+`Enter` waits for the key you want and binds it; `a` adds a second key to the same action;
+`d` puts one action back to its default and `D` puts every one back. A key that already
+belongs to something else is refused and told whose it is, because two actions on one key is
+not a preference. `Ctrl+C` and `Esc` cannot be rebound — they are how you get out of things.
+
+Every change is written to the config file as it is made, one line per rebound action, which
+is also how to do it by hand:
+
+```ini
+key.copy = f5,c
+key.sort = z
+key.select = space      # the space bar and the comma are written as words
+```
+
+The action names are the ones the editor lists; a name tyr does not know is reported in the
+status bar at startup rather than silently doing nothing. The help overlay is generated from
+whatever the keys currently are, so it never describes a binding you have changed.
+
+The keys *inside* a tool — the pager's `w`, the sync list's arrows, `y`/`n` on a prompt — are
+local to that tool and are not rebindable.
+
+## The mouse
+
+Clicking is not how a file manager is driven, but it is how one is pointed at:
+
+| Action           | What it does                                          |
+| ---------------- | ----------------------------------------------------- |
+| left click       | focus that pane and put the cursor on that row         |
+| double click     | open the entry under the pointer                       |
+| right click      | mark the entry, without walking the cursor on          |
+| click the path   | open that pane's address bar                           |
+| wheel            | scroll the pane, list, or file under the pointer       |
+
+With a dialog open the pointer is aiming at the dialog, so clicks do not reach the panes
+behind it; the wheel still moves through whichever list is in front. Everything the mouse does
+has a key that does the same, so nothing depends on having one.
+
+```ini
+mouse = off      # leave the pointer to the terminal, for selecting and pasting
+```
 
 ## Address bar
 
@@ -836,14 +900,37 @@ it, and the `.7z` row turns green without restarting tyr.
 
 ## View & edit
 
-`v` opens a file in a scrollable read-only viewer (`e` switches to editing, `q`/`Esc` closes);
-`e` opens it in a nano-style editor — `Ctrl+S` saves, `Ctrl+Q` quits, and `Esc` guards unsaved
-changes. Binary files are refused.
+`v` opens a file in the pager, `e` opens it in a nano-style editor — `Ctrl+S` saves, `Ctrl+Q`
+quits, and `Esc` guards unsaved changes.
+
+The pager has the four switches a pager is asked for:
+
+| Key   | What it does                                                            |
+| ----- | ----------------------------------------------------------------------- |
+| `/`   | find text — the file narrows to the hits as you type                     |
+| `n`   | next hit; `N` the previous one, both wrapping around the file            |
+| `w`   | wrap long lines instead of cutting them at the edge                      |
+| `#`   | line numbers                                                             |
+| `x`   | the hex dump: offset, bytes, and the characters they stand for           |
+| `s`   | syntax highlighting                                                      |
+| `e`   | hand this file to the editor                                             |
+| `q`   | close (`Esc` clears the search first, if there is one)                   |
+
+Everything the pager draws is built from the bytes it was handed, so each of those is a
+re-render rather than a re-read — which is why **a binary file opens instead of being
+refused**. It comes up in hex, and `x` switches back if you want to see it as text anyway.
+
+Highlighting is a small built-in one rather than a dependency: it knows four shapes of
+language — C-like (`//` and `/* */`, quoted strings), hash-comment (shell, Python, YAML, TOML,
+Makefiles), JSON, and Markdown — and within them it finds comments, strings, numbers and
+keywords, carrying a block comment or a fenced code block across the lines it spans. It is
+what a reader's eye uses. It is not a parser, and it does not pretend to be one.
 
 Both work on archive members. An edited member is written back to the archive: a targeted
 update for zip and uncompressed tar, a transparent repack for compressed tar.
 
-View and edit are local-only; copy a remote file across first.
+View and edit are local-only; copy a remote file across first. `x` runs a command and shows
+what it printed in this same pager (see [The shell](#the-shell)).
 
 ## Over ssh
 
@@ -977,6 +1064,39 @@ theme = nord
 Saved ssh connections share this file; see [Over ssh](#over-ssh), and so does the session tyr
 writes on the way out — see below.
 
+### Your own themes
+
+A theme is eight colours, so a theme is eight lines. Drop a `.theme` file in
+`$XDG_CONFIG_HOME/tyr/themes` (or `~/.config/tyr/themes`) and it is in the picker on the next
+start — sending someone a theme is sending them a file.
+
+```sh
+tyr --new-theme rose     # writes themes/rose.theme from the theme you are using
+```
+
+```ini
+# ~/.config/tyr/themes/rose.theme
+name     = rose          # optional; the file name is used otherwise
+accent   = #D3869B       # active border, cursor, directory names, keywords
+dim      = #665C54       # inactive border, faint text, comments
+fg       = #FBF1C7       # status bar text
+title    = #EBDBB2       # address bar, numbers in code
+mark     = #FABD2F       # marked entries, strings, search hits
+bar      = #3C3836       # status bar background
+danger   = #FB4934       # deletes, overwrites, errors
+cursorfg = #1D2021       # text drawn on top of accent
+```
+
+Colours are `#rgb`, `#rrggbb`, or an ANSI palette index from 0 to 255 — the built-in `default`
+theme is made of those, which is why it follows your terminal's own palette. A file named
+after a built-in replaces it, so adjusting `nord` is a file called `nord.theme` rather than a
+second theme with a different name.
+
+A file that is not a theme costs its own theme and nothing else: tyr says which file and what
+was wrong with it in the status bar, and carries on with the rest.
+
+Built-in themes are pure data too — a name plus eight colours in `internal/ui/theme.go`.
+
 ## What tyr remembers
 
 Quitting with `q` writes each pane's sort order, hidden-file setting and directory to the same
@@ -998,7 +1118,11 @@ not**, unless you ask for them:
 startup = last     # reopen where you left off; anything else (or nothing) means the
                    # directory you launched tyr from
 delete = remove    # make F8 unlink instead of using the trash (default: trash)
+mouse = off        # ignore the mouse (default: on)
 ```
+
+Rebound keys live in the same file, as `key.<action>` lines — see
+[Rebinding them](#rebinding-them).
 
 A saved directory that has since gone away is skipped rather than argued about, and a pane
 that ended the run on a remote host saves no path — the connection is not restored, so neither
@@ -1009,9 +1133,6 @@ filter.
 > directory to `~/.config/tyr` and tells you it did, so your theme and connections carry
 > over. If a `~/.config/tyr` already exists it is left alone and nothing is moved. The
 > `LAZYFILES_THEME` environment variable is *not* carried over — use `TYR_THEME`.
-
-Themes are pure data — a name plus eight colours in `internal/ui/theme.go`. Adding one is a
-single struct literal; every style is rebuilt from it.
 
 ## Development
 

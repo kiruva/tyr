@@ -23,6 +23,39 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **The viewer got the four things a pager is asked for.** `/` finds text (with `n` / `N`
+  walking the hits and wrapping around the file), `w` wraps long lines, `#` numbers them, and
+  `x` shows the hex dump — offset, bytes, and the characters they stand for. `s` toggles
+  syntax highlighting. Everything is rendered from the bytes the viewer holds, so each switch
+  is a re-render: **a binary file now opens in hex instead of being refused.** A command run
+  with `x` shows its output in the same pager.
+- **Syntax highlighting**, built in rather than a dependency: four shapes of language —
+  C-like, hash-comment (shell, Python, YAML, TOML, Makefiles), JSON and Markdown — with
+  comments, strings, numbers and keywords found, and block comments, raw strings and fenced
+  code blocks carried across the lines they span. Colours come from the same eight theme
+  colours as the rest of the UI, so no theme has to say anything about code.
+- **Your own themes**: a `.theme` file in `<config>/themes` — eight colours and an optional
+  name — is in the picker on the next start, and a file named after a built-in replaces it.
+  `--new-theme NAME` writes one from the theme you are using. A broken theme file is reported
+  in the status bar and costs only its own theme.
+- **Every key is rebindable.** `K` opens a key editor: `Enter` waits for the key to bind, `a`
+  adds a second one, `d` resets one action and `D` resets all of them. A key that is already
+  taken is refused and told whose it is; `Ctrl+C` and `Esc` cannot be rebound. Changes are
+  written to the config as `key.<action> = …` lines as they are made, and the same lines can
+  be written by hand. The help overlay is generated from the current bindings, so it cannot
+  describe a key you have changed.
+- **Mouse support**: click to focus a pane and move the cursor, double-click to open,
+  right-click to mark, click the path to edit it, and the wheel to scroll whatever is under
+  the pointer — including the lists inside dialogs. `mouse = off` in the config leaves the
+  pointer to the terminal.
+
+### Changed
+
+- The help overlay's key labels are generated from what the keys are bound to rather than
+  written by hand, so they follow a rebinding.
+- `--help` lists `--new-theme`, and `--themes` includes themes loaded from the config
+  directory.
+
 - **A collision asks instead of clobbering.** A copy or move onto a name already in use stops
   and shows both files, with the newer one marked: overwrite, skip, keep both (the incoming
   file becomes `name (2).ext`), or overwrite only when the source is newer. The capital of each

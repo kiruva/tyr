@@ -62,6 +62,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commandDoneMsg:
 		return m.onCommandDone(msg)
 
+	case tea.MouseMsg:
+		return m.onMouse(msg)
+
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -134,6 +137,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case modeView:
 		var cmd tea.Cmd
+		if m.viewer.prompting {
+			m.viewer.input, cmd = m.viewer.input.Update(msg)
+			return m, cmd
+		}
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
 	}
@@ -198,6 +205,8 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onCommandKey(msg)
 	case modeRunning:
 		return m.onRunningKey(msg)
+	case modeKeys:
+		return m.onKeyEditKey(msg)
 	case modeSelectMask:
 		return m.onSelectMaskKey(msg)
 	case modeFind:
@@ -324,6 +333,8 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.active = 1 - m.active
 	case key.Matches(msg, m.keys.Theme):
 		m.openThemePicker()
+	case key.Matches(msg, m.keys.Keys):
+		m.openKeyEditor()
 	case key.Matches(msg, m.keys.Connect):
 		cmd := m.openConnPicker()
 		return m, cmd
@@ -417,21 +428,6 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onViewKey drives the read-only pager.
-func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "esc":
-		m.mode = modeNormal
-		return m, nil
-	case "e":
-		cmd := m.openEditor() // hand off to the editor on the same file
-		return m, cmd
-	}
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
-}
-
 // onEditKey drives the nano-style editor.
 func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -490,24 +486,6 @@ func (m *Model) loadCurrent() (data []byte, title string, err error) {
 	full := filepath.Join(p.Path, cur.Name)
 	data, err = os.ReadFile(full)
 	return data, cur.Name, err
-}
-
-// openViewer loads the current file into the read-only pager.
-func (m *Model) openViewer() tea.Cmd {
-	data, title, err := m.loadCurrent()
-	if err != nil {
-		m.errText = err.Error()
-		return nil
-	}
-	if isBinary(data) {
-		m.errText = "not a text file: " + title
-		return nil
-	}
-	m.viewTitle = title
-	m.viewport.SetContent(string(data))
-	m.viewport.GotoTop()
-	m.mode = modeView
-	return nil
 }
 
 // openEditor loads the current file into the editor and remembers where to save.
@@ -815,6 +793,11 @@ func (m *Model) resizePanes() {
 	}
 	m.viewport.Width = m.width
 	m.viewport.Height = compH
+	if len(m.viewer.raw) > 0 {
+		// Wrapping and the hex dump are laid out against the width, so a resize
+		// is a re-render, not just a smaller window onto the old one.
+		m.refreshViewer()
+	}
 	m.editor.SetWidth(m.width)
 	m.editor.SetHeight(compH)
 }

@@ -6,18 +6,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Color is one colour in a theme: a hex triple, or an ANSI palette index.
+type Color = lipgloss.Color
+
 // Theme is the full colour vocabulary of the UI. Every style in styles.go is
-// derived from these eight colours, so adding a theme is a data change only.
+// derived from these eight colours, so adding a theme is a data change only —
+// a built-in struct literal below, or a file in <config>/themes.
 type Theme struct {
 	Name     string
-	Accent   lipgloss.Color // active border, cursor, directory names
-	Dim      lipgloss.Color // inactive border, faint/secondary text
-	Fg       lipgloss.Color // primary text on the status bar
-	Title    lipgloss.Color // address bar text
-	Mark     lipgloss.Color // entries marked with Space
-	Bar      lipgloss.Color // status bar background
-	Danger   lipgloss.Color // destructive actions and errors
-	CursorFg lipgloss.Color // text drawn on top of Accent
+	Accent   Color // active border, cursor, directory names
+	Dim      Color // inactive border, faint/secondary text
+	Fg       Color // primary text on the status bar
+	Title    Color // address bar text
+	Mark     Color // entries marked with Space
+	Bar      Color // status bar background
+	Danger   Color // destructive actions and errors
+	CursorFg Color // text drawn on top of Accent
 }
 
 // themes is the built-in set, in picker order. The first entry is the default.
@@ -112,10 +116,11 @@ var themes = []Theme{
 	},
 }
 
-// Themes returns the built-in themes in picker order.
+// Themes returns the known themes in picker order: the built-ins, then whatever
+// LoadUserThemes found.
 func Themes() []Theme { return themes }
 
-// ThemeNames lists the built-in theme names in picker order.
+// ThemeNames lists the known theme names in picker order.
 func ThemeNames() []string {
 	names := make([]string, 0, len(themes))
 	for _, t := range themes {

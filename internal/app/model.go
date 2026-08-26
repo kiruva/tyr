@@ -4,6 +4,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -43,6 +44,7 @@ const (
 	modeBookmarkAdd             // naming a new bookmark
 	modeCommand                 // typing a shell command to run
 	modeRunning                 // a shell command is running
+	modeKeys                    // the key editor
 )
 
 // editTarget records what an edit session is writing back to.
@@ -74,6 +76,7 @@ type Model struct {
 	// view/edit state
 	viewport   viewport.Model
 	viewTitle  string
+	viewer     viewerState
 	editor     textarea.Model
 	edit       editTarget
 	editOrig   string // content as loaded, for dirty detection
@@ -122,6 +125,12 @@ type Model struct {
 	// the shell command prompt and the run it starts
 	command commandState
 
+	// the key editor
+	keyEdit keyEditState
+
+	// the last mouse click, for telling a double one from two singles
+	lastClick clickRecord
+
 	// deleteToTrash sends a delete to the desktop trash rather than unlinking
 	deleteToTrash bool
 
@@ -159,6 +168,15 @@ func New() Model {
 // removed mount cannot stop the app from starting.
 func (m Model) WithSession(cfg config.Config) Model {
 	m.deleteToTrash = cfg.TrashDeletes()
+
+	if len(cfg.Keys) > 0 {
+		binds, unknown := fromConfigKeys(cfg.Keys)
+		m.keys = keysFrom(binds)
+		if len(unknown) > 0 {
+			// A misspelled action would otherwise do nothing at all, quietly.
+			m.noticeText = "config: no such key action: " + strings.Join(unknown, ", ")
+		}
+	}
 
 	restore := cfg.RestorePaths()
 	for i := range m.panes {
@@ -203,7 +221,14 @@ func (m Model) saveSession() {
 // config directory, say — gets in front of the user, since anything printed
 // before the alt screen opens is not visible until after the app exits.
 func (m Model) WithNotice(text string) Model {
-	m.noticeText = text
+	switch {
+	case text == "":
+	case m.noticeText == "":
+		m.noticeText = text
+	default:
+		// Startup can have more than one thing to say; neither should win.
+		m.noticeText += " · " + text
+	}
 	return m
 }
 

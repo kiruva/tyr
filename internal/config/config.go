@@ -25,8 +25,15 @@ type Config struct {
 	// "remove" unlinks straight away.
 	Delete string
 
+	// Mouse is whether clicks and the wheel are acted on: "on" (the default) or
+	// "off", for a terminal where the mouse should stay the terminal's.
+	Mouse string
+
 	// Panes is the view state each side was left in, saved on exit.
 	Panes [2]PaneState
+
+	// Keys is the rebound actions, by the name the app knows them under.
+	Keys map[string][]string
 }
 
 // PaneState is one pane's remembered view: where it was and how it was showing
@@ -40,6 +47,10 @@ type PaneState struct {
 
 // RestorePaths reports whether the saved directories should be reopened.
 func (c Config) RestorePaths() bool { return strings.EqualFold(c.Startup, "last") }
+
+// MouseEnabled reports whether tyr should ask the terminal for mouse events.
+// Only an explicit "off" turns it off.
+func (c Config) MouseEnabled() bool { return !strings.EqualFold(c.Mouse, "off") }
 
 // TrashDeletes reports whether a delete should go to the desktop trash. Only an
 // explicit "remove" turns it off: an unset or misspelled value keeps the
@@ -95,6 +106,8 @@ func Load() (Config, error) {
 		Theme:   lookup(pairs, "theme"),
 		Startup: lookup(pairs, "startup"),
 		Delete:  lookup(pairs, "delete"),
+		Mouse:   lookup(pairs, "mouse"),
+		Keys:    keysFrom(pairs),
 	}
 	for i, prefix := range paneKeys {
 		cfg.Panes[i] = PaneState{

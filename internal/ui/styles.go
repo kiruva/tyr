@@ -62,6 +62,23 @@ var (
 	// BarFilled / BarEmpty render the progress bar.
 	BarFilled lipgloss.Style
 	BarEmpty  lipgloss.Style
+
+	// Gutter styles the viewer's line numbers and the hex dump's offsets.
+	Gutter lipgloss.Style
+
+	// Match highlights a search hit in the viewer, and MatchCurrent the one the
+	// cursor is on.
+	Match        lipgloss.Style
+	MatchCurrent lipgloss.Style
+
+	// The syntax styles colour the viewer's highlighting. They are drawn from
+	// the same eight theme colours as everything else, so a theme does not have
+	// to say anything about code to look right on it.
+	SyntaxKeyword lipgloss.Style
+	SyntaxString  lipgloss.Style
+	SyntaxComment lipgloss.Style
+	SyntaxNumber  lipgloss.Style
+	SyntaxHeading lipgloss.Style
 )
 
 // current is the theme the styles were last built from.
@@ -150,6 +167,17 @@ func Apply(t Theme) {
 
 	BarFilled = lipgloss.NewStyle().Foreground(t.Accent)
 	BarEmpty = lipgloss.NewStyle().Foreground(t.Dim)
+
+	Gutter = lipgloss.NewStyle().Foreground(t.Dim)
+
+	Match = lipgloss.NewStyle().Background(t.Mark).Foreground(t.CursorFg)
+	MatchCurrent = lipgloss.NewStyle().Background(t.Accent).Foreground(t.CursorFg).Bold(true)
+
+	SyntaxKeyword = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	SyntaxString = lipgloss.NewStyle().Foreground(t.Mark)
+	SyntaxComment = lipgloss.NewStyle().Foreground(t.Dim).Italic(true)
+	SyntaxNumber = lipgloss.NewStyle().Foreground(t.Title)
+	SyntaxHeading = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Underline(true)
 }
 
 // Swatch renders a small colour sample of a theme, for the theme picker.

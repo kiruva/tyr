@@ -143,6 +143,40 @@ func (m *Model) Focus(name string) {
 	}
 }
 
+// EntryAt maps a point inside the pane onto the entry drawn there. The
+// coordinates are relative to the pane's own top-left corner, and the layout it
+// undoes is the one View lays out: a border, then the address bar, then as many
+// entry rows as fit.
+func (m *Model) EntryAt(x, y int) (int, bool) {
+	if x < 0 || x >= m.width || y < 2 || y >= m.height-1 {
+		return 0, false
+	}
+
+	rows := max(m.height-2-1, 1)
+	start := 0
+	if m.Cursor >= rows {
+		start = m.Cursor - rows + 1
+	}
+
+	index := start + (y - 2)
+	if index < 0 || index >= len(m.Entries) {
+		return 0, false
+	}
+	return index, true
+}
+
+// OnAddressBar reports whether a point is on the pane's top line, which is the
+// path — clicking it is how the address bar is opened with the mouse.
+func (m *Model) OnAddressBar(x, y int) bool {
+	return y == 1 && x >= 0 && x < m.width
+}
+
+// SetCursor moves the cursor to an entry index, clamped to what is there.
+func (m *Model) SetCursor(index int) {
+	m.Cursor = index
+	m.clampCursor()
+}
+
 // Cursor movement ------------------------------------------------------------
 
 func (m *Model) MoveUp() {

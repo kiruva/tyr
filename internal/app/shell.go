@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/kiruva/tyr/internal/syntax"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -174,11 +175,7 @@ func (m Model) onCommandDone(msg commandDoneMsg) (tea.Model, tea.Cmd) {
 		body = "(no output)"
 	}
 
-	m.viewTitle = "$ " + msg.line
-	m.viewport.SetContent(body)
-	m.viewport.GotoTop()
-	m.mode = modeView
-
+	m.showBytes("$ "+msg.line, []byte(body), syntax.None)
 	return m, m.refreshPane(paneIdx)
 }
 

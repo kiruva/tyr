@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,7 +19,12 @@ var version = "dev"
 func main() {
 	args := os.Args[1:]
 
-	var themeFlag, cdFile string
+	// The config directory has to be settled before anything reads a theme out
+	// of it, and a leftover directory from the rename is moved on the way.
+	notice := migrateConfig()
+	themeNotice := loadUserThemes()
+
+	var themeFlag, cdFile, newTheme string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -37,6 +43,9 @@ func main() {
 			fmt.Println("tyr", version)
 			return
 		case arg == "--themes":
+			if themeNotice != "" {
+				fmt.Fprintln(os.Stderr, "tyr:", themeNotice)
+			}
 			fmt.Println(strings.Join(ui.ThemeNames(), "\n"))
 			return
 		case arg == "--theme":
@@ -47,13 +56,24 @@ func main() {
 			themeFlag = args[i]
 		case strings.HasPrefix(arg, "--theme="):
 			themeFlag = strings.TrimPrefix(arg, "--theme=")
+		case arg == "--new-theme":
+			if i+1 >= len(args) {
+				fail("--new-theme needs a name")
+			}
+			i++
+			newTheme = args[i]
+		case strings.HasPrefix(arg, "--new-theme="):
+			newTheme = strings.TrimPrefix(arg, "--new-theme=")
 		}
 	}
 
-	notice := migrateConfig()
-
 	// A config that cannot be read is not fatal: the app starts on defaults.
 	cfg, _ := config.Load()
+
+	if newTheme != "" {
+		writeThemeTemplate(newTheme, themeFlag, cfg)
+		return
+	}
 
 	if err := applyTheme(themeFlag, cfg); err != nil {
 		fail(err.Error())
@@ -63,7 +83,15 @@ func main() {
 		cdFile = os.Getenv(app.CDFileEnv)
 	}
 
-	p := tea.NewProgram(app.New().WithSession(cfg).WithNotice(notice), tea.WithAltScreen())
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if cfg.MouseEnabled() {
+		// Cell motion is clicks and the wheel, and leaves the terminal's own
+		// selection alone while no button is held.
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+
+	model := app.New().WithSession(cfg).WithNotice(themeNotice).WithNotice(notice)
+	p := tea.NewProgram(model, opts...)
 	final, err := p.Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tyr:", err)
@@ -85,7 +113,8 @@ const usage = `tyr — a TUI file manager to rule them all
 usage: tyr [options]
 
   --theme NAME     start with a colour scheme
-  --themes         list the built-in themes
+  --themes         list the themes, built-in and your own
+  --new-theme NAME write a theme file to copy from, then exit
   --cd-file PATH   write the directory tyr exits in to PATH, for a shell
                    wrapper to cd into (also read from $TYR_CD_FILE)
   --version        print the version
@@ -93,6 +122,42 @@ usage: tyr [options]
 
 press ? inside tyr for the keys.
 `
+
+// loadUserThemes adds whatever is in <config>/themes to the picker, and returns
+// what to say about any file it could not read. A broken theme file costs its
+// own theme and nothing else.
+func loadUserThemes() string {
+	dir, err := config.Dir()
+	if err != nil {
+		return ""
+	}
+	_, problems := ui.LoadUserThemes(filepath.Join(dir, ui.ThemeDir))
+	if len(problems) == 0 {
+		return ""
+	}
+	return "theme " + strings.Join(problems, " · ")
+}
+
+// writeThemeTemplate answers --new-theme: it writes the current theme out as a
+// file to edit, which is easier to start from than an empty one.
+func writeThemeTemplate(name, themeFlag string, cfg config.Config) {
+	if err := applyTheme(themeFlag, cfg); err != nil {
+		fail(err.Error())
+	}
+
+	dir, err := config.Dir()
+	if err != nil {
+		fail(err.Error())
+	}
+	path := filepath.Join(dir, ui.ThemeDir, name+ui.ThemeExt)
+	if _, err := os.Stat(path); err == nil {
+		fail(path + " already exists")
+	}
+	if err := ui.WriteThemeTemplate(path); err != nil {
+		fail(err.Error())
+	}
+	fmt.Println("wrote", path)
+}
 
 // migrateConfig moves a config directory left behind by the rename from
 // lazyfiles, and returns what to tell the user about it. It runs before the

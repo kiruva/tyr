@@ -9,6 +9,7 @@ import (
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/rename"
+	"github.com/kiruva/tyr/internal/syntax"
 	"github.com/kiruva/tyr/internal/trash"
 	"github.com/kiruva/tyr/internal/ui"
 )
@@ -67,6 +68,8 @@ func (m Model) View() string {
 		return overlay(m.width, m.height, m.renderCommand())
 	case modeRunning:
 		return overlay(m.width, m.height, m.renderRunning())
+	case modeKeys:
+		return m.renderKeyEditor()
 	case modeSelectMask:
 		return overlay(m.width, m.height, m.renderSelectMask())
 	case modeFind:
@@ -174,13 +177,54 @@ func padRight(s string, w int) string {
 	return s
 }
 
-// renderViewer draws the read-only pager full-screen.
+// renderViewer draws the read-only pager full-screen: what is open and how it
+// is being shown along the top, what can be done to it along the bottom.
 func (m Model) renderViewer() string {
-	header := ui.StatusBar.Width(m.width).Render(" view · " + truncTail(m.viewTitle, m.width-8))
-	footer := ui.StatusBar.Width(m.width).Render(
-		fmt.Sprintf(" ↑/↓ scroll · e edit · q close%s%3.0f%%",
-			strings.Repeat(" ", pad(m.width, 40)), m.viewport.ScrollPercent()*100))
-	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), footer)
+	right := m.viewerFlags()
+	left := " view · " + truncTail(m.viewTitle, max(m.width-lipgloss.Width(right)-10, 8))
+	header := ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), m.viewerFooter())
+}
+
+// viewerFlags says which of the pager's switches are on, and what the file is
+// being highlighted as.
+func (m Model) viewerFlags() string {
+	var on []string
+	if m.viewer.hex {
+		on = append(on, "hex")
+	}
+	if m.viewer.wrap {
+		on = append(on, "wrap")
+	}
+	if m.viewer.numbers && !m.viewer.hex {
+		on = append(on, "numbers")
+	}
+	if m.viewer.colour && !m.viewer.hex && m.viewer.lang != syntax.None {
+		on = append(on, m.viewer.lang.String())
+	}
+	if len(on) == 0 {
+		return " "
+	}
+	return strings.Join(on, " · ") + " "
+}
+
+// viewerFooter is the search field, whatever the pager has to say, or the keys.
+func (m Model) viewerFooter() string {
+	if m.viewer.prompting {
+		left := " find: " + m.viewer.input.View()
+		right := "enter keep · esc clear"
+		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+	}
+	if m.viewer.status != "" {
+		left := " " + truncTail(m.viewer.status, max(m.width-12, 8))
+		right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+		return ui.NoticeBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
+	}
+
+	left := " / find · n next · w wrap · # numbers · x hex · s colour · e edit · q close"
+	right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 }
 
 // renderEditor draws the nano-style editor full-screen.
@@ -197,14 +241,6 @@ func (m Model) renderEditor() string {
 	}
 	footer := ui.StatusBar.Width(m.width).Render(hint)
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)
-}
-
-// pad returns filler width so a right-aligned suffix roughly reaches the edge.
-func pad(total, used int) int {
-	if p := total - used; p > 1 {
-		return p
-	}
-	return 1
 }
 
 // overlay centers a modal box on a blank screen of the given size.
