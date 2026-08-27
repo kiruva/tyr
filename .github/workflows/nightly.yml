@@ -64,6 +64,12 @@ jobs:
         if: steps.check.outputs.build == 'true'
         run: go test ./...
 
+      # The nightly builds the same archives as a release, SBOMs included, so it
+      # needs syft too.
+      - name: Install syft
+        if: steps.check.outputs.build == 'true'
+        uses: anchore/sbom-action/download-syft@v0
+
       - name: Build the archives
         if: steps.check.outputs.build == 'true'
         uses: goreleaser/goreleaser-action@v6

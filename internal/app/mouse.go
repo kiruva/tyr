@@ -4,8 +4,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/kiruva/tyr/internal/ui"
 )
 
 // The mouse is not how a file manager is driven, but it is how a file manager
@@ -155,7 +153,7 @@ func (m Model) listMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case modeHelp, modeCaps:
 		m.overlayScroll = max(m.overlayScroll+step, 0)
 	case modeKeys:
-		m.keyEdit.cursor = clampIndex(m.keyEdit.cursor+step, len(keySpecs))
+		m.keyEdit = m.keyEdit.MoveTo(m.keyEdit.Cursor() + step)
 	case modeSync:
 		if m.sync.stage == syncStageList {
 			m.sync.cursor = clampIndex(m.sync.cursor+step, len(m.visibleSyncRows()))
@@ -167,9 +165,8 @@ func (m Model) listMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case modeBookmarks:
 		m.bookmarks.cursor = clampIndex(m.bookmarks.cursor+step, len(m.bookmarks.marks))
 	case modeTheme:
-		themes := ui.Themes()
-		m.themeCursor = clampIndex(m.themeCursor+step, len(themes))
-		ui.Apply(themes[m.themeCursor]) // the picker previews as it moves
+		// The picker previews as it moves, which MoveTo does.
+		m.theme = m.theme.MoveTo(m.theme.Cursor() + step)
 	}
 	return m, nil
 }

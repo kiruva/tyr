@@ -55,3 +55,17 @@ jobs:
           GOOS: windows
         with:
           version: latest
+
+  # Catches a vulnerable dependency, and a Go release whose fix tyr has not
+  # picked up yet — it reports only what the code actually reaches, so a hit
+  # here is a call path that exists rather than a version-number mismatch.
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

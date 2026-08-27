@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"os"
 
 	"github.com/kiruva/tyr/internal/remote"
@@ -9,19 +10,19 @@ import (
 // runRemote dispatches the ssh-backed operations. Move semantics are "transfer
 // then remove the source", and the removal only happens once the transfer has
 // reported success.
-func runRemote(job Job, r *reporter) error {
+func runRemote(ctx context.Context, job Job, r *reporter) error {
 	switch job.Op {
 	case OpDownload:
-		if err := remote.Download(job.Host, job.Srcs, job.Dest, r.step); err != nil {
+		if err := remote.Download(ctx, job.Host, job.Srcs, job.Dest, r.step); err != nil {
 			return err
 		}
 		if job.Move {
-			return remote.Delete(job.Host, job.Srcs, func(string) {})
+			return remote.Delete(ctx, job.Host, job.Srcs, func(string) {})
 		}
 		return nil
 
 	case OpUpload:
-		if err := remote.Upload(job.Host, job.Srcs, job.Dest, r.step); err != nil {
+		if err := remote.Upload(ctx, job.Host, job.Srcs, job.Dest, r.step); err != nil {
 			return err
 		}
 		if job.Move {
@@ -34,10 +35,10 @@ func runRemote(job Job, r *reporter) error {
 		return nil
 
 	case OpRemoteCopy:
-		return remote.Transfer(job.Host, job.Srcs, job.Dest, job.Move, r.step)
+		return remote.Transfer(ctx, job.Host, job.Srcs, job.Dest, job.Move, r.step)
 
 	case OpRemoteDelete:
-		return remote.Delete(job.Host, job.Srcs, r.step)
+		return remote.Delete(ctx, job.Host, job.Srcs, r.step)
 	}
 	return nil
 }

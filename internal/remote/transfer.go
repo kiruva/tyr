@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -16,9 +17,14 @@ import (
 // sftp. Every path is quoted by us and interpreted by exactly one shell, and the
 // local `tar -v` names each file as it moves, which is what drives the progress
 // bar. The far side needs `tar` and a POSIX shell; nothing is installed.
+//
+// Cancelling ctx stops a transfer from both ends: the local tar is killed by
+// os/exec, and the ssh session is closed, which is what makes a blocked Run or
+// Wait return. An ssh.Session takes no context of its own — closeOnCancel below
+// is the whole of the mechanism.
 
 // Download copies remote srcs (which share a parent directory) into a local dir.
-func Download(h Host, srcs []string, destDir string, step func(string)) error {
+func Download(ctx context.Context, h Host, srcs []string, destDir string, step func(string)) error {
 	if len(srcs) == 0 {
 		return nil
 	}
@@ -33,12 +39,12 @@ func Download(h Host, srcs []string, destDir string, step func(string)) error {
 	}
 	script := "tar -C " + shQuote(parent) + " -cf - -- " + quoteAll(names)
 
-	extract := exec.Command("tar", "-C", destDir, "-xvf", "-")
-	return remoteToLocal(h, script, extract, step)
+	extract := exec.CommandContext(ctx, "tar", "-C", destDir, "-xvf", "-")
+	return remoteToLocal(ctx, h, script, extract, step)
 }
 
 // Upload copies local srcs (which share a parent directory) into a remote dir.
-func Upload(h Host, srcs []string, destDir string, step func(string)) error {
+func Upload(ctx context.Context, h Host, srcs []string, destDir string, step func(string)) error {
 	if len(srcs) == 0 {
 		return nil
 	}
@@ -50,14 +56,17 @@ func Upload(h Host, srcs []string, destDir string, step func(string)) error {
 	}
 	script := "mkdir -p -- " + shQuote(destDir) + " && tar -C " + shQuote(destDir) + " -xf -"
 
-	create := exec.Command("tar", args...)
-	return localToRemote(h, script, create, step)
+	create := exec.CommandContext(ctx, "tar", args...)
+	return localToRemote(ctx, h, script, create, step)
 }
 
 // Delete removes remote paths recursively, one at a time so each reports.
-func Delete(h Host, paths []string, step func(string)) error {
+func Delete(ctx context.Context, h Host, paths []string, step func(string)) error {
 	for _, p := range paths {
-		if err := run(h, "rm -rf -- "+shQuote(p)); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := run(ctx, h, "rm -rf -- "+shQuote(p)); err != nil {
 			return err
 		}
 		step(p)
@@ -67,16 +76,19 @@ func Delete(h Host, paths []string, step func(string)) error {
 
 // Transfer copies or moves paths within a single host, without the data ever
 // crossing the network.
-func Transfer(h Host, srcs []string, destDir string, move bool, step func(string)) error {
-	if err := run(h, "mkdir -p -- "+shQuote(destDir)); err != nil {
+func Transfer(ctx context.Context, h Host, srcs []string, destDir string, move bool, step func(string)) error {
+	if err := run(ctx, h, "mkdir -p -- "+shQuote(destDir)); err != nil {
 		return err
 	}
 	for _, s := range srcs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		cmd := "cp -R -p --"
 		if move {
 			cmd = "mv --"
 		}
-		if err := run(h, cmd+" "+shQuote(s)+" "+shQuote(destDir)+"/"); err != nil {
+		if err := run(ctx, h, cmd+" "+shQuote(s)+" "+shQuote(destDir)+"/"); err != nil {
 			return err
 		}
 		step(s)
@@ -85,7 +97,7 @@ func Transfer(h Host, srcs []string, destDir string, move bool, step func(string
 }
 
 // remoteToLocal pipes a remote command's stdout into a local one's stdin.
-func remoteToLocal(h Host, script string, local *exec.Cmd, step func(string)) error {
+func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, step func(string)) error {
 	c, err := client(h)
 	if err != nil {
 		return err
@@ -95,6 +107,7 @@ func remoteToLocal(h Host, script string, local *exec.Cmd, step func(string)) er
 		return err
 	}
 	defer func() { _ = sess.Close() }()
+	defer closeOnCancel(ctx, sess)()
 
 	data, err := sess.StdoutPipe()
 	if err != nil {
@@ -124,7 +137,7 @@ func remoteToLocal(h Host, script string, local *exec.Cmd, step func(string)) er
 }
 
 // localToRemote pipes a local command's stdout into a remote one's stdin.
-func localToRemote(h Host, script string, local *exec.Cmd, step func(string)) error {
+func localToRemote(ctx context.Context, h Host, script string, local *exec.Cmd, step func(string)) error {
 	c, err := client(h)
 	if err != nil {
 		return err
@@ -134,6 +147,7 @@ func localToRemote(h Host, script string, local *exec.Cmd, step func(string)) er
 		return err
 	}
 	defer func() { _ = sess.Close() }()
+	defer closeOnCancel(ctx, sess)()
 
 	data, err := sess.StdinPipe()
 	if err != nil {

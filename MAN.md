@@ -617,6 +617,19 @@ Every operation is recursive, asks for confirmation first, and runs off the UI t
 streaming progress into a bar while the interface stays responsive. Both panes refresh when it
 finishes.
 
+### Stopping one
+
+`Esc` stops the operation in progress. So does `Ctrl+C`, which does not quit while a job is
+running: leaving mid-write would abandon a half-copied file with nothing in the undo history
+to say so. Press it again once the job is over to quit as usual.
+
+Stopping is a request, not an abort. The job finishes the file it is on, kills whichever
+archive tool it had running, and closes any ssh session it was transferring over — so the bar
+may sit on "Stopping…" for a moment on a large file. Nothing is rolled back: whatever had
+already been copied, moved or trashed stays, and it is still in the undo history, so `Ctrl+Z`
+puts back exactly the part that ran. A stopped job is reported as cancelled rather than as a
+failure, the same as answering **cancel** at a name collision.
+
 ### When a name is taken
 
 A copy or a move that lands on a name already in use stops and asks, with both files side by

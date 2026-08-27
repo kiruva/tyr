@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,7 +38,7 @@ func ListMembers(archive string) ([]Member, error) {
 		a = append(a, "-f", archive)
 		out, err = exec.Command("tar", a...).Output()
 	case f == fmtZip:
-		out, err = exec.Command("zipinfo", "-1", archive).Output()
+		out, err = exec.Command("zipinfo", "-1", argPath(archive)).Output()
 	default:
 		return nil, fmt.Errorf("browsing this archive type is not supported (unpack it instead)")
 	}
@@ -62,7 +63,9 @@ func parseMembers(out []byte) []Member {
 	return ms
 }
 
-// ReadMember streams a single member's bytes into memory.
+// ReadMember streams a single member's bytes into memory. The member name comes
+// out of the archive, so it is attacker-controlled and never goes on a command
+// line where a tool could read it as an option — see argsafe.go.
 func ReadMember(archive, member string) ([]byte, error) {
 	f := detectFormat(archive)
 	switch {
@@ -71,10 +74,19 @@ func ReadMember(archive, member string) ([]byte, error) {
 		if c := tarComp(f); c != "" {
 			a = append(a, c)
 		}
-		a = append(a, "-O", "-f", archive, member)
+		a = append(a, "-O", "-f", archive, "--", member)
 		return exec.Command("tar", a...).Output()
 	case f == fmtZip:
-		return exec.Command("unzip", "-p", archive, member).Output()
+		// 7-Zip honours "--" and unzip does not, so an entry whose name starts
+		// with a "-" is only readable where 7-Zip is installed. unzip stays the
+		// default otherwise: it is the native tool for a zip on Unix.
+		if bin := tool("7z"); bin != "" && optionLike(member) {
+			return exec.Command(bin, "x", "-so", "--", argPath(archive), member).Output()
+		}
+		if err := checkUnzipMember(member); err != nil {
+			return nil, err
+		}
+		return exec.Command("unzip", "-p", argPath(archive), member).Output()
 	default:
 		return nil, fmt.Errorf("reading members of this archive type is not supported")
 	}
@@ -95,9 +107,15 @@ func WriteMember(archive, member string, data []byte) error {
 	}
 }
 
-// writeMemberFile writes data to <dir>/<member>, creating parent dirs.
+// writeMemberFile writes data to <dir>/<member>, creating parent dirs. The
+// member name is whatever the archive says, so it is confined to dir first:
+// "../../.bashrc" is a legal member name and filepath.Join would resolve the
+// escape rather than stop it.
 func writeMemberFile(dir, member string, data []byte) (string, error) {
-	dst := filepath.Join(dir, filepath.FromSlash(member))
+	dst, err := containedPath(dir, member)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
@@ -116,13 +134,13 @@ func writeZipMember(archive, member string, data []byte) error {
 	if _, err := writeMemberFile(tmp, member, data); err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", "-q", archive, member)
+	cmd := exec.Command("zip", "-q", argPath(archive), "--", member)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }
 
 func writeUncompressedTarMember(archive, member string, data []byte) error {
-	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, member)); err != nil {
+	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, "--", member)); err != nil {
 		return err
 	}
 	tmp, err := os.MkdirTemp("", "tyr-tar-")
@@ -133,7 +151,7 @@ func writeUncompressedTarMember(archive, member string, data []byte) error {
 	if _, err := writeMemberFile(tmp, member, data); err != nil {
 		return err
 	}
-	return runQuiet(exec.Command("tar", "-r", "-f", archive, "-C", tmp, member))
+	return runQuiet(exec.Command("tar", "-r", "-f", archive, "-C", tmp, "--", member))
 }
 
 // rewriteCompressedTarMember extracts the whole archive, replaces one member,
@@ -169,7 +187,7 @@ func rewriteCompressedTarMember(f format, archive, member string, data []byte) e
 	if c := tarComp(f); c != "" {
 		create = append(create, c)
 	}
-	create = append(create, "-f", archive, "-C", tmp)
+	create = append(create, "-f", archive, "-C", tmp, "--")
 	create = append(create, names...)
 	return runQuiet(exec.Command("tar", create...))
 }
@@ -189,13 +207,13 @@ func topLevel(dir string) ([]string, error) {
 // addToArchive adds real files/dirs (job.Srcs) into archive job.Dest at the
 // virtual directory job.VDir, preserving the archive's format. If job.Move is
 // set, the sources are removed afterward.
-func addToArchive(job Job, r *reporter) error {
+func addToArchive(ctx context.Context, job Job, r *reporter) error {
 	var err error
 	switch f := detectFormat(job.Dest); {
 	case isTar(f):
-		err = addToTar(f, job.Dest, job.VDir, job.Srcs, r)
+		err = addToTar(ctx, f, job.Dest, job.VDir, job.Srcs, r)
 	case f == fmtZip:
-		err = addToZip(job.Dest, job.VDir, job.Srcs, r)
+		err = addToZip(ctx, job.Dest, job.VDir, job.Srcs, r)
 	default:
 		return fmt.Errorf("adding to this archive type is not supported")
 	}
@@ -214,14 +232,14 @@ func addToArchive(job Job, r *reporter) error {
 
 // stageSources copies each src into <root>/<vdir>/<basename>, reporting progress,
 // and returns the slash-separated relative paths that were staged.
-func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, error) {
+func stageSources(ctx context.Context, root, vdir string, srcs []string, r *reporter) ([]string, error) {
 	destDir := filepath.Join(root, filepath.FromSlash(vdir))
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
 	// Staging is tyr's own scratch directory: nothing there can collide with
 	// anything, so the copy answers its own (non-existent) conflicts.
-	rn := &runner{r: r, rv: newResolver(nil, ConflictOverwrite)}
+	rn := &runner{ctx: ctx, r: r, rv: newResolver(ctx, nil, ConflictOverwrite)}
 
 	rels := make([]string, 0, len(srcs))
 	for _, s := range srcs {
@@ -236,7 +254,7 @@ func stageSources(root, vdir string, srcs []string, r *reporter) ([]string, erro
 
 // addToTar rewrites the tar with the new files spliced in at vdir. Rewriting
 // (rather than -r append) keeps one code path for both plain and compressed tar.
-func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error {
+func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string, r *reporter) error {
 	tmp, err := os.MkdirTemp("", "tyr-add-")
 	if err != nil {
 		return err
@@ -248,11 +266,11 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 		ex = append(ex, c)
 	}
 	ex = append(ex, "-f", archive, "-C", tmp)
-	if err := runQuiet(exec.Command("tar", ex...)); err != nil {
+	if err := runQuiet(exec.CommandContext(ctx, "tar", ex...)); err != nil {
 		return err
 	}
 
-	if _, err := stageSources(tmp, vdir, srcs, r); err != nil {
+	if _, err := stageSources(ctx, tmp, vdir, srcs, r); err != nil {
 		return err
 	}
 
@@ -264,25 +282,25 @@ func addToTar(f format, archive, vdir string, srcs []string, r *reporter) error 
 	if c := tarComp(f); c != "" {
 		create = append(create, c)
 	}
-	create = append(create, "-f", archive, "-C", tmp)
+	create = append(create, "-f", archive, "-C", tmp, "--")
 	create = append(create, names...)
-	return runQuiet(exec.Command("tar", create...))
+	return runQuiet(exec.CommandContext(ctx, "tar", create...))
 }
 
 // addToZip stages the sources and lets `zip` splice them in (updates existing
 // members in place, so no full rewrite is needed).
-func addToZip(archive, vdir string, srcs []string, r *reporter) error {
+func addToZip(ctx context.Context, archive, vdir string, srcs []string, r *reporter) error {
 	tmp, err := os.MkdirTemp("", "tyr-addzip-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
 
-	rels, err := stageSources(tmp, vdir, srcs, r)
+	rels, err := stageSources(ctx, tmp, vdir, srcs, r)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", append([]string{"-r", "-q", archive}, rels...)...)
+	cmd := exec.CommandContext(ctx, "zip", append([]string{"-r", "-q", argPath(archive), "--"}, rels...)...)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }

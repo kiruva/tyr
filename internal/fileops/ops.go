@@ -4,6 +4,7 @@
 package fileops
 
 import (
+	"context"
 	"io"
 	iofs "io/fs"
 	"os"
@@ -169,6 +170,19 @@ type Job struct {
 // Pair is one source and where it goes.
 type Pair struct{ Src, Dst string }
 
+// Event is one thing a running job has to say. The set is closed: Progress
+// repeatedly as it works, Conflict when it needs an answer before it can go on,
+// and exactly one Result last of all.
+//
+// It is sealed by an unexported method rather than being a bare `any` so that a
+// fourth kind of message is a compile error at every receiver, instead of a
+// case that silently falls through a type switch and is never seen.
+type Event interface{ event() }
+
+func (Progress) event() {}
+func (Conflict) event() {}
+func (Result) event()   {}
+
 // Progress is emitted repeatedly as the job runs.
 type Progress struct {
 	Current     string
@@ -198,15 +212,26 @@ type Result struct {
 
 // Run starts the job in a goroutine and returns a channel that yields zero or
 // more Progress values followed by a single Result, then closes.
-func Run(job Job) <-chan any {
-	ch := make(chan any)
+//
+// Cancelling ctx stops the job: the recursive walkers check between entries, a
+// long file copy checks between chunks, an external tool is killed, and an ssh
+// session is closed under the command running on it. Whatever had already been
+// done stays done and is still reported in the Result, so an undo of a
+// cancelled job puts back exactly what it managed to move — the same contract
+// as a job that failed part-way.
+//
+// The Result is always sent, cancelled or not: it is what tells the UI the job
+// is over. Progress values are not, so a job being torn down cannot block on a
+// reader that has stopped listening.
+func Run(ctx context.Context, job Job) <-chan Event {
+	ch := make(chan Event)
 	go func() {
 		defer close(ch)
 
-		r := &reporter{ch: ch, total: computeTotal(job)}
+		r := &reporter{ctx: ctx, ch: ch, tools: execTools{}, total: computeTotal(ctx, job)}
 
 		if isRemoteOp(job.Op) {
-			ch <- Result{Op: job.Op, Err: runRemote(job, r)}
+			ch <- Result{Op: job.Op, Err: r.cancelled(runRemote(ctx, job, r))}
 			return
 		}
 
@@ -216,30 +241,33 @@ func Run(job Job) <-chan any {
 		)
 		switch job.Op {
 		case OpPack:
-			err = pack(job, r)
+			err = pack(ctx, job, r)
 		case OpUnpack, OpUnwrap:
-			err = extractAll(job, r)
+			err = extractAll(ctx, job, r)
 		case OpAddToArchive:
-			err = addToArchive(job, r)
+			err = addToArchive(ctx, job, r)
 		case OpRename:
-			renamed, err = rename.Apply(job.Dest, job.Renames, r.step)
+			renamed, err = rename.Apply(ctx, job.Dest, job.Renames, r.step)
 		case OpRenameUndo:
-			renamed, err = rename.Undo(job.Dest, job.Renames, r.step)
+			renamed, err = rename.Undo(ctx, job.Dest, job.Renames, r.step)
 		default:
-			res := runLocal(job, r, ch)
+			res := runLocal(ctx, job, r, ch)
 			ch <- Result{
-				Op: job.Op, Err: res.err,
+				Op: job.Op, Err: r.cancelled(res.err),
 				Created: res.created, Moved: res.moved, Trashed: res.trashed,
 			}
 			return
 		}
-		ch <- Result{Op: job.Op, Err: err, Renamed: renamed}
+		ch <- Result{Op: job.Op, Err: r.cancelled(err), Renamed: renamed}
 	}()
 	return ch
 }
 
-// computeTotal estimates the number of progress steps for the job's bar.
-func computeTotal(job Job) int {
+// computeTotal estimates the number of progress steps for the job's bar. It
+// walks the sources, so it takes ctx too: cancelling during the count returns
+// early and the bar simply runs indeterminate for the moment the job then
+// spends unwinding.
+func computeTotal(ctx context.Context, job Job) int {
 	total := 0
 	switch job.Op {
 	case OpRename, OpRenameUndo:
@@ -250,11 +278,11 @@ func computeTotal(job Job) int {
 		return 0
 	case OpUpload:
 		for _, s := range job.Srcs {
-			total += countItems(s)
+			total += countItems(ctx, s)
 		}
 	case OpUnpack, OpUnwrap:
 		for _, a := range job.Srcs {
-			total += countArchiveEntries(a)
+			total += countArchiveEntries(ctx, a)
 		}
 	case OpTrash:
 		return len(job.Srcs)
@@ -262,18 +290,18 @@ func computeTotal(job Job) int {
 		return len(job.Trash)
 	case OpSync, OpMovePairs:
 		for _, pair := range job.Pairs {
-			total += countItems(pair.Src)
+			total += countItems(ctx, pair.Src)
 		}
 	case OpChmod:
 		if !job.Recursive {
 			return len(job.Srcs)
 		}
 		for _, s := range job.Srcs {
-			total += countItems(s)
+			total += countItems(ctx, s)
 		}
 	default:
 		for _, s := range job.Srcs {
-			total += countItems(s)
+			total += countItems(ctx, s)
 		}
 	}
 	return total
@@ -281,18 +309,44 @@ func computeTotal(job Job) int {
 
 // reporter emits one Progress per processed item.
 type reporter struct {
-	ch          chan<- any
+	ctx context.Context
+	ch  chan<- Event
+
+	// tools is how this job runs external programs. Production always uses
+	// execTools; a test swaps it to reach the archive orchestration without
+	// 7-Zip or unrar on the machine. See toolRunner in archive.go.
+	tools toolRunner
+
 	done, total int
 }
 
 func (r *reporter) step(name string) {
 	r.done++
-	r.ch <- Progress{Current: name, Done: r.done, Total: r.total}
+	select {
+	case r.ch <- Progress{Current: name, Done: r.done, Total: r.total}:
+	case <-r.ctx.Done():
+		// The job is being torn down and nobody needs this number any more.
+		// Blocking on the send here is what would leak the goroutine.
+	}
 }
 
-func countItems(root string) int {
+// cancelled maps whatever a torn-down job failed with onto ErrCancelled. A
+// killed tool reports "signal: killed" and a half-written copy reports a closed
+// file; neither is worth putting in front of someone who pressed Esc, and the
+// UI already knows how to say "cancelled" from the collision prompt.
+func (r *reporter) cancelled(err error) error {
+	if err != nil && r.ctx.Err() != nil {
+		return ErrCancelled
+	}
+	return err
+}
+
+func countItems(ctx context.Context, root string) int {
 	n := 0
 	_ = filepath.WalkDir(root, func(_ string, _ iofs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err == nil {
 			n++
 		}
@@ -305,10 +359,11 @@ func countItems(root string) int {
 }
 
 // runner carries what a local copy or move needs through the recursion: where
-// to report progress, and who answers a collision.
+// to report progress, who answers a collision, and when to give up.
 type runner struct {
-	r  *reporter
-	rv *resolver
+	ctx context.Context
+	r   *reporter
+	rv  *resolver
 }
 
 // localResult is what a local batch did, for the Result the job ends with.
@@ -322,8 +377,8 @@ type localResult struct {
 // runLocal performs the copy / move / delete family, one source at a time. It
 // records what it brought into being and what it moved, which is what an undo
 // of the job is built from.
-func runLocal(job Job, r *reporter, ch chan<- any) localResult {
-	rn := &runner{r: r, rv: newResolver(ch, job.OnConflict)}
+func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localResult {
+	rn := &runner{ctx: ctx, r: r, rv: newResolver(ctx, ch, job.OnConflict)}
 	var out localResult
 
 	// Restoring works from the trash batch rather than from source paths: the
@@ -339,6 +394,11 @@ func runLocal(job Job, r *reporter, ch chan<- any) localResult {
 	}
 
 	for _, src := range job.Srcs {
+		// Between sources is the cheapest place to notice a cancellation, and
+		// the one that leaves the least half-done.
+		if out.err = ctx.Err(); out.err != nil {
+			return out
+		}
 		switch job.Op {
 		case OpCopy, OpMove:
 			dst := filepath.Join(job.Dest, filepath.Base(src))
@@ -363,7 +423,7 @@ func runLocal(job Job, r *reporter, ch chan<- any) localResult {
 			out.err = err
 
 		case OpDelete:
-			out.err = deletePath(src, r)
+			out.err = deletePath(ctx, src, r)
 
 		case OpTrash:
 			item, err := trash.Move(src)
@@ -374,7 +434,7 @@ func runLocal(job Job, r *reporter, ch chan<- any) localResult {
 			out.err = err
 
 		case OpChmod:
-			out.err = chmodPath(src, job.Mode, job.Recursive, r)
+			out.err = chmodPath(ctx, src, job.Mode, job.Recursive, r)
 		}
 		if out.err != nil {
 			return out
@@ -385,6 +445,10 @@ func runLocal(job Job, r *reporter, ch chan<- any) localResult {
 	// both directions, an undo putting files back where they came from.
 	if job.Op == OpSync || job.Op == OpMovePairs {
 		for _, pair := range job.Pairs {
+			if err := ctx.Err(); err != nil {
+				out.err = err
+				return out
+			}
 			if err := os.MkdirAll(filepath.Dir(pair.Dst), 0o755); err != nil {
 				out.err = err
 				return out
@@ -408,6 +472,9 @@ func runLocal(job Job, r *reporter, ch chan<- any) localResult {
 // directories — those merge, which is what dragging one folder onto another has
 // always meant. It returns where the copy landed, or "" when it was skipped.
 func (rn *runner) copyPath(src, dst string) (string, error) {
+	if err := rn.ctx.Err(); err != nil {
+		return "", err
+	}
 	info, err := os.Lstat(src)
 	if err != nil {
 		return "", err
@@ -464,7 +531,7 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 		return dst, nil
 
 	default:
-		if err := copyFile(src, dst, info.Mode().Perm()); err != nil {
+		if err := copyFile(rn.ctx, src, dst, info.Mode().Perm()); err != nil {
 			return "", err
 		}
 		rn.r.step(src)
@@ -472,7 +539,10 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 	}
 }
 
-func copyFile(src, dst string, perm os.FileMode) error {
+// copyFile copies one file, in chunks so that a cancellation is noticed part-way
+// through a large one. A plain io.Copy would run to the end of a hundred-gigabyte
+// file before anything got to ask whether it should still be running.
+func copyFile(ctx context.Context, src, dst string, perm os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -483,11 +553,26 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, &ctxReader{ctx: ctx, r: in}); err != nil {
 		out.Close()
 		return err
 	}
 	return out.Close()
+}
+
+// ctxReader fails the read once ctx is done, which is what stops an io.Copy
+// mid-file. io.Copy asks for 32KB at a time, so that is the granularity a
+// cancellation is noticed at.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // movePath moves src onto dst. Two directories merge, entry by entry, so a
@@ -495,6 +580,9 @@ func copyFile(src, dst string, perm os.FileMode) error {
 // collision in its own right. It returns where the move landed, or "" when it
 // was skipped.
 func (rn *runner) movePath(src, dst string) (string, error) {
+	if err := rn.ctx.Err(); err != nil {
+		return "", err
+	}
 	info, err := os.Lstat(src)
 	if err != nil {
 		return "", err
@@ -557,7 +645,10 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func deletePath(src string, r *reporter) error {
+func deletePath(ctx context.Context, src string, r *reporter) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -568,7 +659,7 @@ func deletePath(src string, r *reporter) error {
 			return err
 		}
 		for _, e := range entries {
-			if err := deletePath(filepath.Join(src, e.Name()), r); err != nil {
+			if err := deletePath(ctx, filepath.Join(src, e.Name()), r); err != nil {
 				return err
 			}
 		}
@@ -583,7 +674,10 @@ func deletePath(src string, r *reporter) error {
 // chmodPath changes one path's permissions, walking into it when asked. A
 // directory that cannot be read stops the walk with its error rather than
 // leaving half the tree changed silently.
-func chmodPath(path string, mode os.FileMode, recursive bool, r *reporter) error {
+func chmodPath(ctx context.Context, path string, mode os.FileMode, recursive bool, r *reporter) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -607,7 +701,7 @@ func chmodPath(path string, mode os.FileMode, recursive bool, r *reporter) error
 		return err
 	}
 	for _, e := range entries {
-		if err := chmodPath(filepath.Join(path, e.Name()), mode, recursive, r); err != nil {
+		if err := chmodPath(ctx, filepath.Join(path, e.Name()), mode, recursive, r); err != nil {
 			return err
 		}
 	}

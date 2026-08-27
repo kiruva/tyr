@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -139,7 +140,9 @@ func (m Model) commitRenameOne() (tea.Model, tea.Cmd) {
 
 	p := &m.panes[m.renOne.paneIdx]
 	change := rename.Change{Rel: m.renOne.orig, New: name, IsDir: m.renOne.isDir, Changed: true}
-	applied, err := rename.Apply(p.Path, []rename.Change{change}, func(string) {})
+	// Inline, so there is no progress modal to cancel from and no context to
+	// carry: a single rename is one syscall.
+	applied, err := rename.Apply(context.Background(), p.Path, []rename.Change{change}, func(string) {})
 	if err != nil {
 		m.renOne.status = err.Error()
 		return m, nil

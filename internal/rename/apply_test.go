@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,7 +46,7 @@ func applyPlan(t *testing.T, root string, s Spec, cands []Candidate) []string {
 		t.Fatalf("Plan: %v", err)
 	}
 	var steps []string
-	if _, err := Apply(root, changes, func(rel string) { steps = append(steps, rel) }); err != nil {
+	if _, err := Apply(context.Background(), root, changes, func(rel string) { steps = append(steps, rel) }); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	return steps
@@ -74,7 +75,7 @@ func TestApplySwap(t *testing.T) {
 		{Rel: "a.txt", New: "b.txt", Changed: true},
 		{Rel: "b.txt", New: "a.txt", Changed: true},
 	}
-	if _, err := Apply(root, changes, func(string) {}); err != nil {
+	if _, err := Apply(context.Background(), root, changes, func(string) {}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -147,7 +148,7 @@ func TestApplyRefusesToOverwriteAndRollsBackStaging(t *testing.T) {
 		{Rel: "a.txt", New: "b.txt", Changed: true},
 		{Rel: "b.txt", New: "keep.txt", Changed: true},
 	}
-	_, err := Apply(root, changes, func(string) {})
+	_, err := Apply(context.Background(), root, changes, func(string) {})
 	if err == nil {
 		t.Fatal("want an error rather than an overwritten keep.txt")
 	}
@@ -172,7 +173,7 @@ func TestApplySkipsUnchangedAndConflicting(t *testing.T) {
 		{Rel: "a.txt", New: "taken.txt", Changed: true, Problem: "exists"},
 		{Rel: "taken.txt", New: "taken.txt"},
 	}
-	if _, err := Apply(root, changes, func(string) {}); err != nil {
+	if _, err := Apply(context.Background(), root, changes, func(string) {}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if want := []string{"a.txt", "taken.txt"}; !equal(listing(t, root), want) {

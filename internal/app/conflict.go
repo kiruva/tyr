@@ -87,8 +87,8 @@ func (m Model) renderConflict() string {
 	name := filepath.Base(c.Dst)
 
 	title := ui.Danger.Render("Already there")
-	subject := ui.Faint.Render("in "+truncTail(filepath.Dir(c.Dst), contentWidth-3)) + "\n" +
-		truncTail(name, contentWidth)
+	subject := ui.Faint.Render("in "+ui.TruncTail(filepath.Dir(c.Dst), contentWidth-3)) + "\n" +
+		ui.TruncTail(name, contentWidth)
 
 	lines := []string{
 		title,
@@ -120,9 +120,9 @@ func conflictSide(label string, meta fileops.Meta, newer bool) string {
 	if newer && !meta.Missing {
 		detail += "  " + ui.HelpKey.Render("newer")
 	}
-	return ui.Faint.Render(padRight(label, labelW)) + detail
+	return ui.Faint.Render(ui.PadRight(label, labelW)) + detail
 }
 
 func conflictChoice(key, label string) string {
-	return ui.DialogHint.Render(key) + " " + padRight(label, 20)
+	return ui.DialogHint.Render(key) + " " + ui.PadRight(label, 20)
 }

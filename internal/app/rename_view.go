@@ -100,7 +100,7 @@ func (m Model) renameHeader() string {
 	}
 
 	left := " multi-rename · " + strings.Join(parts, " · ")
-	right := truncTail(m.ren.root, max(m.width-lipgloss.Width(left)-2, 8)) + " "
+	right := ui.TruncTail(m.ren.root, max(m.width-lipgloss.Width(left)-2, 8)) + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	return ui.StatusBar.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)
 }
@@ -147,7 +147,7 @@ func (m Model) renameStatusLine() string {
 	if m.ren.status == "" {
 		return ""
 	}
-	return "  " + ui.Danger.Render(truncTail(m.ren.status, max(m.width-4, 8)))
+	return "  " + ui.Danger.Render(ui.TruncTail(m.ren.status, max(m.width-4, 8)))
 }
 
 // renamePreview draws the visible slice of the plan, one row per candidate.
@@ -187,17 +187,17 @@ func longestSource(changes []rename.Change) int {
 // renameRow is one "old → new" line, in the style its outcome deserves.
 func renameRow(c rename.Change, fromW, toW int) string {
 	from, to := renameDisplay(c)
-	left := padRight(truncTail(from, fromW), fromW)
+	left := ui.PadRight(ui.TruncTail(from, fromW), fromW)
 
 	switch {
 	case c.Problem != "":
-		right := truncTail(to, max(toW-lipgloss.Width(c.Problem)-3, 4))
+		right := ui.TruncTail(to, max(toW-lipgloss.Width(c.Problem)-3, 4))
 		return "  " + left + ui.Faint.Render(" → ") +
 			right + " " + ui.Danger.Render("✗ "+c.Problem)
 	case !c.Changed:
 		return "  " + ui.Faint.Render(left+"   (unchanged)")
 	default:
-		return "  " + left + ui.Faint.Render(" → ") + ui.Selected.Render(truncTail(to, toW))
+		return "  " + left + ui.Faint.Render(" → ") + ui.Selected.Render(ui.TruncTail(to, toW))
 	}
 }
 
@@ -223,8 +223,8 @@ func (m Model) renameFooters() []string {
 	}
 
 	return []string{
-		ui.StatusBar.Width(m.width).Render(truncHead(nav, m.width)),
-		ui.StatusBar.Width(m.width).Render(truncHead(keys, m.width)),
+		ui.StatusBar.Width(m.width).Render(ui.TruncHead(nav, m.width)),
+		ui.StatusBar.Width(m.width).Render(ui.TruncHead(keys, m.width)),
 	}
 }
 
@@ -238,11 +238,11 @@ func (m Model) renderRenameOne() string {
 	lines := []string{
 		ui.DialogTitle.Render(what),
 		"",
-		ui.Faint.Render(truncTail(m.renOne.orig, contentWidth)),
+		ui.Faint.Render(ui.TruncTail(m.renOne.orig, contentWidth)),
 		ui.AddrEdit.Width(contentWidth).Render(m.renOne.input.View()),
 	}
 	if m.renOne.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.renOne.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.renOne.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.DialogHint.Render("enter")+" rename    "+ui.DialogHint.Render("esc")+" cancel"+

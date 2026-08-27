@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 func runJob(t *testing.T, job Job) Result {
 	t.Helper()
 	var last Result
-	for msg := range Run(job) {
+	for msg := range Run(context.Background(), job) {
 		if res, ok := msg.(Result); ok {
 			last = res
 		}

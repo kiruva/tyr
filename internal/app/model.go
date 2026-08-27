@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/app/keymap"
+	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/config"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/pane"
@@ -56,12 +59,32 @@ type editTarget struct {
 }
 
 // Model is the top-level application state.
+//
+// Receivers here are deliberately mixed, which is the one place this package
+// departs from the usual "pick one and stick to it". The Elm loop hands the
+// model in and takes it back out by value, so anything on the Update or View
+// path is a value receiver:
+//
+//	func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd)
+//	func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
+//
+// Helpers that exist purely to mutate several fields at once take a pointer, so
+// the caller is not left threading a returned copy through three statements:
+//
+//	func (m *Model) resizePanes()
+//	func (m *Model) beginOp(op fileops.Op)
+//
+// The rule that keeps the two safe together: a pointer-receiver helper may only
+// ever be called from a value-receiver method that goes on to return its own m.
+// Calling one and then returning anything else would mutate a copy and throw it
+// away, silently. No method is declared both ways, which is what makes the split
+// legible at the call site.
 type Model struct {
 	panes  [2]pane.Model
 	active int // 0 = left, 1 = right
 	width  int
 	height int
-	keys   keyMap
+	keys   keymap.Map
 
 	mode mode
 
@@ -69,9 +92,16 @@ type Model struct {
 	pending       fileops.Job // job awaiting confirmation
 	willOverwrite bool        // pending job would clobber existing files
 	progress      fileops.Progress
-	progressCh    <-chan any
+	progressCh    <-chan fileops.Event
 	errText       string
-	noticeText    string // non-error banner, cleared by the next keypress
+
+	// cancelOp stops the job that is running now, and cancelling reports that
+	// it has been asked to stop but has not finished unwinding yet — a job is
+	// never abandoned, only asked, so there is a moment between the two.
+	cancelOp   context.CancelFunc
+	cancelling bool
+
+	noticeText string // non-error banner, cleared by the next keypress
 
 	// view/edit state
 	viewport   viewport.Model
@@ -86,9 +116,8 @@ type Model struct {
 	// too short to hold either of them at once
 	overlayScroll int
 
-	// theme picker state
-	themeCursor int    // highlighted row in the picker
-	themeOrig   string // theme to restore if the picker is cancelled
+	// the theme picker, which owns its own state; see internal/app/theme
+	theme theme.Model
 
 	// ssh connection modal state
 	conn connState
@@ -125,8 +154,8 @@ type Model struct {
 	// the shell command prompt and the run it starts
 	command commandState
 
-	// the key editor
-	keyEdit keyEditState
+	// the key editor, which owns its own state; see internal/app/keymap
+	keyEdit keymap.Editor
 
 	// the last mouse click, for telling a double one from two singles
 	lastClick clickRecord
@@ -155,7 +184,7 @@ func New() Model {
 	return Model{
 		panes:         [2]pane.Model{pane.New(wd), pane.New(wd)},
 		active:        0,
-		keys:          defaultKeys(),
+		keys:          keymap.Default(),
 		viewport:      viewport.New(0, 0),
 		editor:        ta,
 		deleteToTrash: true, // the config can turn it off; see WithSession
@@ -170,8 +199,8 @@ func (m Model) WithSession(cfg config.Config) Model {
 	m.deleteToTrash = cfg.TrashDeletes()
 
 	if len(cfg.Keys) > 0 {
-		binds, unknown := fromConfigKeys(cfg.Keys)
-		m.keys = keysFrom(binds)
+		binds, unknown := keymap.FromConfig(cfg.Keys)
+		m.keys = keymap.From(binds)
 		if len(unknown) > 0 {
 			// A misspelled action would otherwise do nothing at all, quietly.
 			m.noticeText = "config: no such key action: " + strings.Join(unknown, ", ")

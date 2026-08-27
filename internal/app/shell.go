@@ -231,13 +231,13 @@ func (m Model) renderCommand() string {
 	lines := []string{
 		ui.DialogTitle.Render("Run a command"),
 		"",
-		ui.Faint.Render("in " + truncTail(m.command.dir, contentWidth-3)),
+		ui.Faint.Render("in " + ui.TruncTail(m.command.dir, contentWidth-3)),
 		ui.AddrEdit.Width(contentWidth).Render(m.command.input.View()),
 		"",
 		ui.Faint.Render("%f name · %F path · %s selection · %d dir · %D other"),
 	}
 	if m.command.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.command.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.command.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.DialogHint.Render("enter")+" run    "+ui.DialogHint.Render("esc")+" cancel")
@@ -250,7 +250,7 @@ func (m Model) renderRunning() string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		ui.DialogTitle.Render("Running"),
 		"",
-		truncTail(m.command.line, contentWidth),
+		ui.TruncTail(m.command.line, contentWidth),
 		"",
 		ui.DialogHint.Render("esc")+" cancel",
 	)

@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,15 +25,22 @@ const tempPrefix = ".tyr-rename-"
 //
 // The returned slice is what actually happened, in the order it happened. Hand it
 // to PlanUndo to put it back — including after an error, where it is the part of
-// the batch that did land.
-func Apply(root string, changes []Change, step func(string)) ([]Change, error) {
-	return applyGroups(root, byDir(Applicable(changes), true), step)
+// the batch that did land, and including after a cancellation, which stops the
+// batch between directories and is reported the same way.
+func Apply(ctx context.Context, root string, changes []Change, step func(string)) ([]Change, error) {
+	return applyGroups(ctx, root, byDir(Applicable(changes), true), step)
 }
 
-// applyGroups runs the groups in order, collecting what completed.
-func applyGroups(root string, groups [][]Change, step func(string)) ([]Change, error) {
+// applyGroups runs the groups in order, collecting what completed. A group is
+// one directory's worth of renames, some of them staged through temporary
+// names, so between groups is the only point at which stopping leaves no
+// staging name behind.
+func applyGroups(ctx context.Context, root string, groups [][]Change, step func(string)) ([]Change, error) {
 	var done []Change
 	for _, group := range groups {
+		if err := ctx.Err(); err != nil {
+			return done, err
+		}
 		applied, err := applyDir(root, group, step)
 		done = append(done, applied...)
 		if err != nil {

@@ -3,6 +3,7 @@ package fileops
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -93,36 +94,40 @@ func isTar(f format) bool {
 }
 
 // extractAll extracts each archive in job.Srcs into job.Dest.
-func extractAll(job Job, r *reporter) error {
+func extractAll(ctx context.Context, job Job, r *reporter) error {
 	if err := os.MkdirAll(job.Dest, 0o755); err != nil {
 		return err
 	}
 	for _, arc := range job.Srcs {
-		if err := extractOne(arc, job.Dest, job.Password, r); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := extractOne(ctx, arc, job.Dest, job.Password, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extractOne(arc, dest, password string, r *reporter) error {
+func extractOne(ctx context.Context, arc, dest, password string, r *reporter) error {
 	f := detectFormat(arc)
-	bin, args, parse := extractCommand(f, arc, dest, password)
+	cmd, parse := extractCommand(f, arc, dest, password)
 	switch {
-	case bin == "" && f == fmtUnknown:
+	case cmd.bin == "" && f == fmtUnknown:
 		return fmt.Errorf("unsupported archive: %s", filepath.Base(arc))
-	case bin == "":
+	case cmd.bin == "":
 		// The format is known; what is missing is the tool for it.
 		return fmt.Errorf("no tool installed to unpack %s", filepath.Base(arc))
 	}
-	return runStreaming(bin, args, r, parse)
+	return r.tools.runTool(ctx, cmd, r, parse)
 }
 
-// extractCommand returns the binary, args, and line parser to extract arc into
-// dest. A password is only meaningful for the encrypting formats; an encrypted
-// .zip goes through 7z when it is installed, because Info-ZIP's unzip cannot
-// read the AES entries that 7-Zip (and most modern zip tools) write.
-func extractCommand(f format, arc, dest, password string) (bin string, args []string, parse func(string) string) {
+// extractCommand returns the command and line parser to extract arc into dest.
+// A password is only meaningful for the encrypting formats; an encrypted .zip
+// goes through 7z when it is installed, because Info-ZIP's unzip cannot read
+// the AES entries that 7-Zip (and most modern zip tools) write.
+func extractCommand(f format, arc, dest, password string) (toolCmd, func(string) string) {
+	arc = argPath(arc)
 	switch {
 	case isTar(f):
 		a := []string{"-x"}
@@ -130,57 +135,78 @@ func extractCommand(f format, arc, dest, password string) (bin string, args []st
 			a = append(a, c)
 		}
 		a = append(a, "-v", "-f", arc, "-C", dest)
-		return "tar", a, parseTarLine
+		return toolCmd{bin: "tar", args: a}, parseTarLine
 	case f == fmtZip:
 		// unzip reports progress per file, so it handles a plain zip; 7-Zip takes
 		// over for encrypted entries (unzip cannot read AES), wherever unzip is
 		// not installed at all, and on Windows, where the unzip on PATH is a
 		// Unix build that does not read a native path reliably.
 		if password != "" || preferSevenZipForZip || tool("unzip") == "" {
-			if bin, args, parse := sevenZipExtract(arc, dest, password); bin != "" {
-				return bin, args, parse
+			if cmd, parse := sevenZipExtract(arc, dest, password); cmd.bin != "" {
+				return cmd, parse
 			}
 		}
 		if tool("unzip") == "" {
-			return "", nil, nil
+			return toolCmd{}, nil
 		}
 		a := []string{"-o"}
 		if password != "" {
+			// -P is the only way unzip takes a password, so it lands in the
+			// process table where any local user can read it. This branch is
+			// reached only when 7-Zip — which takes one on stdin instead — is
+			// not installed, and the alternative is refusing the archive.
 			a = append(a, "-P", password)
 		}
 		a = append(a, arc, "-d", dest)
-		return "unzip", a, parseUnzipLine
+		return toolCmd{bin: "unzip", args: a}, parseUnzipLine
 	case f == fmt7z:
 		return sevenZipExtract(arc, dest, password)
 	case f == fmtRar:
 		// -p- keeps unrar from stopping to ask when the archive turns out to be
 		// encrypted; the failure is then classified and the app asks instead.
+		// A supplied password has to go on the command line, as it does for
+		// unzip above: unrar re-prompts on a wrong one, so feeding it on stdin
+		// would risk a hang for a tool tyr cannot test for.
 		pw := "-p-"
 		if password != "" {
 			pw = "-p" + password
 		}
-		return "unrar", []string{"x", "-y", pw, arc, dest + string(os.PathSeparator)}, parseNone
+		return toolCmd{bin: "unrar", args: []string{"x", "-y", pw, arc, dest + string(os.PathSeparator)}}, parseNone
 	default:
-		return "", nil, nil
+		return toolCmd{}, nil
 	}
 }
 
-func sevenZipExtract(arc, dest, password string) (string, []string, func(string) string) {
+// sevenZipExtract builds the 7-Zip command. The password goes in on stdin
+// rather than as -p<password>, which would put it in the process table for
+// every user on the machine to read — the same reasoning as packWith7z, which
+// has always done it this way.
+//
+// Note that a bare -p means an *empty* password when extracting, unlike `7z a`
+// where it means "prompt", so the switch is left off entirely: 7-Zip prompts
+// whenever the archive turns out to be encrypted and reads the answer from
+// stdin. Handing a password to an archive that is not encrypted is harmless —
+// nothing prompts and the reader is never read — and a missing or wrong one
+// makes 7-Zip print "Enter password" and "Can not open encrypted archive",
+// which needsPassword turns into ErrNeedPassword so the app can ask. stdin is a
+// strings.Reader either way, so a re-prompt hits EOF and fails instead of
+// hanging.
+func sevenZipExtract(arc, dest, password string) (toolCmd, func(string) string) {
 	bin := tool("7z")
 	if bin == "" {
-		return "", nil, nil
+		return toolCmd{}, nil
 	}
-	a := []string{"x", "-bb1", "-bd", "-y"}
+	stdin := ""
 	if password != "" {
-		a = append(a, "-p"+password)
+		stdin = password + "\n"
 	}
-	a = append(a, arc, "-o"+dest)
-	return bin, a, parse7zLine
+	a := []string{"x", "-bb1", "-bd", "-y", "-o" + dest, "--", arc}
+	return toolCmd{bin: bin, args: a, stdin: stdin}, parse7zLine
 }
 
 // countArchiveEntries returns the number of members in an archive, or 0 if it
 // cannot be determined cheaply (progress falls back to indeterminate).
-func countArchiveEntries(arc string) int {
+func countArchiveEntries(ctx context.Context, arc string) int {
 	f := detectFormat(arc)
 	switch {
 	case isTar(f):
@@ -189,11 +215,11 @@ func countArchiveEntries(arc string) int {
 			a = append(a, c)
 		}
 		a = append(a, "-f", arc)
-		return countLines(exec.Command("tar", a...))
+		return countLines(exec.CommandContext(ctx, "tar", a...))
 	case f == fmtZip:
 		// Entry names stay readable in an encrypted zip, so the bar is exact
 		// even when the contents need a password.
-		return countLines(exec.Command("zipinfo", "-1", arc))
+		return countLines(exec.CommandContext(ctx, "zipinfo", "-1", argPath(arc)))
 	default:
 		return 0
 	}
@@ -216,21 +242,33 @@ func boolToInt(b bool) int {
 
 // Running the tools -----------------------------------------------------------
 
-// runStreaming runs a command with its output merged into the progress stream.
-func runStreaming(bin string, args []string, r *reporter, parse func(string) string) error {
-	return runTool(toolCmd{bin: bin, args: args}, r, parse)
+// toolRunner runs the external tools an archive job needs. Every pack and
+// unpack goes through it rather than reaching for os/exec directly, which is
+// the seam a test stands in for: it makes the orchestration reachable — which
+// binary gets chosen, what goes on its stdin, whether a truncated archive is
+// cleaned up, how a non-zero exit is classified — on a machine that has neither
+// 7-Zip nor unrar installed.
+//
+// execTools is the only implementation outside tests, and reporter.tools is
+// where a job picks one up.
+type toolRunner interface {
+	runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error
+	runPiped(ctx context.Context, src, filter toolCmd, out io.Writer, r *reporter, parse func(string) string) error
 }
+
+// execTools is the real thing: it starts child processes.
+type execTools struct{}
 
 // runStreamingIn runs a command in dir, optionally feeding it stdin (a password
 // prompt, which is how 7z takes one without it landing in the process table).
-func runStreamingIn(dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
-	return runTool(toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
+func runStreamingIn(ctx context.Context, dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
+	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
 }
 
 // runInto runs a command whose stdout is the archive itself, so only stderr
 // carries progress.
-func runInto(bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
-	return runTool(toolCmd{bin: bin, args: args, stdout: out}, r, parse)
+func runInto(ctx context.Context, bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
+	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, stdout: out}, r, parse)
 }
 
 // toolCmd is one child process in a pack/unpack pipeline.
@@ -243,12 +281,14 @@ type toolCmd struct {
 }
 
 // runTool runs one command, reporting progress from the lines parse accepts.
-func runTool(c toolCmd, r *reporter, parse func(string) string) error {
+// Cancelling ctx kills the child, which is the only way to stop a tool that is
+// half-way through a large archive.
+func (execTools) runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(c.bin, c.args...)
+	cmd := exec.CommandContext(ctx, c.bin, c.args...)
 	cmd.Dir = c.dir
 	cmd.Stderr = prog.w
 	cmd.Stdout = c.stdout
@@ -272,7 +312,7 @@ func runTool(c toolCmd, r *reporter, parse func(string) string) error {
 // runPiped runs `bin | filter > out`: the first command writes the archive
 // stream to the second, which compresses it into out. Both report progress on
 // stderr, and a failure in either is reported.
-func runPiped(bin string, args []string, filter string, filterArgs []string, out io.Writer, r *reporter, parse func(string) string) error {
+func (execTools) runPiped(ctx context.Context, src, filter toolCmd, out io.Writer, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
@@ -283,11 +323,11 @@ func runPiped(bin string, args []string, filter string, filterArgs []string, out
 		return err
 	}
 
-	src := exec.Command(bin, args...)
-	src.Stdout = pw
-	src.Stderr = prog.w
+	srcCmd := exec.CommandContext(ctx, src.bin, src.args...)
+	srcCmd.Stdout = pw
+	srcCmd.Stderr = prog.w
 
-	dst := exec.Command(filter, filterArgs...)
+	dst := exec.CommandContext(ctx, filter.bin, filter.args...)
 	dst.Stdin = pr
 	dst.Stdout = out
 	dst.Stderr = prog.w
@@ -298,7 +338,7 @@ func runPiped(bin string, args []string, filter string, filterArgs []string, out
 		prog.abort()
 		return err
 	}
-	if err := src.Start(); err != nil {
+	if err := srcCmd.Start(); err != nil {
 		pr.Close()
 		pw.Close()
 		_ = dst.Wait()
@@ -311,12 +351,12 @@ func runPiped(bin string, args []string, filter string, filterArgs []string, out
 	pw.Close()
 	prog.startedChildren()
 
-	srcErr := src.Wait()
+	srcErr := srcCmd.Wait()
 	dstErr := dst.Wait()
 	if srcErr != nil {
-		return prog.finish(bin, srcErr)
+		return prog.finish(src.bin, srcErr)
 	}
-	return prog.finish(filter, dstErr)
+	return prog.finish(filter.bin, dstErr)
 }
 
 // progressPipe fans a child's output into the reporter and keeps the last lines

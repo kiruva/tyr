@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/app/keymap"
+	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
@@ -157,7 +160,7 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeConfirm:
 		return m.onConfirmKey(msg)
 	case modeProgress:
-		return m, nil // input is locked while an operation runs
+		return m.onProgressKey(msg)
 	case modeView:
 		return m.onViewKey(msg)
 	case modeEdit:
@@ -332,9 +335,11 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Switch):
 		m.active = 1 - m.active
 	case key.Matches(msg, m.keys.Theme):
-		m.openThemePicker()
+		m.theme = theme.New()
+		m.mode = modeTheme
 	case key.Matches(msg, m.keys.Keys):
-		m.openKeyEditor()
+		m.keyEdit = keymap.NewEditor()
+		m.mode = modeKeys
 	case key.Matches(msg, m.keys.Connect):
 		cmd := m.openConnPicker()
 		return m, cmd
@@ -688,13 +693,38 @@ func firstNonArchive(names []string) string {
 	return ""
 }
 
-// startPending launches the confirmed job and enters progress mode.
+// startPending launches the confirmed job and enters progress mode. The job
+// gets a context of its own, which is what Esc cancels; see onProgressKey.
 func (m *Model) startPending() tea.Cmd {
-	ch := fileops.Run(m.pending)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelOp = cancel
+	m.cancelling = false
+
+	ch := fileops.Run(ctx, m.pending)
 	m.progressCh = ch
 	m.progress = fileops.Progress{}
 	m.mode = modeProgress
 	return waitCmd(ch)
+}
+
+// onProgressKey is what a keypress means while an operation runs. Stopping it is
+// the only thing on offer — every other key stays locked out, so a stray press
+// cannot start a second job on top of the one in flight.
+//
+// Ctrl+C stops the job rather than quitting. Leaving mid-write would abandon a
+// half-copied file with nothing in the undo history to say so; the job unwinds
+// first, and a second Ctrl+C from the normal screen quits as it always did.
+// Nothing changes mode here: the job reports what it managed to do through the
+// same Result as any other ending, and finishOp takes it from there.
+func (m Model) onProgressKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		if m.cancelOp != nil && !m.cancelling {
+			m.cancelOp()
+			m.cancelling = true
+		}
+	}
+	return m, nil
 }
 
 // finishOp refreshes both panes and surfaces any error. A remote pane refreshes
@@ -702,6 +732,15 @@ func (m *Model) startPending() tea.Cmd {
 func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
 	m.progressCh = nil
+
+	// The job is over either way, so its context has nothing left to govern.
+	// Releasing it here rather than only on the cancel path is what keeps the
+	// context from outliving the work it was made for.
+	if m.cancelOp != nil {
+		m.cancelOp()
+		m.cancelOp = nil
+	}
+	m.cancelling = false
 
 	// An encrypted archive is not a failure yet: ask for the password and run
 	// the same job again with it.
@@ -804,7 +843,7 @@ func (m *Model) resizePanes() {
 
 // waitCmd blocks on the next value from the operation channel and delivers it
 // as a message; it returns nil once the channel is closed.
-func waitCmd(ch <-chan any) tea.Cmd {
+func waitCmd(ch <-chan fileops.Event) tea.Cmd {
 	return func() tea.Msg {
 		if ch == nil {
 			return nil

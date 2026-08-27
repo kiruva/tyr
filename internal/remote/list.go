@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -24,6 +25,10 @@ type Listing struct {
 	Entries []Entry
 }
 
+// These run one short round trip for the UI to draw with, and there is no
+// affordance to cancel one: the pane is simply waiting for its listing.
+// A long-running transfer takes a real context; see transfer.go.
+//
 // List reads a remote directory in a single round trip: cd, report where that
 // landed, then list. The GNU --time-style flag gives epoch timestamps; when the
 // far side is BSD (macOS) ls rejects it and the fallback runs, in which case the
@@ -35,7 +40,7 @@ func List(h Host, dir string) (Listing, error) {
 	}
 	script := cd + ` && pwd && { LC_ALL=C ls -lAn --time-style=+%s 2>/dev/null || LC_ALL=C ls -lAn; }`
 
-	out, err := output(h, script)
+	out, err := output(context.Background(), h, script)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -58,7 +63,7 @@ func List(h Host, dir string) (Listing, error) {
 func Stat(h Host, p string) (exists, isDir bool, err error) {
 	script := "if [ -d " + shQuote(p) + " ]; then echo dir; elif [ -e " + shQuote(p) +
 		" ]; then echo file; else echo none; fi"
-	out, err := output(h, script)
+	out, err := output(context.Background(), h, script)
 	if err != nil {
 		return false, false, err
 	}
@@ -79,7 +84,7 @@ func AnyExist(h Host, dir string, names []string) (bool, error) {
 	b.WriteString("cd -- " + shQuote(dir) + " && for n in " + quoteAll(names) + "; do ")
 	b.WriteString(`[ -e "$n" ] && { echo yes; break; }; done; :`)
 
-	out, err := output(h, b.String())
+	out, err := output(context.Background(), h, b.String())
 	if err != nil {
 		return false, err
 	}

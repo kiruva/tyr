@@ -90,13 +90,13 @@ func TestThemePickerCursorStaysInRange(t *testing.T) {
 	for range len(ui.Themes()) + 5 {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	}
-	if got := m.(Model).themeCursor; got != len(ui.Themes())-1 {
-		t.Fatalf("themeCursor = %d, want %d", got, len(ui.Themes())-1)
+	if got := m.(Model).theme.Cursor(); got != len(ui.Themes())-1 {
+		t.Fatalf("theme cursor = %d, want %d", got, len(ui.Themes())-1)
 	}
 	for range len(ui.Themes()) + 5 {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	}
-	if got := m.(Model).themeCursor; got != 0 {
-		t.Fatalf("themeCursor = %d, want 0", got)
+	if got := m.(Model).theme.Cursor(); got != 0 {
+		t.Fatalf("theme cursor = %d, want 0", got)
 	}
 }
