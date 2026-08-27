@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"github.com/kiruva/tyr/internal/app/caps"
+	"github.com/kiruva/tyr/internal/app/keymap"
 	"path/filepath"
 	"strings"
 
@@ -37,11 +39,11 @@ func (m Model) View() string {
 	case modeEdit:
 		return m.renderEditor()
 	case modeHelp:
-		return overlay(m.width, m.height, m.renderHelp())
+		return overlay(m.width, m.height, keymap.Help(m.keys, m.width, m.overlayRows(), m.overlayScroll))
 	case modeCaps:
-		return overlay(m.width, m.height, m.renderCaps())
+		return overlay(m.width, m.height, caps.View(m.width, m.overlayRows(), m.overlayScroll))
 	case modeTheme:
-		return overlay(m.width, m.height, m.renderThemePicker())
+		return overlay(m.width, m.height, m.theme.View())
 	case modeConn:
 		return overlay(m.width, m.height, m.renderConn())
 	case modeCreate:
@@ -69,7 +71,7 @@ func (m Model) View() string {
 	case modeRunning:
 		return overlay(m.width, m.height, m.renderRunning())
 	case modeKeys:
-		return m.renderKeyEditor()
+		return m.keyEdit.View(m.keys, m.width, m.height)
 	case modeSelectMask:
 		return overlay(m.width, m.height, m.renderSelectMask())
 	case modeFind:
@@ -79,109 +81,17 @@ func (m Model) View() string {
 	}
 }
 
-// renderHelp draws the keybinding overlay, generated from the keymap.
-func (m Model) renderHelp() string {
-	groups := m.keys.groups()
-	blocks := make([]string, 0, len(groups))
-	for _, g := range groups {
-		lines := []string{ui.HelpKey.Render(g.title)}
-		for _, b := range g.binds {
-			h := b.Help()
-			lines = append(lines, "  "+ui.HelpKey.Render(padRight(h.Key, 9))+ui.Faint.Render(h.Desc))
-		}
-		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
-	}
-
-	// split the groups across two columns, balanced by line count
-	mid := balancePoint(blocks)
-	left := joinBlocks(blocks[:mid])
-	right := joinBlocks(blocks[mid:])
-	cols := lipgloss.JoinHorizontal(lipgloss.Top, left, "     ", right)
-
-	body, more := scrollBlock(cols, m.overlayRows(), m.overlayScroll)
-
-	header := ui.DialogTitle.Render("tyr — keys")
-	footer := ui.Faint.Render("C capabilities · any key to close")
-	if more {
-		footer = ui.Faint.Render("↑/↓ more · C capabilities · any key to close")
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
-	return ui.Dialog.Render(content)
-}
-
 // overlayRows is how many lines of a full-height overlay fit on the terminal,
 // after the border, the padding, the header and the footer have had theirs.
 func (m Model) overlayRows() int {
 	return max(m.height-8, 3)
 }
 
-// scrollBlock windows a rendered block to rows lines, starting at offset. The
-// offset is clamped here rather than where the key was pressed: the view is the
-// only place that knows how tall the content turned out to be.
-func scrollBlock(block string, rows, offset int) (string, bool) {
-	lines := strings.Split(block, "\n")
-	if len(lines) <= rows {
-		return block, false
-	}
-
-	offset = min(max(offset, 0), len(lines)-rows)
-	window := lines[offset : offset+rows]
-	return strings.Join(window, "\n"), true
-}
-
-// renderThemePicker lists the themes with a colour swatch each, above a sample
-// of the styles the highlighted theme produces.
-func (m Model) renderThemePicker() string {
-	const nameW = 12
-
-	lines := []string{ui.DialogTitle.Render("Theme"), ""}
-	for i, t := range ui.Themes() {
-		name := padRight(t.Name, nameW)
-		if i == m.themeCursor {
-			lines = append(lines, ui.Cursor.Render("▸ "+name)+" "+ui.Swatch(t))
-			continue
-		}
-		lines = append(lines, "  "+name+" "+ui.Swatch(t))
-	}
-
-	const sampleW = 24
-	sample := lipgloss.JoinVertical(lipgloss.Left,
-		ui.DirName.Render(padRight("  documents/", sampleW)),
-		ui.Selected.Render(padRight("● selected.txt", sampleW)),
-		ui.Cursor.Render(padRight("  cursor.go", sampleW-6)+" 1.2KB"),
-		ui.StatusBar.Render(padRight(" 12 items · sort:name", sampleW)),
-	)
-
-	footer := ui.Faint.Render("↑/↓ preview · enter apply · esc cancel")
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.JoinVertical(lipgloss.Left, lines...), "", sample, "", footer)
-	return ui.Dialog.Render(content)
-}
-
-// joinBlocks stacks help blocks vertically with a blank line between them.
-func joinBlocks(blocks []string) string {
-	spaced := make([]string, 0, len(blocks)*2)
-	for i, b := range blocks {
-		if i > 0 {
-			spaced = append(spaced, "")
-		}
-		spaced = append(spaced, b)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, spaced...)
-}
-
-func padRight(s string, w int) string {
-	if gap := w - lipgloss.Width(s); gap > 0 {
-		return s + strings.Repeat(" ", gap)
-	}
-	return s
-}
-
 // renderViewer draws the read-only pager full-screen: what is open and how it
 // is being shown along the top, what can be done to it along the bottom.
 func (m Model) renderViewer() string {
 	right := m.viewerFlags()
-	left := " view · " + truncTail(m.viewTitle, max(m.width-lipgloss.Width(right)-10, 8))
+	left := " view · " + ui.TruncTail(m.viewTitle, max(m.width-lipgloss.Width(right)-10, 8))
 	header := ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), m.viewerFooter())
@@ -217,7 +127,7 @@ func (m Model) viewerFooter() string {
 		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 	if m.viewer.status != "" {
-		left := " " + truncTail(m.viewer.status, max(m.width-12, 8))
+		left := " " + ui.TruncTail(m.viewer.status, max(m.width-12, 8))
 		right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
 		return ui.NoticeBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
@@ -233,7 +143,7 @@ func (m Model) renderEditor() string {
 	if m.editor.Value() != m.editOrig {
 		name += " *"
 	}
-	header := ui.StatusBar.Width(m.width).Render(" edit · " + truncTail(name, m.width-8))
+	header := ui.StatusBar.Width(m.width).Render(" edit · " + ui.TruncTail(name, m.width-8))
 
 	hint := " Ctrl+S save · Ctrl+Q quit"
 	if m.editStatus != "" {
@@ -256,7 +166,7 @@ func (m Model) statusBar() string {
 		return ui.ErrorBar.Width(m.width).Render(" " + m.errText)
 	}
 	if m.noticeText != "" {
-		return ui.NoticeBar.Width(m.width).Render(" " + truncTail(m.noticeText, m.width-1))
+		return ui.NoticeBar.Width(m.width).Render(" " + ui.TruncTail(m.noticeText, m.width-1))
 	}
 
 	p := &m.panes[m.active]
@@ -277,7 +187,7 @@ func (m Model) statusBar() string {
 		right += fmt.Sprintf(" · %d selected", n)
 	}
 	if f := p.Filter(); f != "" {
-		right += " · filter:" + truncTail(f, 16)
+		right += " · filter:" + ui.TruncTail(f, 16)
 	}
 	right += fmt.Sprintf(" · sort:%s", p.SortModeLabel())
 	if p.HiddenShown() {
@@ -314,7 +224,7 @@ func (m Model) renderConfirm() string {
 		body = "This cannot be undone."
 	case fileops.OpTrash:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s to the trash?", n, items(n)))
-		body = "→ " + truncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
+		body = "→ " + ui.TruncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
 	case fileops.OpRestore:
 		title = ui.DialogTitle.Render("Restore from the trash")
 		body = "put " + trash.Label(j.Trash) + " back"
@@ -325,28 +235,28 @@ func (m Model) renderConfirm() string {
 			ui.Faint.Render("files in the way are replaced")
 	case fileops.OpMovePairs:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s back", len(j.Pairs), items(len(j.Pairs))))
-		body = "→ " + truncTail(j.Dest, 44)
+		body = "→ " + ui.TruncTail(j.Dest, 44)
 	case fileops.OpPack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Pack %d %s", n, items(n)))
-		body = "→ " + truncTail(j.Out, 44) + "\n" + ui.Faint.Render(packSummary(j.Pack))
+		body = "→ " + ui.TruncTail(j.Out, 44) + "\n" + ui.Faint.Render(packSummary(j.Pack))
 		if j.Pack.Weak() {
 			body += "\n" + ui.Danger.Render("ZipCrypto is weak — install p7zip for AES-256")
 		}
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
-		body = "→ " + truncTail(j.Dest, 44)
+		body = "→ " + ui.TruncTail(j.Dest, 44)
 	case fileops.OpUnwrap:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s here", n, archives(n)))
-		body = "→ " + truncTail(j.Dest, 44)
+		body = "→ " + ui.TruncTail(j.Dest, 44)
 	case fileops.OpDownload:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Download %d %s", n, items(n)))
-		body = "from " + truncTail(j.Host.String(), 44) + "\n→ " + truncTail(j.Dest, 44)
+		body = "from " + ui.TruncTail(j.Host.String(), 44) + "\n→ " + ui.TruncTail(j.Dest, 44)
 		if j.Move {
 			body += "\n" + ui.Danger.Render("The originals are removed from the host.")
 		}
 	case fileops.OpUpload:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Upload %d %s", n, items(n)))
-		body = "→ " + truncTail(j.Host.Display(j.Dest), 44) +
+		body = "→ " + ui.TruncTail(j.Host.Display(j.Dest), 44) +
 			"\n" + ui.Faint.Render("existing files there are replaced")
 		if j.Move {
 			body += "\n" + ui.Danger.Render("The local originals are removed.")
@@ -357,14 +267,14 @@ func (m Model) renderConfirm() string {
 			verb = "Move"
 		}
 		title = ui.DialogTitle.Render(fmt.Sprintf("%s %d %s on %s", verb, n, items(n), j.Host.String()))
-		body = "→ " + truncTail(j.Dest, 44)
+		body = "→ " + ui.TruncTail(j.Dest, 44)
 	case fileops.OpRemoteDelete:
 		title = ui.Danger.Render(fmt.Sprintf("Delete %d %s on %s?", n, items(n), j.Host.String()))
 		body = "This cannot be undone."
 	case fileops.OpRename:
 		sum := rename.Summarize(j.Renames)
 		title = ui.DialogTitle.Render(fmt.Sprintf("Rename %d %s", sum.Renamed, items(sum.Renamed)))
-		body = "in " + truncTail(j.Dest, 44)
+		body = "in " + ui.TruncTail(j.Dest, 44)
 		if sum.Conflicts > 0 {
 			body += "\n" + ui.Faint.Render(fmt.Sprintf("%d blocked %s skipped", sum.Conflicts, items(sum.Conflicts)))
 		}
@@ -372,7 +282,7 @@ func (m Model) renderConfirm() string {
 	case fileops.OpRenameUndo:
 		plan := rename.Applicable(j.Renames)
 		title = ui.DialogTitle.Render("Undo rename")
-		body = "put " + rename.UndoLabel(plan) + " back\n" + ui.Faint.Render("in "+truncTail(j.Dest, 40))
+		body = "put " + rename.UndoLabel(plan) + " back\n" + ui.Faint.Render("in "+ui.TruncTail(j.Dest, 40))
 		if skipped := rename.Summarize(j.Renames).Conflicts; skipped > 0 {
 			body += "\n" + ui.Faint.Render(fmt.Sprintf("%d %s cannot be put back", skipped, items(skipped)))
 		}
@@ -386,10 +296,10 @@ func (m Model) renderConfirm() string {
 		if j.VDir != "" {
 			dest += "/" + j.VDir
 		}
-		body = "→ " + truncTail(dest+"/", 44)
+		body = "→ " + ui.TruncTail(dest+"/", 44)
 	default: // copy / move
 		title = ui.DialogTitle.Render(fmt.Sprintf("%s %d %s", j.Op, n, items(n)))
-		body = "→ " + truncTail(j.Dest, 44)
+		body = "→ " + ui.TruncTail(j.Dest, 44)
 	}
 	if m.undoing {
 		if label := m.undoLabel(); label != "" {
@@ -424,7 +334,7 @@ func (m Model) renderProgress() string {
 		// Total unknown (e.g. 7z/rar): show a static bar and a running count.
 		line = ui.BarEmpty.Render(strings.Repeat("░", 30)) + fmt.Sprintf("  %d %s", p.Done, items(p.Done))
 	}
-	cur := ui.Faint.Render(truncTail(p.Current, 44))
+	cur := ui.Faint.Render(ui.TruncTail(p.Current, 44))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", line, cur, "", foot)
 	return ui.Dialog.Render(content)
@@ -457,16 +367,4 @@ func archives(n int) string {
 		return "archive"
 	}
 	return "archives"
-}
-
-// truncTail keeps the tail of a path, prefixing "…" when it's too long.
-func truncTail(s string, w int) string {
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	r := []rune(s)
-	if w <= 1 {
-		return "…"
-	}
-	return "…" + string(r[len(r)-(w-1):])
 }

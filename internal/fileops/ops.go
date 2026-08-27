@@ -170,6 +170,19 @@ type Job struct {
 // Pair is one source and where it goes.
 type Pair struct{ Src, Dst string }
 
+// Event is one thing a running job has to say. The set is closed: Progress
+// repeatedly as it works, Conflict when it needs an answer before it can go on,
+// and exactly one Result last of all.
+//
+// It is sealed by an unexported method rather than being a bare `any` so that a
+// fourth kind of message is a compile error at every receiver, instead of a
+// case that silently falls through a type switch and is never seen.
+type Event interface{ event() }
+
+func (Progress) event() {}
+func (Conflict) event() {}
+func (Result) event()   {}
+
 // Progress is emitted repeatedly as the job runs.
 type Progress struct {
 	Current     string
@@ -210,12 +223,12 @@ type Result struct {
 // The Result is always sent, cancelled or not: it is what tells the UI the job
 // is over. Progress values are not, so a job being torn down cannot block on a
 // reader that has stopped listening.
-func Run(ctx context.Context, job Job) <-chan any {
-	ch := make(chan any)
+func Run(ctx context.Context, job Job) <-chan Event {
+	ch := make(chan Event)
 	go func() {
 		defer close(ch)
 
-		r := &reporter{ctx: ctx, ch: ch, total: computeTotal(ctx, job)}
+		r := &reporter{ctx: ctx, ch: ch, tools: execTools{}, total: computeTotal(ctx, job)}
 
 		if isRemoteOp(job.Op) {
 			ch <- Result{Op: job.Op, Err: r.cancelled(runRemote(ctx, job, r))}
@@ -296,8 +309,14 @@ func computeTotal(ctx context.Context, job Job) int {
 
 // reporter emits one Progress per processed item.
 type reporter struct {
-	ctx         context.Context
-	ch          chan<- any
+	ctx context.Context
+	ch  chan<- Event
+
+	// tools is how this job runs external programs. Production always uses
+	// execTools; a test swaps it to reach the archive orchestration without
+	// 7-Zip or unrar on the machine. See toolRunner in archive.go.
+	tools toolRunner
+
 	done, total int
 }
 
@@ -358,7 +377,7 @@ type localResult struct {
 // runLocal performs the copy / move / delete family, one source at a time. It
 // records what it brought into being and what it moved, which is what an undo
 // of the job is built from.
-func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- any) localResult {
+func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localResult {
 	rn := &runner{ctx: ctx, r: r, rv: newResolver(ctx, ch, job.OnConflict)}
 	var out localResult
 

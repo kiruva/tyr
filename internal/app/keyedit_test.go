@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/app/keymap"
 	"github.com/kiruva/tyr/internal/config"
 )
 
@@ -13,14 +14,12 @@ import (
 func focusAction(t *testing.T, m tea.Model, id string) tea.Model {
 	t.Helper()
 	app := m.(Model)
-	for i, spec := range keySpecs {
-		if spec.id == id {
-			app.keyEdit.cursor = i
-			return app
-		}
+	index, ok := keymap.ActionIndex(id)
+	if !ok {
+		t.Fatalf("no such action: %s", id)
 	}
-	t.Fatalf("no such action: %s", id)
-	return m
+	app.keyEdit = app.keyEdit.MoveTo(index)
+	return app
 }
 
 // openKeys starts the app with an isolated config and opens the key editor.
@@ -41,14 +40,14 @@ func TestRebindKey(t *testing.T) {
 	m := focusAction(t, openKeys(t), "sort")
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // "press a key…"
-	if got := m.(Model).keyEdit.stage; got != keyEditCapture {
-		t.Fatalf("stage = %v, want capture", got)
+	if !m.(Model).keyEdit.Capturing() {
+		t.Fatal("enter should put the editor into capture")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 
 	app := m.(Model)
-	if app.keyEdit.fault {
-		t.Fatalf("refused: %s", app.keyEdit.status)
+	if status, refused := app.keyEdit.Status(); refused {
+		t.Fatalf("refused: %s", status)
 	}
 	if got := app.keys.Sort.Keys(); len(got) != 1 || got[0] != "z" {
 		t.Fatalf("sort is bound to %v, want [z]", got)
@@ -79,11 +78,11 @@ func TestRebindRefusesADuplicate(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}}) // already "view"
 
 	app := m.(Model)
-	if !app.keyEdit.fault {
+	if _, refused := app.keyEdit.Status(); !refused {
 		t.Fatal("binding a key that was taken was allowed")
 	}
-	if !strings.Contains(app.keyEdit.status, "view") {
-		t.Errorf("status = %q, want it to name what has the key", app.keyEdit.status)
+	if status, _ := app.keyEdit.Status(); !strings.Contains(status, "view") {
+		t.Errorf("status = %q, want it to name what has the key", status)
 	}
 	if got := app.keys.Sort.Keys()[0]; got != "s" {
 		t.Errorf("sort moved to %q anyway", got)
@@ -97,7 +96,7 @@ func TestRebindRefusesReservedKeys(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 
 	app := m.(Model)
-	if !app.keyEdit.fault {
+	if _, refused := app.keyEdit.Status(); !refused {
 		t.Fatal("ctrl+c was accepted as a binding")
 	}
 	if app.mode != modeKeys {
@@ -138,12 +137,12 @@ func TestResetBindings(t *testing.T) {
 	m = focusAction(t, m, "view")
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}})
-	if got := len(m.(Model).keys.overrides()); got != 2 {
+	if got := len(m.(Model).keys.Overrides()); got != 2 {
 		t.Fatalf("%d actions rebound, want 2", got)
 	}
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
-	if got := len(m.(Model).keys.overrides()); got != 0 {
+	if got := len(m.(Model).keys.Overrides()); got != 0 {
 		t.Fatalf("%d actions still rebound after D", got)
 	}
 }
@@ -193,38 +192,5 @@ func TestHelpFollowsRebinding(t *testing.T) {
 	view := m.(Model).View()
 	if !strings.Contains(view, "z") {
 		t.Errorf("the help does not show the new key:\n%s", view)
-	}
-}
-
-func TestKeyLabels(t *testing.T) {
-	cases := map[string]string{
-		"up": "↑", " ": "space", "f5": "F5", "shift+f8": "shift+F8",
-		"pgdown": "pgdn", "ctrl+l": "ctrl+l", "backspace": "⌫",
-	}
-	for in, want := range cases {
-		if got := prettyKey(in); got != want {
-			t.Errorf("prettyKey(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if got := keyLabel([]string{"f8", "delete", "d"}); got != "F8/del" {
-		t.Errorf("keyLabel = %q, want the first two", got)
-	}
-}
-
-// Every action has a name and a default, and no two share a key out of the box.
-func TestDefaultsAreConsistent(t *testing.T) {
-	keys := defaultKeys()
-	seen := map[string]string{}
-
-	for _, spec := range keySpecs {
-		if spec.id == "" || spec.desc == "" || len(spec.def) == 0 {
-			t.Errorf("incomplete action: %+v", spec)
-		}
-		for _, k := range keys.boundKeys(spec) {
-			if other, taken := seen[k]; taken {
-				t.Errorf("%q is bound to both %s and %s", k, other, spec.id)
-			}
-			seen[k] = spec.id
-		}
 	}
 }

@@ -59,8 +59,8 @@ func (m Model) syncHeader() string {
 // syncRoots names the two directories being compared.
 func (m Model) syncRoots() string {
 	half := max(m.width/2-2, 8)
-	left := truncTail(m.sync.leftRoot, half)
-	right := truncTail(m.sync.rightRoot, half)
+	left := ui.TruncTail(m.sync.leftRoot, half)
+	right := ui.TruncTail(m.sync.rightRoot, half)
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
 	return " " + ui.Title.Render(left) + strings.Repeat(" ", gap) + ui.Title.Render(right)
 }
@@ -96,11 +96,11 @@ func (m Model) syncRow(index int, selected bool) string {
 	sideW := max((m.width-8)/4, 10)
 	pathW := max(m.width-2*sideW-9, 12)
 
-	path := truncTail(r.pair.Rel, pathW)
-	line := " " + padRight(path, pathW) + " " +
-		padRight(syncSide(r.pair.Left), sideW) + " " +
+	path := ui.TruncTail(r.pair.Rel, pathW)
+	line := " " + ui.PadRight(path, pathW) + " " +
+		ui.PadRight(syncSide(r.pair.Left), sideW) + " " +
 		syncArrow(r) + " " +
-		padRight(syncSide(r.pair.Right), sideW)
+		ui.PadRight(syncSide(r.pair.Right), sideW)
 
 	switch {
 	case selected:
@@ -132,7 +132,7 @@ func syncArrow(r syncRow) string {
 // syncFooter is the key legend, or whatever the tool has to say.
 func (m Model) syncFooter() string {
 	if m.sync.status != "" {
-		return ui.NoticeBar.Width(m.width).Render(" " + truncTail(m.sync.status, m.width-1))
+		return ui.NoticeBar.Width(m.width).Render(" " + ui.TruncTail(m.sync.status, m.width-1))
 	}
 
 	left := " →/← direction · s skip · a reset · e " + onOff("equal", m.sync.showSame) +

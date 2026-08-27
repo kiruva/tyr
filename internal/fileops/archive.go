@@ -119,7 +119,7 @@ func extractOne(ctx context.Context, arc, dest, password string, r *reporter) er
 		// The format is known; what is missing is the tool for it.
 		return fmt.Errorf("no tool installed to unpack %s", filepath.Base(arc))
 	}
-	return runTool(ctx, cmd, r, parse)
+	return r.tools.runTool(ctx, cmd, r, parse)
 }
 
 // extractCommand returns the command and line parser to extract arc into dest.
@@ -242,16 +242,33 @@ func boolToInt(b bool) int {
 
 // Running the tools -----------------------------------------------------------
 
+// toolRunner runs the external tools an archive job needs. Every pack and
+// unpack goes through it rather than reaching for os/exec directly, which is
+// the seam a test stands in for: it makes the orchestration reachable — which
+// binary gets chosen, what goes on its stdin, whether a truncated archive is
+// cleaned up, how a non-zero exit is classified — on a machine that has neither
+// 7-Zip nor unrar installed.
+//
+// execTools is the only implementation outside tests, and reporter.tools is
+// where a job picks one up.
+type toolRunner interface {
+	runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error
+	runPiped(ctx context.Context, src, filter toolCmd, out io.Writer, r *reporter, parse func(string) string) error
+}
+
+// execTools is the real thing: it starts child processes.
+type execTools struct{}
+
 // runStreamingIn runs a command in dir, optionally feeding it stdin (a password
 // prompt, which is how 7z takes one without it landing in the process table).
 func runStreamingIn(ctx context.Context, dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
-	return runTool(ctx, toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
+	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
 }
 
 // runInto runs a command whose stdout is the archive itself, so only stderr
 // carries progress.
 func runInto(ctx context.Context, bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
-	return runTool(ctx, toolCmd{bin: bin, args: args, stdout: out}, r, parse)
+	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, stdout: out}, r, parse)
 }
 
 // toolCmd is one child process in a pack/unpack pipeline.
@@ -266,7 +283,7 @@ type toolCmd struct {
 // runTool runs one command, reporting progress from the lines parse accepts.
 // Cancelling ctx kills the child, which is the only way to stop a tool that is
 // half-way through a large archive.
-func runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error {
+func (execTools) runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
@@ -295,7 +312,7 @@ func runTool(ctx context.Context, c toolCmd, r *reporter, parse func(string) str
 // runPiped runs `bin | filter > out`: the first command writes the archive
 // stream to the second, which compresses it into out. Both report progress on
 // stderr, and a failure in either is reported.
-func runPiped(ctx context.Context, bin string, args []string, filter string, filterArgs []string, out io.Writer, r *reporter, parse func(string) string) error {
+func (execTools) runPiped(ctx context.Context, src, filter toolCmd, out io.Writer, r *reporter, parse func(string) string) error {
 	prog, err := newProgressPipe(r, parse)
 	if err != nil {
 		return err
@@ -306,11 +323,11 @@ func runPiped(ctx context.Context, bin string, args []string, filter string, fil
 		return err
 	}
 
-	src := exec.CommandContext(ctx, bin, args...)
-	src.Stdout = pw
-	src.Stderr = prog.w
+	srcCmd := exec.CommandContext(ctx, src.bin, src.args...)
+	srcCmd.Stdout = pw
+	srcCmd.Stderr = prog.w
 
-	dst := exec.CommandContext(ctx, filter, filterArgs...)
+	dst := exec.CommandContext(ctx, filter.bin, filter.args...)
 	dst.Stdin = pr
 	dst.Stdout = out
 	dst.Stderr = prog.w
@@ -321,7 +338,7 @@ func runPiped(ctx context.Context, bin string, args []string, filter string, fil
 		prog.abort()
 		return err
 	}
-	if err := src.Start(); err != nil {
+	if err := srcCmd.Start(); err != nil {
 		pr.Close()
 		pw.Close()
 		_ = dst.Wait()
@@ -334,12 +351,12 @@ func runPiped(ctx context.Context, bin string, args []string, filter string, fil
 	pw.Close()
 	prog.startedChildren()
 
-	srcErr := src.Wait()
+	srcErr := srcCmd.Wait()
 	dstErr := dst.Wait()
 	if srcErr != nil {
-		return prog.finish(bin, srcErr)
+		return prog.finish(src.bin, srcErr)
 	}
-	return prog.finish(filter, dstErr)
+	return prog.finish(filter.bin, dstErr)
 }
 
 // progressPipe fans a child's output into the reporter and keeps the last lines

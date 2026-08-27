@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/app/keymap"
+	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
@@ -333,9 +335,11 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Switch):
 		m.active = 1 - m.active
 	case key.Matches(msg, m.keys.Theme):
-		m.openThemePicker()
+		m.theme = theme.New()
+		m.mode = modeTheme
 	case key.Matches(msg, m.keys.Keys):
-		m.openKeyEditor()
+		m.keyEdit = keymap.NewEditor()
+		m.mode = modeKeys
 	case key.Matches(msg, m.keys.Connect):
 		cmd := m.openConnPicker()
 		return m, cmd
@@ -839,7 +843,7 @@ func (m *Model) resizePanes() {
 
 // waitCmd blocks on the next value from the operation channel and delivers it
 // as a message; it returns nil once the channel is closed.
-func waitCmd(ch <-chan any) tea.Cmd {
+func waitCmd(ch <-chan fileops.Event) tea.Cmd {
 	return func() tea.Msg {
 		if ch == nil {
 			return nil

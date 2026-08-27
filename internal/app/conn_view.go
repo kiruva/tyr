@@ -49,8 +49,8 @@ func (m Model) renderConnList() string {
 		if remoteConnected(c) {
 			label = "● " + label // already connected: no password will be asked
 		}
-		name := padRight(truncHead(c.Name, connNameCol), connNameCol)
-		label = padRight(truncTail(label, labelW), labelW)
+		name := ui.PadRight(ui.TruncHead(c.Name, connNameCol), connNameCol)
+		label = ui.PadRight(ui.TruncTail(label, labelW), labelW)
 
 		if i != m.conn.cursor {
 			lines = append(lines, "  "+name+" "+ui.Faint.Render(label))
@@ -63,7 +63,7 @@ func (m Model) renderConnList() string {
 		lines = append(lines, marker+ui.Cursor.Render(name+" "+label))
 	}
 
-	newRow := padRight("+ new connection…", contentWidth-2)
+	newRow := ui.PadRight("+ new connection…", contentWidth-2)
 	if m.conn.cursor >= len(m.conn.conns) {
 		lines = append(lines, "▸ "+ui.Cursor.Render(newRow))
 	} else {
@@ -87,7 +87,7 @@ func (m Model) renderConnForm() string {
 	lines := []string{m.connTitle(title), ""}
 
 	for i := connField(0); i < fieldCount; i++ {
-		label := padRight(connFieldLabels[i], 9)
+		label := ui.PadRight(connFieldLabels[i], 9)
 		if i == m.conn.field {
 			label = ui.HelpKey.Render(label)
 		} else {
@@ -105,7 +105,7 @@ func (m Model) renderConnPassword() string {
 	lines := []string{
 		m.connTitle("Password"),
 		"",
-		ui.Faint.Render("for ") + truncTail(m.conn.connSummary(), contentWidth-4),
+		ui.Faint.Render("for ") + ui.TruncTail(m.conn.connSummary(), contentWidth-4),
 		"",
 		ui.AddrEdit.Width(contentWidth).Render(m.conn.password.View()),
 		"",
@@ -126,7 +126,7 @@ func (m Model) renderConnHostKey() string {
 	lines := []string{
 		m.connTitle("Unknown host"),
 		"",
-		truncTail(m.conn.connSummary(), contentWidth),
+		ui.TruncTail(m.conn.connSummary(), contentWidth),
 		ui.Faint.Render("is not in known_hosts. Its key fingerprint is:"),
 		"",
 		hk.Fingerprint,
@@ -143,7 +143,7 @@ func (m Model) renderConnBusy() string {
 	lines := []string{
 		m.connTitle("Connecting"),
 		"",
-		truncTail(m.conn.connSummary(), contentWidth),
+		ui.TruncTail(m.conn.connSummary(), contentWidth),
 		"",
 		ui.Faint.Render("negotiating with the host…"),
 	}
@@ -173,20 +173,6 @@ func remoteConnected(c config.Connection) bool {
 
 // truncHead keeps the start of a string, which is what a name wants — the tail
 // is what matters for a path, and truncTail already covers that.
-func truncHead(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	return string(r[:w-1]) + "…"
-}
-
 // wrapTo breaks a message onto lines of at most width columns, so a long error
 // from the far side does not stretch the dialog.
 func wrapTo(s string, width int) string {

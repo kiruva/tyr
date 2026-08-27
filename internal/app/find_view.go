@@ -30,7 +30,7 @@ func (m Model) renderFindForm() string {
 	lines := []string{
 		ui.DialogTitle.Render("Find"),
 		"",
-		ui.Faint.Render("in " + truncTail(m.find.root, contentWidth-3)),
+		ui.Faint.Render("in " + ui.TruncTail(m.find.root, contentWidth-3)),
 		"",
 		findRow("name", m.find.name.View(), m.find.focus == findFieldName),
 		findRow("contains", m.find.content.View(), m.find.focus == findFieldContent),
@@ -39,7 +39,7 @@ func (m Model) renderFindForm() string {
 		findSwitch("hidden files", m.find.hidden, m.find.focus == findFieldHidden),
 	}
 	if m.find.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.find.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.find.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.Faint.Render("* ? [] globs · plain text matches anywhere"),
@@ -52,7 +52,7 @@ func (m Model) renderFindForm() string {
 
 // findRow lays out one labelled text field.
 func findRow(label, field string, focused bool) string {
-	name := padRight(label, findLabelW)
+	name := ui.PadRight(label, findLabelW)
 	if focused {
 		return ui.HelpKey.Render(name) + ui.AddrEdit.Width(contentWidth-findLabelW).Render(field)
 	}
@@ -77,7 +77,7 @@ func (m Model) renderFindRunning() string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		ui.DialogTitle.Render("Find"),
 		"",
-		"searching "+truncTail(m.find.root, contentWidth-10)+"…",
+		"searching "+ui.TruncTail(m.find.root, contentWidth-10)+"…",
 		"",
 		ui.DialogHint.Render("esc")+" cancel",
 	)
@@ -123,7 +123,7 @@ func findResultRow(m Model, i, width int) string {
 	}
 
 	inner := width - 2*dialogPadX - 2
-	name = truncTail(name, max(inner/2, 8))
+	name = ui.TruncTail(name, max(inner/2, 8))
 	detail = truncate(detail, max(inner-lipgloss.Width(name)-1, 0))
 	gap := strings.Repeat(" ", max(inner-lipgloss.Width(name)-lipgloss.Width(detail), 1))
 

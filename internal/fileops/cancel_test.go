@@ -14,7 +14,7 @@ import (
 // channel closes without one or if the job outlives the deadline. Every test
 // here is really asking "did this stop?", so a hang has to be a failure rather
 // than a hung test binary.
-func drain(t *testing.T, ch <-chan any, within time.Duration) (Result, int) {
+func drain(t *testing.T, ch <-chan Event, within time.Duration) (Result, int) {
 	t.Helper()
 	deadline := time.After(within)
 	steps := 0
@@ -325,7 +325,7 @@ func TestUnpackCancellationKillsTheTool(t *testing.T) {
 }
 
 // drainResult is drain without the step count, for the setup jobs.
-func drainResult(t *testing.T, ch <-chan any, within time.Duration) Result {
+func drainResult(t *testing.T, ch <-chan Event, within time.Duration) Result {
 	t.Helper()
 	res, _ := drain(t, ch, within)
 	return res

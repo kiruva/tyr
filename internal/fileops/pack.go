@@ -220,7 +220,10 @@ func packTar(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 	if comp == "" {
 		return runInto(ctx, "tar", args, out, r, parseTarLine)
 	}
-	return runPiped(ctx, "tar", args, comp, compArgs, out, r, parseTarLine)
+	return r.tools.runPiped(ctx,
+		toolCmd{bin: "tar", args: args},
+		toolCmd{bin: comp, args: compArgs},
+		out, r, parseTarLine)
 }
 
 // tarCompressor maps a tar format and level onto the filter that compresses the

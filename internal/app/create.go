@@ -187,11 +187,11 @@ func (m Model) renderCreate() string {
 	lines := []string{
 		ui.DialogTitle.Render(createVerb(m.create.dir)),
 		"",
-		ui.Faint.Render("in " + truncTail(where, contentWidth)),
+		ui.Faint.Render("in " + ui.TruncTail(where, contentWidth)),
 		ui.AddrEdit.Width(contentWidth).Render(m.create.input.View()),
 	}
 	if m.create.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.create.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.create.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.DialogHint.Render("enter")+" create    "+ui.DialogHint.Render("esc")+" cancel")

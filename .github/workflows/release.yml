@@ -50,6 +50,11 @@ jobs:
             echo "args=release --clean" >> "$GITHUB_OUTPUT"
           fi
 
+      # GoReleaser shells out to syft for the SBOMs in .goreleaser.yaml; without
+      # it on PATH the release fails rather than quietly shipping none.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

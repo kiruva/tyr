@@ -90,11 +90,11 @@ func (c Conflict) SrcNewer() bool {
 // it has one, from the UI when it does not, remembering an "all" answer.
 type resolver struct {
 	ctx      context.Context
-	ch       chan<- any
+	ch       chan<- Event
 	standing ConflictAction // ConflictAsk means "ask every time"
 }
 
-func newResolver(ctx context.Context, ch chan<- any, policy ConflictAction) *resolver {
+func newResolver(ctx context.Context, ch chan<- Event, policy ConflictAction) *resolver {
 	return &resolver{ctx: ctx, ch: ch, standing: policy}
 }
 

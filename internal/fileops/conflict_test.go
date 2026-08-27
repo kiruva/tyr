@@ -11,7 +11,7 @@ import (
 
 // answerWith drains a job's channel, answering every conflict the same way, and
 // returns the Result it ends with along with how many times it was asked.
-func answerWith(t *testing.T, ch <-chan any, answer Resolution) (Result, int) {
+func answerWith(t *testing.T, ch <-chan Event, answer Resolution) (Result, int) {
 	t.Helper()
 
 	asked := 0

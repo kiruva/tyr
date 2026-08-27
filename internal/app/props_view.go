@@ -18,14 +18,14 @@ func (m Model) renderProps() string {
 	info := s.info
 
 	lines := []string{
-		ui.DialogTitle.Render(truncTail(s.name, contentWidth)),
-		ui.Faint.Render(truncTail(s.path, contentWidth)),
+		ui.DialogTitle.Render(ui.TruncTail(s.name, contentWidth)),
+		ui.Faint.Render(ui.TruncTail(s.path, contentWidth)),
 		"",
 		propsRow("type", entryKind(info)),
 	}
 
 	if s.link != "" {
-		lines = append(lines, propsRow("links to", truncTail(s.link, contentWidth-propsLabelW)))
+		lines = append(lines, propsRow("links to", ui.TruncTail(s.link, contentWidth-propsLabelW)))
 	}
 	if info.IsDir() {
 		lines = append(lines, propsRow("size", dirSizeLabel(m)))
@@ -48,7 +48,7 @@ func (m Model) renderProps() string {
 	}
 
 	if s.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(s.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(s.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.DialogHint.Render("enter")+" apply    "+ui.DialogHint.Render("esc")+" close")
@@ -58,12 +58,12 @@ func (m Model) renderProps() string {
 
 // propsRow is one read-only fact.
 func propsRow(label, value string) string {
-	return ui.Faint.Render(padRight(label, propsLabelW)) + value
+	return ui.Faint.Render(ui.PadRight(label, propsLabelW)) + value
 }
 
 // propsModeRow is the editable octal field.
 func propsModeRow(m Model) string {
-	label := padRight("permissions", propsLabelW)
+	label := ui.PadRight("permissions", propsLabelW)
 	if m.props.focus == propsFieldMode {
 		label = ui.HelpKey.Render(label)
 		return label + ui.AddrEdit.Width(8).Render(m.props.mode.View())

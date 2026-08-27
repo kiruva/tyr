@@ -32,7 +32,10 @@ CI runs the same checks on every push and pull request.
 | Path               | Responsibility                                           |
 | ------------------ | -------------------------------------------------------- |
 | `main.go`          | Entry point; starts the Bubble Tea program.              |
-| `internal/app`     | Root model, update router, view, keymap (The Elm Arch.). |
+| `internal/app`     | Root model, update router, view (The Elm Architecture). |
+| `internal/app/keymap` | Every bindable action, the key editor, the help overlay. |
+| `internal/app/theme`  | The theme picker overlay.                             |
+| `internal/app/caps`   | The capabilities overlay.                             |
 | `internal/pane`    | One directory pane; also the virtual archive browser.    |
 | `internal/fileops` | UI-agnostic create/copy/move/delete + archive engine.    |
 | `internal/rename`  | UI-agnostic batch-rename planner and applier.            |
@@ -49,6 +52,29 @@ CI runs the same checks on every push and pull request.
   _why_ isn't obvious.
 - New keybindings go in `internal/app/keys.go` and should appear in the `?` help
   overlay automatically via `keyMap.groups()`.
+- Receivers on `app.Model` are mixed on purpose: value receiver on the
+  Update/View path, pointer receiver for a helper that only mutates. Call a
+  pointer-receiver helper *only* from a value-receiver method that then returns
+  its own `m` — otherwise the mutation lands on a copy and is thrown away
+  silently. Never declare one method name both ways.
+- A long-running job takes a `context.Context` and stops when it is cancelled:
+  between entries in a walk, between chunks of a large file, and by killing any
+  external tool or closing any ssh session. `Esc` in the progress dialog is what
+  cancels it.
+- The archive engine runs its tools through the `toolRunner` seam rather than
+  reaching for `os/exec`, so the orchestration stays testable on a machine
+  without 7-Zip or `unrar` installed.
+- A modal that has grown its own state and view belongs in a sub-package under
+  `internal/app`. The shape is always the same: a `Model` holding only what that
+  overlay needs, an `Update(msg, …) (Model, …, Result)`, and a `View` taking the
+  chrome it does not own. What a sub-package must **not** own is `app.mode` —
+  it reports an `Outcome` and the root decides what that means, so every
+  overlay's effect on the app stays readable from one place. `internal/app/theme`
+  is the smallest complete example. The dependency only ever points inward:
+  these packages know nothing about `app`.
+- Presentation helpers that more than one package needs (`PadRight`,
+  `TruncTail`, `TwoColumns`, `ScrollBlock`, …) live in `internal/ui`, not in
+  whichever overlay wanted them first.
 - Anything remote must stay off the UI thread too: the pane records where it wants
   to be and the app layer fills it in from a `tea.Cmd`.
 - The rename recipes in `MAN.md` are pinned by `TestDocumentedExamples` in

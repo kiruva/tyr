@@ -188,8 +188,8 @@ func (m Model) renderBookmarks() string {
 
 	pathW := contentWidth - 2 - bookmarkNameCol - 1
 	for i, mark := range m.bookmarks.marks {
-		name := padRight(truncTail(mark.Name, bookmarkNameCol), bookmarkNameCol)
-		path := padRight(truncTail(mark.Path, pathW), pathW)
+		name := ui.PadRight(ui.TruncTail(mark.Name, bookmarkNameCol), bookmarkNameCol)
+		path := ui.PadRight(ui.TruncTail(mark.Path, pathW), pathW)
 
 		if i != m.bookmarks.cursor {
 			lines = append(lines, "  "+name+" "+ui.Faint.Render(path))
@@ -203,7 +203,7 @@ func (m Model) renderBookmarks() string {
 	}
 
 	if m.bookmarks.status != "" {
-		lines = append(lines, "", ui.Faint.Render(truncTail(m.bookmarks.status, contentWidth)))
+		lines = append(lines, "", ui.Faint.Render(ui.TruncTail(m.bookmarks.status, contentWidth)))
 	}
 
 	footer := ui.Faint.Render("enter go · d delete · esc close")
@@ -221,11 +221,11 @@ func (m Model) renderBookmarkAdd() string {
 	lines := []string{
 		ui.DialogTitle.Render("Bookmark this directory"),
 		"",
-		ui.Faint.Render(truncTail(m.bookmarkAdd.path, contentWidth)),
+		ui.Faint.Render(ui.TruncTail(m.bookmarkAdd.path, contentWidth)),
 		ui.AddrEdit.Width(contentWidth).Render(m.bookmarkAdd.input.View()),
 	}
 	if m.bookmarkAdd.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.bookmarkAdd.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.bookmarkAdd.status, contentWidth)))
 	}
 	lines = append(lines, "",
 		ui.DialogHint.Render("enter")+" save    "+ui.DialogHint.Render("esc")+" cancel")

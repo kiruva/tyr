@@ -346,13 +346,13 @@ func (m Model) renderPack() string {
 		"",
 	}
 	lines = append(lines, rows...)
-	lines = append(lines, "", ui.Faint.Render("→ "+truncTail(m.pack.dest, contentWidth-2)))
+	lines = append(lines, "", ui.Faint.Render("→ "+ui.TruncTail(m.pack.dest, contentWidth-2)))
 
 	if m.pack.opts().Weak() {
 		lines = append(lines, ui.Danger.Render("ZipCrypto is weak — install p7zip for AES-256"))
 	}
 	if m.pack.status != "" {
-		lines = append(lines, "", ui.Danger.Render(truncTail(m.pack.status, contentWidth)))
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.pack.status, contentWidth)))
 	}
 	lines = append(lines, "", ui.Faint.Render("↑↓ field · ←→ change · enter pack · esc cancel"))
 
@@ -361,9 +361,9 @@ func (m Model) renderPack() string {
 
 // packRow lays out one field: label, value, and a faint note about it.
 func packRow(m Model, f packField, label, value, note string) string {
-	name := "  " + padRight(label, packLabelW-2)
+	name := "  " + ui.PadRight(label, packLabelW-2)
 	if m.pack.focus == f {
-		name = ui.Cursor.Render(padRight("▸ "+label, packLabelW))
+		name = ui.Cursor.Render(ui.PadRight("▸ "+label, packLabelW))
 	}
 	row := name + value
 	if note == "" {
@@ -378,12 +378,12 @@ func packRow(m Model, f packField, label, value, note string) string {
 
 // packChoice renders a ←/→ field's current value.
 func packChoice(value string) string {
-	return "◂ " + padRight(value, packValueW-4) + "▸"
+	return "◂ " + ui.PadRight(value, packValueW-4) + "▸"
 }
 
 func packLevelValue(s packState) string {
 	if !s.info().Levels() {
-		return "  " + padRight("—", packValueW-2)
+		return "  " + ui.PadRight("—", packValueW-2)
 	}
 	return packChoice(strconv.Itoa(s.level))
 }
@@ -402,9 +402,9 @@ func packLevelHint(i fileops.PackFormatInfo) string {
 
 func (m Model) packPasswordValue() string {
 	if !m.pack.canEncrypt() {
-		return ui.Faint.Render(padRight("—", packValueW))
+		return ui.Faint.Render(ui.PadRight("—", packValueW))
 	}
-	return padRight(m.pack.pw.View(), packValueW)
+	return ui.PadRight(m.pack.pw.View(), packValueW)
 }
 
 func (m Model) packPasswordHint() string {
@@ -437,7 +437,7 @@ func (m Model) renderUnpackPw() string {
 	lines := []string{
 		title,
 		"",
-		ui.Faint.Render("for " + truncTail(arc, contentWidth-4)),
+		ui.Faint.Render("for " + ui.TruncTail(arc, contentWidth-4)),
 		ui.AddrEdit.Width(contentWidth).Render(m.unpackPw.input.View()),
 		"",
 		ui.DialogHint.Render("enter") + " unpack    " + ui.DialogHint.Render("esc") + " cancel",
