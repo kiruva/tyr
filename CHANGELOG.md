@@ -9,6 +9,8 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-28
+
 ### Changed
 
 - **Renamed the project from `lazyfiles` to `tyr`.**
