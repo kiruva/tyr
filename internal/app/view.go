@@ -54,6 +54,8 @@ func (m Model) View() string {
 		return m.renderRename()
 	case modePack:
 		return overlay(m.width, m.height, m.renderPack())
+	case modeConvert:
+		return overlay(m.width, m.height, m.renderConvert())
 	case modeUnpackPw:
 		return overlay(m.width, m.height, m.renderUnpackPw())
 	case modeConflict:
@@ -242,6 +244,9 @@ func (m Model) renderConfirm() string {
 		if j.Pack.Weak() {
 			body += "\n" + ui.Danger.Render("ZipCrypto is weak — install p7zip for AES-256")
 		}
+	case fileops.OpConvert:
+		title = ui.DialogTitle.Render(fmt.Sprintf("Convert %d %s", n, items(n)))
+		body = "→ " + ui.TruncTail(j.Dest, 44) + "\n" + ui.Faint.Render(j.Convert.Summary())
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
 		body = "→ " + ui.TruncTail(j.Dest, 44)
@@ -329,14 +334,29 @@ func (m Model) renderProgress() string {
 
 	var line string
 	if p.Total > 0 {
-		line = progressBar(p.Done, p.Total, 30) + fmt.Sprintf("  %d / %d", p.Done, p.Total)
+		// The part of the item in hand counts too, so the overall bar creeps
+		// forward with it rather than jumping once per file.
+		line = progressBar(p.Done*1000+int(p.Part*1000), p.Total*1000, 30) + fmt.Sprintf("  %d / %d", p.Done, p.Total)
 	} else {
 		// Total unknown (e.g. 7z/rar): show a static bar and a running count.
 		line = ui.BarEmpty.Render(strings.Repeat("░", 30)) + fmt.Sprintf("  %d %s", p.Done, items(p.Done))
 	}
 	cur := ui.Faint.Render(ui.TruncTail(p.Current, 44))
+	rows := []string{title, "", line, cur}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", line, cur, "", foot)
+	// A job that knows how far into the current item it is gets a second bar
+	// for it, under the name: one long file otherwise looks like a hang.
+	if p.PartLabel != "" {
+		part := ui.Faint.Render("  " + p.PartLabel)
+		if p.Part > 0 {
+			part = progressBar(int(p.Part*1000), 1000, 30) + part
+		} else {
+			part = ui.BarEmpty.Render(strings.Repeat("░", 30)) + part
+		}
+		rows = append(rows, part)
+	}
+	rows = append(rows, "", foot)
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return ui.Dialog.Render(content)
 }
 

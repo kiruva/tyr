@@ -11,7 +11,8 @@ tool for the format you touch (`tar` plus `gzip`/`bzip2`/`xz`/`zstd`, `zip`/`unz
 worth installing: it gives AES-256 encryption for `.7z` and `.zip`, and it also stands in for
 `zip`/`unzip` where those are missing. Whichever name it is packaged under, `7z` (p7zip),
 `7zz` (the official build) or `7za`, tyr finds it and runs that one. Press `C` in the app to
-see which of those this machine actually has (see [Capabilities](#capabilities)). A fresh
+see which of those this machine actually has (see [Capabilities](#capabilities)). Converting
+audio needs `ffmpeg`. A fresh
 Windows box has `tar` and little else; [On Windows](#on-windows) says what that costs.
 
 ## On Windows
@@ -97,6 +98,7 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `p`                 | Pack dialog: format/level/password |
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
+| `a`                 | Convert audio → other pane      |
 | `v`                 | View file (read-only)           |
 | `e`                 | Edit file (nano-style)          |
 | `S` / `Ctrl+S`      | ssh connections                 |
@@ -682,9 +684,10 @@ Put `delete = remove` in the config file to make `F8` the permanent one.
 | rename (`F2`, `M`) | renames back                                           |
 | move               | moves the files back where they came from              |
 | copy               | removes the copies it made — and only those            |
+| audio conversion   | removes the files it wrote                            |
 | delete to trash    | restores from the trash                                |
 
-A copy that overwrote something records nothing: undoing it would mean deleting a file that
+A copy or conversion that overwrote something records nothing for that file: undoing it would mean deleting a file that
 was already there. The history lives in memory for the session only, and nothing over ssh or
 inside an archive goes into it.
 
@@ -875,6 +878,52 @@ walk it, `v`/`e` open members (see below). `.7z` and `.rar` have to be unpacked 
 With one pane inside an archive and the other on real files, `F5`/`c` or `F6`/`m` **adds** the
 selection to the archive at its current virtual directory. `p`/`u` still need a real
 destination pane.
+
+## Converting audio
+
+`a` converts the selected audio files into another format, one new file per source, written
+into the other pane under the same name with the new extension — `song.mp3` becomes
+`song.ogg`. The originals are left alone. Video files (`.mp4`, `.mkv`, `.mov`, `.webm`, …)
+work too: their first soundtrack is what gets converted. Everything is done by `ffmpeg`.
+
+Select a folder and it converts whole, keeping its shape: `album/cd2/02.flac` becomes
+`<other pane>/album/cd2/02.ogg`. Only audio is picked up — cover art, playlists and dotfiles
+(macOS's `._song.mp3` litter included) are left out. Converting a folder in place, a file in it
+that is already in the target format is skipped rather than written over itself.
+
+| Field     | Keys | What it is                                                               |
+| --------- | ---- | ------------------------------------------------------------------------ |
+| `Format`  | `←→` | `ogg` (Vorbis), `opus`, `mp3`, `m4a` (AAC), `flac`, `wav`                |
+| `Quality` | `←→` | a few sensible settings per format; flac and wav are lossless and have none |
+
+| Format | Quality choices (default in bold)                       | Encoder                          |
+| ------ | ------------------------------------------------------- | -------------------------------- |
+| `ogg`  | q3 ~112k · **q5 ~160k** · q7 ~224k · q9 ~320k           | `libvorbis`, else ffmpeg's own   |
+| `opus` | 96k · **128k** · 160k · 256k                            | `libopus`                        |
+| `mp3`  | V4 ~165k · **V2 ~190k** · V0 ~245k · 320k CBR           | `libmp3lame`                     |
+| `m4a`  | 128k · **192k** · 256k                                  | `libfdk_aac`, else ffmpeg's own  |
+| `flac` | lossless                                                | `flac`                           |
+| `wav`  | 16-bit PCM                                              | `pcm_s16le`                      |
+
+Which formats are offered depends on what your `ffmpeg` was built with, not just on whether it
+is installed: the dialog asks `ffmpeg -encoders` and names the encoder it will use. Some
+builds (Homebrew's plain `ffmpeg` among them) ship without `libvorbis`; `.ogg` then falls back
+to ffmpeg's built-in Vorbis encoder, which is experimental, stereo only (mono is upmixed) and
+sounds worse at the same setting — the dialog says so in red. On macOS, `brew install
+ffmpeg-full` has the real encoders, but it is keg-only: put `/opt/homebrew/opt/ffmpeg-full/bin`
+first on your `PATH` for tyr to find it. An ffmpeg that is installed but will not start (a
+library upgraded out from under it) is reported as such, with the loader's complaint.
+
+The progress dialog has two bars: the batch, and the file in hand with its position
+(`1:12 / 3:40`), read from ffmpeg's `-progress` against the length `ffprobe` reports. Without
+`ffprobe` the position is still shown, just without a bar to fill.
+
+`Enter` goes on to the confirm prompt, which restates format, quality and encoder. Tags are
+carried over; cover art is not. Each file is written under a temporary name and renamed into
+place when ffmpeg is done, so a failure or an `Esc` never leaves half a file behind or damages
+one that was already there. A name that is already taken is asked about like a copy's (see
+[When a name is taken](#when-a-name-is-taken)), and converting a file into its own format in
+its own directory is refused. `Ctrl+Z` removes the new files the conversion wrote.
 
 ## Capabilities
 

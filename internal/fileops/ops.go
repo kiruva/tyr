@@ -38,6 +38,7 @@ const (
 	OpSync         // copy every Pair, overwriting what is in the way
 	OpMovePairs    // move every Pair, for putting a move back
 	OpChmod        // change the mode of Srcs, optionally recursively
+	OpConvert      // convert audio Srcs into Dest with ffmpeg
 )
 
 func (o Op) String() string {
@@ -78,6 +79,8 @@ func (o Op) String() string {
 		return "Move back"
 	case OpChmod:
 		return "Change permissions"
+	case OpConvert:
+		return "Convert"
 	default:
 		return "?"
 	}
@@ -120,6 +123,8 @@ func (o Op) Present() string {
 		return "Moving back"
 	case OpChmod:
 		return "Changing permissions"
+	case OpConvert:
+		return "Converting"
 	default:
 		return "Working"
 	}
@@ -137,6 +142,9 @@ type Job struct {
 
 	// Pack is the format, level and password OpPack builds Out with.
 	Pack PackOpts
+
+	// Convert is the format and quality OpConvert writes each output in.
+	Convert ConvertOpts
 
 	// Password decrypts an encrypted archive (OpUnpack / OpUnwrap). It is held
 	// only for as long as the job runs and is never written anywhere.
@@ -187,6 +195,12 @@ func (Result) event()   {}
 type Progress struct {
 	Current     string
 	Done, Total int
+
+	// Part is how far through Current the job is, 0 to 1, for a job that can
+	// tell — an audio conversion knows its position in the file. PartLabel says
+	// the same in the job's own terms ("1:12 / 3:40"). Both are zero otherwise.
+	Part      float64
+	PartLabel string
 }
 
 // Result is emitted exactly once, last, when the job finishes.
@@ -250,6 +264,10 @@ func Run(ctx context.Context, job Job) <-chan Event {
 			renamed, err = rename.Apply(ctx, job.Dest, job.Renames, r.step)
 		case OpRenameUndo:
 			renamed, err = rename.Undo(ctx, job.Dest, job.Renames, r.step)
+		case OpConvert:
+			created, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
+			ch <- Result{Op: job.Op, Err: r.cancelled(err), Created: created}
+			return
 		default:
 			res := runLocal(ctx, job, r, ch)
 			ch <- Result{
@@ -272,6 +290,10 @@ func computeTotal(ctx context.Context, job Job) int {
 	switch job.Op {
 	case OpRename, OpRenameUndo:
 		return len(rename.Applicable(job.Renames))
+	case OpConvert:
+		// The job walks the selection for audio itself and sets the total then;
+		// counting every entry here would include the cover art.
+		return 0
 	case OpDownload, OpRemoteCopy, OpRemoteDelete:
 		// Counting remote items would cost another round trip; the bar runs
 		// indeterminate instead.
@@ -327,6 +349,14 @@ func (r *reporter) step(name string) {
 	case <-r.ctx.Done():
 		// The job is being torn down and nobody needs this number any more.
 		// Blocking on the send here is what would leak the goroutine.
+	}
+}
+
+// part reports progress within the item in hand, without counting a step.
+func (r *reporter) part(name string, frac float64, label string) {
+	select {
+	case r.ch <- Progress{Current: name, Done: r.done, Total: r.total, Part: frac, PartLabel: label}:
+	case <-r.ctx.Done():
 	}
 }
 
