@@ -9,6 +9,11 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+### Security
+
+- Bumped `golang.org/x/crypto` to v0.56.0 for GO-2026-6354 and GO-2026-6355: a peer could
+  deadlock an ssh channel and hang a remote connection.
+
 ## [0.3.0] - 2026-08-28
 
 ### Changed
