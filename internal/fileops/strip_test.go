@@ -51,6 +51,15 @@ func writeFile(t *testing.T, path string, data []byte, mode os.FileMode) {
 	}
 }
 
+func modeOf(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
+
 func imageJob(srcs []string, dest string) Job {
 	return Job{Op: OpConvert, Srcs: srcs, Dest: dest, Convert: ConvertOpts{Images: true}}
 }
@@ -78,8 +87,10 @@ func TestStripIntoOtherPane(t *testing.T) {
 	if orig, _ := os.ReadFile(in); !bytes.Equal(orig, dirty) {
 		t.Error("the original was changed")
 	}
-	if info, _ := os.Stat(out); info.Mode().Perm() != 0o600 {
-		t.Errorf("copy mode %v, want the original's 0600", info.Mode().Perm())
+	// Compared with the original rather than with 0600: Windows has only a
+	// read-only bit, and every writable file there reads back as 0666.
+	if got, want := modeOf(t, out), modeOf(t, in); got != want {
+		t.Errorf("copy mode %v, want the original's %v", got, want)
 	}
 	if !slices.Equal(res.Created, []string{out}) {
 		t.Errorf("created %v, want %v", res.Created, []string{out})
@@ -109,6 +120,7 @@ func TestStripInPlace(t *testing.T) {
 	dirty := filepath.Join(dir, "dirty.jpg")
 	clean := filepath.Join(dir, "clean.jpg")
 	writeFile(t, dirty, dirtyJPEG(t, 6), 0o640)
+	wantMode := modeOf(t, dirty)
 	cleanBytes := cleanJPEG(t)
 	writeFile(t, clean, cleanBytes, 0o644)
 	before, _ := os.Stat(clean)
@@ -124,8 +136,8 @@ func TestStripInPlace(t *testing.T) {
 	if bytes.Contains(got, []byte("secret comment")) {
 		t.Error("the comment survived")
 	}
-	if info, _ := os.Stat(dirty); info.Mode().Perm() != 0o640 {
-		t.Errorf("mode %v, want 0640 kept", info.Mode().Perm())
+	if got := modeOf(t, dirty); got != wantMode {
+		t.Errorf("mode %v, want %v kept", got, wantMode)
 	}
 	if after, _ := os.Stat(clean); !after.ModTime().Equal(before.ModTime()) {
 		t.Error("a clean file was rewritten")
