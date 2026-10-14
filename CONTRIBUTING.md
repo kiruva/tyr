@@ -113,9 +113,11 @@ To cut a release:
 
 Step 2 does the rest by itself: it promotes `## [Unreleased]` in `CHANGELOG.md` to
 `## [X.Y.Z] - <today>`, commits that as `docs(changelog): release vX.Y.Z`, pushes an
-annotated `vX.Y.Z` at *that* commit, and calls the **Release** workflow, which builds
-the binaries with GoReleaser and publishes them with the changelog section as the
-release notes.
+annotated `vX.Y.Z` at *that* commit. Because the tag is pushed with the deploy key
+rather than `GITHUB_TOKEN`, the push starts the **Release** workflow, which builds the
+binaries with GoReleaser and publishes them with the changelog section as the release
+notes. **Release** shows up as its own run in the Actions tab, so **Tag** finishes
+before the binaries are up.
 
 Two things to know about it:
 

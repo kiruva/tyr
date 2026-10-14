@@ -2,7 +2,12 @@ name: Tag
 
 # Releases are cut by hand from the Actions tab: GitVersion works out the next
 # version from the commits since the last tag (see GitVersion.yml), this workflow
-# pushes that tag, and the Release workflow builds it.
+# pushes that tag, and the tag push starts the Release workflow, which builds it.
+#
+# The tag is pushed over SSH with the deploy key below, not with GITHUB_TOKEN, so
+# it does start other workflows. Do not also call Release with workflow_call from
+# here: both would run GoReleaser against the same tag and the loser of the race
+# fails with 422 already_exists on every asset.
 #
 # Run it with "Dry run" ticked to see the version without tagging anything.
 
@@ -132,16 +137,3 @@ jobs:
         run: |
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
-
-  release:
-    name: Release
-    needs: [version, tag]
-    # A tag pushed with GITHUB_TOKEN does not start another workflow, so the
-    # release is called directly rather than waiting on the tag trigger.
-    uses: ./.github/workflows/release.yml
-    with:
-      # Build the tag, not the branch as it was before the changelog commit.
-      ref: ${{ needs.version.outputs.tag }}
-    permissions:
-      contents: write
-    secrets: inherit
