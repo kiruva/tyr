@@ -21,12 +21,25 @@ type fakeTools struct {
 	err error
 	// emit is written as the tool's progress, one step per entry.
 	emit []string
+	// lines are handed to the parser as though the tool had printed them, and
+	// stdout is written to a command that captures its output.
+	lines  []string
+	stdout string
 }
 
-func (f *fakeTools) runTool(_ context.Context, c toolCmd, r *reporter, _ func(string) string) error {
+func (f *fakeTools) runTool(_ context.Context, c toolCmd, r *reporter, parse func(string) string) error {
 	f.ran = append(f.ran, c)
 	for _, name := range f.emit {
 		r.step(name)
+	}
+	if c.stdout != nil {
+		_, _ = io.WriteString(c.stdout, f.stdout)
+		return f.err
+	}
+	for _, l := range f.lines {
+		if name := parse(l); name != "" {
+			r.step(name)
+		}
 	}
 	return f.err
 }

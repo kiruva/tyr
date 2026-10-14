@@ -79,6 +79,16 @@ func (m *Model) recordUndo(res fileops.Result) {
 				created: res.Created,
 			})
 		}
+	case fileops.OpConvert:
+		// The originals are untouched, so putting a conversion back is removing
+		// what it wrote — the same reversal as a copy's.
+		if len(res.Created) > 0 {
+			m.pushUndo(undoEntry{
+				kind:    undoCopy,
+				label:   fmt.Sprintf("conversion of %s", countLabel(len(res.Created))),
+				created: res.Created,
+			})
+		}
 	case fileops.OpMove:
 		if len(res.Moved) > 0 {
 			m.pushUndo(undoEntry{

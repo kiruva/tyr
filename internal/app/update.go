@@ -192,6 +192,8 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onPackKey(msg)
 	case modeUnpackPw:
 		return m.onUnpackPwKey(msg)
+	case modeConvert:
+		return m.onConvertKey(msg)
 	case modeFilter:
 		return m.onFilterKey(msg)
 	case modeConflict:
@@ -381,6 +383,8 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beginOp(fileops.OpUnpack)
 	case key.Matches(msg, m.keys.Unwrap):
 		m.beginOp(fileops.OpUnwrap)
+	case key.Matches(msg, m.keys.Convert):
+		m.openConvert()
 	}
 	return m, nil
 }
@@ -813,6 +817,10 @@ func undoNotice(res fileops.Result) string {
 	case fileops.OpTrash:
 		if n := len(res.Trashed); n > 0 {
 			return fmt.Sprintf("%s to trash · ctrl+z puts it back", countLabel(n))
+		}
+	case fileops.OpConvert:
+		if n := len(res.Created); n > 0 {
+			return fmt.Sprintf("converted %s · ctrl+z removes the new files", countLabel(n))
 		}
 	}
 	return ""

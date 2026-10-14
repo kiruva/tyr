@@ -465,6 +465,8 @@ func lastMeaningful(lines []string) string {
 			continue
 		case strings.HasPrefix(l, "Files:"), strings.HasPrefix(l, "Size:"), strings.HasPrefix(l, "Compressed:"):
 			continue
+		case isFFmpegSummary(l), isFFmpegProgress(l):
+			continue
 		}
 		return truncErr(l)
 	}

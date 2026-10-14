@@ -64,6 +64,7 @@ type Map struct {
 	Pack        key.Binding
 	Unpack      key.Binding
 	Unwrap      key.Binding
+	Convert     key.Binding
 	View        key.Binding
 	Edit        key.Binding
 	Theme       key.Binding
@@ -129,6 +130,8 @@ var specs = []Spec{
 	{"pack", "Archives", "pack…", []string{"p"}, func(k *Map) *key.Binding { return &k.Pack }},
 	{"unpack", "Archives", "unpack", []string{"u"}, func(k *Map) *key.Binding { return &k.Unpack }},
 	{"unpackhere", "Archives", "unpack here", []string{"U"}, func(k *Map) *key.Binding { return &k.Unwrap }},
+
+	{"convert", "Audio", "convert audio…", []string{"a"}, func(k *Map) *key.Binding { return &k.Convert }},
 
 	{"bookmarks", "Go to", "bookmarks", []string{"b"}, func(k *Map) *key.Binding { return &k.Bookmarks }},
 	{"bookmarkadd", "Go to", "bookmark this dir", []string{"B"}, func(k *Map) *key.Binding { return &k.BookmarkAdd }},

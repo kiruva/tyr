@@ -33,6 +33,8 @@ too. Keyboard driven, intuitive like lazygit.
 - **Archives like folders.** Pack tar, zip, 7z with compression level and password (AES-256
   where 7-Zip installed). Unpack tar, zip, 7z, rar. Walk inside archive, add files without
   unpacking.
+- **Convert audio.** `a` turn mp3 into ogg, opus, flac, wav, m4a, any way round, whole pile
+  at once. Pick quality, `ffmpeg` do work, originals stay put.
 - **Read and write files.** Pager with search, wrap, line numbers, syntax colors, hex dump for
   binary. Nano-style editor saves in place, even file inside archive.
 - **Remote panes.** One pane on ssh host, other local, transfer both ways. Reads

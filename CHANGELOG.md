@@ -9,6 +9,22 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+### Added
+
+- **Audio conversion** (`a`): converts the selected files into the other pane as `ogg`
+  (Vorbis), `opus`, `mp3`, `m4a` (AAC), `flac` or `wav`, one new file per source with the
+  originals left alone. A format and quality picker comes first. `ffmpeg` does the work, and the
+  dialog names the encoder your build will use; when `.ogg` has to fall back to ffmpeg's
+  experimental built-in Vorbis encoder, the dialog warns in red. Video files give up their first
+  soundtrack, and a selected folder converts whole, keeping its shape and skipping cover art,
+  playlists and dotfiles. Tags carry over; cover art does not.
+  - Two progress bars, one for the batch and one for the file in hand with its position, timed
+    against the length `ffprobe` reports.
+  - Each file is written under a temporary name and renamed into place when ffmpeg finishes, so
+    a failure or `Esc` never leaves half a file. A taken name asks like a copy does, and
+    `Ctrl+Z` removes what the conversion wrote.
+  - The capabilities overlay (`C`) lists it under `ffmpeg`.
+
 ### Security
 
 - Bumped `golang.org/x/crypto` to v0.56.0 for GO-2026-6354 and GO-2026-6355: a peer could
