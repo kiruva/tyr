@@ -4,18 +4,13 @@ on:
   push:
     tags:
       - "v*"
-  # Called by the Tag workflow right after it pushes a tag, since a tag pushed
-  # with GITHUB_TOKEN does not fire the trigger above.
-  workflow_call:
-    inputs:
-      ref:
-        description: >-
-          What to build. A called workflow checks out the caller's commit by
-          default, which is the branch as it was when Tag started — before the
-          changelog commit and the tag itself. Tag passes the tag here so the
-          build is the thing that was tagged.
-        type: string
-        required: false
+
+# A tag is released once. Without this, a re-run or a second trigger on the same
+# tag races the first: whichever uploads second gets 422 already_exists from
+# GitHub and fails the run after the assets are already up.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -26,7 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v6
