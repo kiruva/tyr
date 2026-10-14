@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -166,14 +167,14 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeEdit:
 		return m.onEditKey(msg)
 	case modeHelp:
-		// The two overlays swap into each other; anything else dismisses.
-		if key.Matches(msg, m.keys.Caps) {
+		// The two overlays swap into each other on tab; anything else dismisses.
+		if msg.String() == "tab" || key.Matches(msg, m.keys.Caps) {
 			m.mode, m.overlayScroll = modeCaps, 0
 			return m, nil
 		}
 		return m.scrollOverlay(msg)
 	case modeCaps:
-		if key.Matches(msg, m.keys.Help) {
+		if msg.String() == "tab" || key.Matches(msg, m.keys.Help) {
 			m.mode, m.overlayScroll = modeHelp, 0
 			return m, nil
 		}
@@ -819,9 +820,11 @@ func undoNotice(res fileops.Result) string {
 			return fmt.Sprintf("%s to trash · ctrl+z puts it back", countLabel(n))
 		}
 	case fileops.OpConvert:
+		var parts []string
 		if n := len(res.Created); n > 0 {
-			return fmt.Sprintf("converted %s · ctrl+z removes the new files", countLabel(n))
+			parts = append(parts, fmt.Sprintf("converted %s · ctrl+z removes the new files", countLabel(n)))
 		}
+		return strings.Join(append(parts, res.Notes...), " · ")
 	}
 	return ""
 }

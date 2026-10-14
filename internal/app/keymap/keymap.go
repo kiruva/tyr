@@ -131,7 +131,7 @@ var specs = []Spec{
 	{"unpack", "Archives", "unpack", []string{"u"}, func(k *Map) *key.Binding { return &k.Unpack }},
 	{"unpackhere", "Archives", "unpack here", []string{"U"}, func(k *Map) *key.Binding { return &k.Unwrap }},
 
-	{"convert", "Audio", "convert audio…", []string{"a"}, func(k *Map) *key.Binding { return &k.Convert }},
+	{"convert", "Convert", "convert audio / clean images…", []string{"C"}, func(k *Map) *key.Binding { return &k.Convert }},
 
 	{"bookmarks", "Go to", "bookmarks", []string{"b"}, func(k *Map) *key.Binding { return &k.Bookmarks }},
 	{"bookmarkadd", "Go to", "bookmark this dir", []string{"B"}, func(k *Map) *key.Binding { return &k.BookmarkAdd }},
@@ -144,7 +144,9 @@ var specs = []Spec{
 	{"theme", "App", "theme", []string{"t"}, func(k *Map) *key.Binding { return &k.Theme }},
 	{"keys", "App", "edit keys", []string{"K"}, func(k *Map) *key.Binding { return &k.Keys }},
 	{"help", "App", "help", []string{"?"}, func(k *Map) *key.Binding { return &k.Help }},
-	{"capabilities", "App", "capabilities", []string{"C"}, func(k *Map) *key.Binding { return &k.Caps }},
+	// Capabilities has no key of its own out of the box: tab in the help
+	// overlay is the way there. Binding one is still a key editor away.
+	{"capabilities", "App", "capabilities", nil, func(k *Map) *key.Binding { return &k.Caps }},
 	{"quit", "App", "quit", []string{"q", "ctrl+c"}, func(k *Map) *key.Binding { return &k.Quit }},
 }
 

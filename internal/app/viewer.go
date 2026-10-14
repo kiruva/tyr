@@ -34,6 +34,9 @@ type viewerState struct {
 	numbers bool
 	colour  bool
 	binary  bool
+	// meta is set for an image: lines then hold its metadata report, and hex
+	// switches between that and the bytes.
+	meta bool
 
 	// search
 	input     textinput.Model
@@ -59,6 +62,14 @@ func (m *Model) showBytes(title string, data []byte, lang syntax.Lang) {
 		binary:  binary,
 		numbers: true,
 		colour:  true,
+	}
+	// An image says what it carries before it shows its bytes.
+	if lines, note, ok := imageReport(data); ok {
+		m.viewer.lines, m.viewer.lang = lines, syntax.None
+		m.viewer.meta, m.viewer.hex = true, false
+		m.viewer.numbers = false // a report has no line worth numbering
+	} else if note != "" {
+		m.viewer.status = note
 	}
 	m.viewTitle = title
 	m.refreshViewer()
@@ -116,6 +127,9 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		m.viewer.hex = !m.viewer.hex
 		m.viewer.status = "hex " + onOff2(m.viewer.hex)
+		if m.viewer.meta && !m.viewer.hex {
+			m.viewer.status = "metadata"
+		}
 		m.refreshViewer()
 		return m, nil
 	case "s":

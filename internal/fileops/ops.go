@@ -38,7 +38,7 @@ const (
 	OpSync         // copy every Pair, overwriting what is in the way
 	OpMovePairs    // move every Pair, for putting a move back
 	OpChmod        // change the mode of Srcs, optionally recursively
-	OpConvert      // convert audio Srcs into Dest with ffmpeg
+	OpConvert      // convert audio Srcs into Dest with ffmpeg, images into clean copies
 )
 
 func (o Op) String() string {
@@ -222,6 +222,10 @@ type Result struct {
 
 	// Trashed is what a delete put in the trash, in the order it went there.
 	Trashed []trash.Item
+
+	// Notes are things worth saying about how the job went that are neither an
+	// error nor undoable: "stripped 3 images in place", say.
+	Notes []string
 }
 
 // Run starts the job in a goroutine and returns a channel that yields zero or
@@ -265,8 +269,8 @@ func Run(ctx context.Context, job Job) <-chan Event {
 		case OpRenameUndo:
 			renamed, err = rename.Undo(ctx, job.Dest, job.Renames, r.step)
 		case OpConvert:
-			created, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
-			ch <- Result{Op: job.Op, Err: r.cancelled(err), Created: created}
+			created, notes, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
+			ch <- Result{Op: job.Op, Err: r.cancelled(err), Created: created, Notes: notes}
 			return
 		default:
 			res := runLocal(ctx, job, r, ch)

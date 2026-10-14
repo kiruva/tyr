@@ -23,7 +23,7 @@ func TestDefaultsAreConsistent(t *testing.T) {
 	seen := map[string]string{}
 
 	for _, spec := range specs {
-		if spec.id == "" || spec.desc == "" || len(spec.def) == 0 {
+		if spec.id == "" || spec.desc == "" || (len(spec.def) == 0 && spec.id != "capabilities") {
 			t.Errorf("incomplete action: %+v", spec)
 		}
 		for _, k := range keys.boundKeys(spec) {

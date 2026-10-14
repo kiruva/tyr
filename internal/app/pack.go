@@ -74,7 +74,7 @@ func (s packState) opts() fileops.PackOpts {
 func (m *Model) openPack(srcs, names []string, dest string) {
 	formats := fileops.AvailablePackFormats()
 	if len(formats) == 0 {
-		m.errText = "no archive tool is installed — press C to see what tyr needs"
+		m.errText = "no archive tool is installed — " + m.capsHint()
 		return
 	}
 

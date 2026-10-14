@@ -105,6 +105,8 @@ func (m Model) viewerFlags() string {
 	var on []string
 	if m.viewer.hex {
 		on = append(on, "hex")
+	} else if m.viewer.meta {
+		on = append(on, "metadata")
 	}
 	if m.viewer.wrap {
 		on = append(on, "wrap")
@@ -246,7 +248,17 @@ func (m Model) renderConfirm() string {
 		}
 	case fileops.OpConvert:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Convert %d %s", n, items(n)))
-		body = "→ " + ui.TruncTail(j.Dest, 44) + "\n" + ui.Faint.Render(j.Convert.Summary())
+		body = "→ " + ui.TruncTail(j.Dest, 44)
+		if j.Convert.Encoder != "" {
+			body += "\n" + ui.Faint.Render(j.Convert.Summary())
+		}
+		if j.Convert.Images {
+			body += "\n" + ui.Faint.Render(j.Convert.ImageSummary())
+		}
+		if m.convertInPlace {
+			body += "\n" + ui.Danger.Render("Images are stripped in place: the originals are") +
+				"\n" + ui.Danger.Render("overwritten, and ctrl+z cannot bring the metadata back.")
+		}
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
 		body = "→ " + ui.TruncTail(j.Dest, 44)

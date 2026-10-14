@@ -7,16 +7,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestCapsOverlayOpensAndCloses(t *testing.T) {
-	m := newSized(t)
-
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+// tab in the help overlay is the way to the capabilities overlay; it has no
+// key of its own out of the box.
+func openCaps(t *testing.T, m tea.Model) tea.Model {
+	t.Helper()
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if m.(Model).mode != modeCaps {
-		t.Fatal("'C' should open the capabilities overlay")
+		t.Fatal("tab in help should open the capabilities overlay")
 	}
+	return m
+}
+
+func TestCapsOverlayOpensAndCloses(t *testing.T) {
+	m := openCaps(t, newSized(t))
 
 	view := m.View()
-	for _, want := range []string{"capabilities", ".7z", ".rar", "Remote (SSH)"} {
+	for _, want := range []string{"capabilities", ".7z", ".rar", "Remote (SSH)", "strip image metadata"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overlay does not mention %q", want)
 		}
@@ -33,27 +40,30 @@ func TestHelpAndCapsSwap(t *testing.T) {
 	m := newSized(t)
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
-	if !strings.Contains(m.View(), "C capabilities") {
+	if !strings.Contains(m.View(), "tab capabilities") {
 		t.Error("help overlay does not point at the capabilities overlay")
 	}
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if m.(Model).mode != modeCaps {
-		t.Fatal("'C' in help should switch to capabilities")
+		t.Fatal("tab in help should switch to capabilities")
+	}
+	if !strings.Contains(m.View(), "tab keys") {
+		t.Error("capabilities overlay does not point back at help")
 	}
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if m.(Model).mode != modeHelp {
-		t.Fatal("'?' in capabilities should switch back to help")
+		t.Fatal("tab in capabilities should switch back to help")
 	}
 }
 
-// 'C' must not be swallowed by the copy binding on 'c'.
-func TestCapsKeyIsNotCopy(t *testing.T) {
-	m := newSized(t)
-
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	if m.(Model).mode == modeCaps {
-		t.Fatal("'c' should be copy, not capabilities")
+// 'C' is convert now, and 'c' is still copy: neither opens capabilities.
+func TestCapsHasNoDefaultKey(t *testing.T) {
+	for _, r := range []rune{'c', 'C'} {
+		m, _ := newSized(t).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if m.(Model).mode == modeCaps {
+			t.Fatalf("%q opened capabilities", r)
+		}
 	}
 }

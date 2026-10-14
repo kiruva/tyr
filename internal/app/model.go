@@ -90,11 +90,12 @@ type Model struct {
 	mode mode
 
 	// operation state
-	pending       fileops.Job // job awaiting confirmation
-	willOverwrite bool        // pending job would clobber existing files
-	progress      fileops.Progress
-	progressCh    <-chan fileops.Event
-	errText       string
+	pending        fileops.Job // job awaiting confirmation
+	willOverwrite  bool        // pending job would clobber existing files
+	convertInPlace bool        // pending conversion strips images where they are
+	progress       fileops.Progress
+	progressCh     <-chan fileops.Event
+	errText        string
 
 	// cancelOp stops the job that is running now, and cancelling reports that
 	// it has been asked to stop but has not finished unwinding yet — a job is
