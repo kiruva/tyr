@@ -10,9 +10,9 @@ tool for the format you touch (`tar` plus `gzip`/`bzip2`/`xz`/`zstd`, `zip`/`unz
 `unrar`), and ssh transfers need `tar` and a POSIX shell on the far side. 7-Zip is the one
 worth installing: it gives AES-256 encryption for `.7z` and `.zip`, and it also stands in for
 `zip`/`unzip` where those are missing. Whichever name it is packaged under, `7z` (p7zip),
-`7zz` (the official build) or `7za`, tyr finds it and runs that one. Press `C` in the app to
-see which of those this machine actually has (see [Capabilities](#capabilities)). Converting
-audio needs `ffmpeg`. A fresh
+`7zz` (the official build) or `7za`, tyr finds it and runs that one. Press `?` and then `Tab`
+in the app to see which of those this machine actually has (see [Capabilities](#capabilities)).
+Converting audio needs `ffmpeg`; cleaning images needs nothing. A fresh
 Windows box has `tar` and little else; [On Windows](#on-windows) says what that costs.
 
 ## On Windows
@@ -39,7 +39,7 @@ stay POSIX, because the far side is.
 Archive tools are where a fresh Windows box is thinnest. Windows 10 and 11 ship `tar.exe`, so
 the tar formats extract out of the box, but `gzip`, `bzip2`, `xz`, `zstd`, `zip` and `unzip`
 are usually not there. Installing 7-Zip covers `.7z`, `.zip`, and AES-256 passwords for both.
-Press `C` to see what this machine actually has.
+`?` then `Tab` shows what this machine actually has.
 
 Run it in Windows Terminal, or any console with VT support. The legacy `conhost` window draws
 the box characters and colours poorly.
@@ -98,20 +98,19 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `p`                 | Pack dialog: format/level/password |
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
-| `a`                 | Convert audio → other pane      |
-| `v`                 | View file (read-only)           |
+| `C`                 | Convert (audio, images) → other |
+| `v`                 | View file (images: metadata)    |
 | `e`                 | Edit file (nano-style)          |
 | `S` / `Ctrl+S`      | ssh connections                 |
 | `t`                 | Theme picker                    |
 | `K`                 | Edit the keybindings            |
 | `?`                 | Show all keybindings            |
-| `C`                 | Show capabilities on this box   |
 | `y` / `n`           | Confirm / cancel a prompt       |
 | `q` / `Ctrl+C`      | Quit                            |
 
-Press `?` any time for the full keybinding overlay, grouped by what each key does, and `C`
-for the capabilities overlay (see [Capabilities](#capabilities)) — the two swap into each
-other, and both scroll when the terminal is too short to hold them. Directories always sort
+Press `?` any time for the full keybinding overlay, grouped by what each key does, and `Tab`
+there for the capabilities overlay (see [Capabilities](#capabilities)) — `Tab` swaps the two
+back and forth, and both scroll when the terminal is too short to hold them. Directories always sort
 before files; `s` orders the entries within each group.
 
 ### Rebinding them
@@ -821,7 +820,8 @@ is required:
 | `.rar`                     | `unrar`          | —              |
 
 Extract progress counts entries with `tar -t` / `zipinfo`; 7-Zip and `unrar` show an
-indeterminate bar. `C` reports which of these tools are on your `PATH` right now.
+indeterminate bar. The capabilities overlay (`?`, then `Tab`) reports which of these tools are
+on your `PATH` right now.
 
 Editing a member of a `.zip` also needs `zip`, and `zipinfo` lists its entries.
 
@@ -879,16 +879,26 @@ With one pane inside an archive and the other on real files, `F5`/`c` or `F6`/`m
 selection to the archive at its current virtual directory. `p`/`u` still need a real
 destination pane.
 
-## Converting audio
+## Converting
 
-`a` converts the selected audio files into another format, one new file per source, written
+`C` converts the selection into the other pane, one new file per source. What that means
+depends on what is selected: audio goes into another format, and an image becomes a clean copy
+of itself with its metadata left behind. Select both, or a folder holding both, and the dialog
+has a section for each; a section whose kind is not in the selection is not shown. Like a copy,
+this is two-sided — the output goes to the other pane, and when the other pane shows the same
+directory, see [In place](#in-place).
+
+### Audio
+
+Audio files are converted into another format, one new file per source, written
 into the other pane under the same name with the new extension — `song.mp3` becomes
 `song.ogg`. The originals are left alone. Video files (`.mp4`, `.mkv`, `.mov`, `.webm`, …)
 work too: their first soundtrack is what gets converted. Everything is done by `ffmpeg`.
 
 Select a folder and it converts whole, keeping its shape: `album/cd2/02.flac` becomes
-`<other pane>/album/cd2/02.ogg`. Only audio is picked up — cover art, playlists and dotfiles
-(macOS's `._song.mp3` litter included) are left out. Converting a folder in place, a file in it
+`<other pane>/album/cd2/02.ogg`. Only audio and images are picked up — playlists, text and
+dotfiles (macOS's `._song.mp3` litter included) are left out, and cover art comes along as a
+clean copy. Converting a folder in place, a file in it
 that is already in the target format is skipped rather than written over itself.
 
 | Field     | Keys | What it is                                                               |
@@ -912,7 +922,9 @@ to ffmpeg's built-in Vorbis encoder, which is experimental, stereo only (mono is
 sounds worse at the same setting — the dialog says so in red. On macOS, `brew install
 ffmpeg-full` has the real encoders, but it is keg-only: put `/opt/homebrew/opt/ffmpeg-full/bin`
 first on your `PATH` for tyr to find it. An ffmpeg that is installed but will not start (a
-library upgraded out from under it) is reported as such, with the loader's complaint.
+library upgraded out from under it) is reported as such, with the loader's complaint. With no
+usable ffmpeg, a selection of audio alone is refused; one that has images too keeps its image
+section and says, in red, that the audio is skipped.
 
 The progress dialog has two bars: the batch, and the file in hand with its position
 (`1:12 / 3:40`), read from ffmpeg's `-progress` against the length `ffprobe` reports. Without
@@ -925,13 +937,60 @@ one that was already there. A name that is already taken is asked about like a c
 [When a name is taken](#when-a-name-is-taken)), and converting a file into its own format in
 its own directory is refused. `Ctrl+Z` removes the new files the conversion wrote.
 
+### Images
+
+A JPEG, PNG, GIF or WebP converts into a clean copy under the same name: the same picture,
+byte for byte, with its metadata removed. Nothing is decoded and re-encoded, so the pixels
+never change and the copy is no worse than the original. It needs no external tool.
+
+| Field      | Keys           | What it is                                          |
+| ---------- | -------------- | --------------------------------------------------- |
+| `Rotation` | `←→` / `Space` | keep the EXIF orientation (default) or remove it    |
+| `Colour`   | `←→` / `Space` | keep the ICC colour profile, or remove it (default) |
+
+What goes:
+
+- **JPEG**: every APPn segment (EXIF with GPS, XMP, IPTC/Photoshop, JFIF, thumbnails, MPF,
+  maker notes, ICC, C2PA), comments, and anything after the image — a phone's motion-photo
+  video, for one. The Adobe segment, which only says how to decode CMYK colours, stays.
+- **PNG**: every ancillary chunk that is not needed to draw the picture — `tEXt`, `zTXt`,
+  `iTXt`, `eXIf`, `tIME`, `pHYs`, `iCCP`, C2PA's `caBX` — and trailing data. Transparency,
+  gamma, colour space and APNG animation stay.
+- **GIF**: comments and application extensions (XMP, ICC, C2PA), except the animation's loop
+  count, and trailing data.
+- **WebP**: `EXIF`, `XMP `, `ICCP`, `C2PA` and unknown chunks, with the header's flags put
+  right.
+
+The copy also carries no extended attributes, so macOS's "where from" download URL goes with
+the rest. Its permissions are the original's.
+
+Removing the orientation makes a phone photo taken upright show on its side, which is why
+`Rotation` keeps it unless told otherwise: it is written back as a minimal EXIF block holding
+that one tag and nothing else. When an image loses an orientation anyway, the notice at the end
+says how many. Wide-gamut photos can look duller without their ICC profile; keep it for those.
+
+HEIC, AVIF, TIFF and camera RAW are not handled. Picked by name, one is an error; found in a
+folder, it is skipped and counted. **Watermarks hidden in the pixels** — SynthID, Stable
+Signature, TrustMark, Digimarc — are not metadata and are not touched: a clean copy keeps them.
+
+### In place
+
+When both panes show the same directory there is no other side to write to, and the output is
+the original. For audio, converting into the format a file already has is refused (or skipped,
+inside a folder). Images are stripped in place: the confirm prompt says so in red, because
+**the originals are overwritten and `Ctrl+Z` cannot bring the metadata back**. An image with
+nothing to remove is left as it is, and the notice at the end counts what was stripped. Each
+file is still written under a temporary name and renamed over the original, so a failure never
+leaves half an image; a symlink is followed, and the picture it points at is the one cleaned.
+
 ## Capabilities
 
-`C` opens the capabilities overlay: every packing format, unpacking format, password feature,
+`Tab` in the help overlay (`?`) opens the capabilities overlay: every packing format, unpacking format, password feature,
 remote and local action, with the tool it runs and whether that tool is on your `PATH`. `✓`
 works here and `✗` does not — the row names the missing binary and what to install. The header
 counts what is unavailable, so a fresh box is one keypress away from telling you what to
-install. `?` swaps to the keybindings and back; any other key closes.
+install. `Tab` swaps back to the keybindings; any other key closes. It has no key of its own out
+of the box — the key editor can give it one (`capabilities`).
 
 Nothing is probed until you open the overlay, and nothing is cached — install `p7zip`, reopen
 it, and the `.7z` row turns green without restarting tyr.
@@ -957,6 +1016,22 @@ The pager has the four switches a pager is asked for:
 Everything the pager draws is built from the bytes it was handed, so each of those is a
 re-render rather than a re-read — which is why **a binary file opens instead of being
 refused**. It comes up in hex, and `x` switches back if you want to see it as text anyway.
+
+**An image shows its metadata** rather than its bytes: a JPEG, PNG, GIF or WebP opens on a
+report of everything it carries, decoded — the GPS position first when there is one, then any
+provenance or AI-generation markers, then each item (EXIF, XMP, IPTC, ICC, C2PA, PNG text,
+comments, trailing data) with its fields. `x` swaps to the hex dump and back, and `/`, `w`
+and `#` work on the report as on any text. The markers come from the metadata alone:
+
+- C2PA Content Credentials, and who signed them — the signature is **not** verified
+- a declared digital source type, such as `trainedAlgorithmicMedia` (AI-generated)
+- C2PA soft bindings, which declare an invisible watermark or fingerprint
+- links to a remote C2PA manifest, and AI training / mining preferences
+- generator traces: Stable Diffusion WebUI `parameters`, ComfyUI `prompt` / `workflow`,
+  InvokeAI, and generator names (Midjourney, DALL-E, Firefly, …) in any value
+
+Control characters and terminal escapes inside metadata are shown escaped, never passed to
+your terminal. A HEIC or TIFF opens in hex with a note that its metadata cannot be read.
 
 Highlighting is a small built-in one rather than a dependency: it knows four shapes of
 language — C-like (`//` and `/* */`, quoted strings), hash-comment (shell, Python, YAML, TOML,

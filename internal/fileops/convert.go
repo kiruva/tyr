@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kiruva/tyr/internal/metastrip"
 )
 
 // Audio conversion is ffmpeg's job. Which formats tyr can write depends less on
@@ -228,13 +230,32 @@ var audioExts = map[string]bool{
 // IsAudio reports whether name looks like something ffmpeg can take audio from.
 func IsAudio(name string) bool { return audioExts[strings.ToLower(filepath.Ext(name))] }
 
-// ConvertOpts is how OpConvert writes each output.
+// ConvertOpts is how OpConvert writes each output. Audio is converted when an
+// Encoder is set, images when Images is; a selection holding both kinds gets
+// both, and a kind left out is passed over.
 type ConvertOpts struct {
 	Format  AudioFormat
 	Quality int // index into the format's Qualities
 
 	// Encoder is the ffmpeg encoder to use, as resolved by AvailableAudioFormats.
 	Encoder string
+
+	// Images turns each image into a clean copy, keeping what Strip says to.
+	Images bool
+	Strip  metastrip.Options
+}
+
+// ImageSummary is the one-line description of what happens to images, for the
+// confirm prompt.
+func (o ConvertOpts) ImageSummary() string {
+	s := "images · strip metadata"
+	if o.Strip.KeepOrientation {
+		s += " · keep orientation"
+	}
+	if o.Strip.KeepICC {
+		s += " · keep ICC"
+	}
+	return s
 }
 
 // ConvertOptsFor is the options for a resolved format at a quality.
@@ -337,6 +358,7 @@ func ffmpegArgs(src, tmp string, o ConvertOpts) []string {
 type convertItem struct {
 	src, dst string
 	label    string
+	image    bool // a clean copy rather than an ffmpeg run
 	// walked is set for a file found inside a selected folder, as opposed to
 	// one that was selected by name.
 	walked bool
@@ -344,11 +366,22 @@ type convertItem struct {
 
 // convertItems expands the selection into the files to convert. A selected
 // file converts into Dest; a selected folder is walked, and every audio file
-// in it lands at the same place under Dest/<folder>, so an album converts into
-// an album. Dotfiles are left out of a walk — macOS scatters "._song.mp3"
-// resource forks through copied folders, and none of them is audio.
+// and image in it lands at the same place under Dest/<folder>, so an album
+// converts into an album. Dotfiles are left out of a walk — macOS scatters
+// "._song.mp3" resource forks through copied folders, and none of them is
+// audio.
 func convertItems(ctx context.Context, job Job) ([]convertItem, error) {
 	f := job.Convert.Format
+	audio, images := job.Convert.Encoder != "", job.Convert.Images
+	target := func(path, dir string) (string, bool, bool) {
+		switch {
+		case audio && IsAudio(path):
+			return ConvertTarget(path, dir, f), false, true
+		case images && IsImage(path):
+			return ImageTarget(path, dir), true, true
+		}
+		return "", false, false
+	}
 	var items []convertItem
 	for _, src := range job.Srcs {
 		info, err := os.Stat(src)
@@ -356,8 +389,14 @@ func convertItems(ctx context.Context, job Job) ([]convertItem, error) {
 			return nil, err
 		}
 		if !info.IsDir() {
+			dst, image, ok := target(src, job.Dest)
+			if !ok {
+				// Picked by name but of a kind this job leaves out: audio
+				// without an ffmpeg to convert it, say.
+				continue
+			}
 			items = append(items, convertItem{
-				src: src, dst: ConvertTarget(src, job.Dest, f), label: filepath.Base(src),
+				src: src, dst: dst, label: filepath.Base(src), image: image,
 			})
 			continue
 		}
@@ -375,17 +414,22 @@ func convertItems(ctx context.Context, job Job) ([]convertItem, error) {
 				}
 				return nil
 			}
-			if d.IsDir() || !IsAudio(d.Name()) {
+			if d.IsDir() {
 				return nil
 			}
 			rel, err := filepath.Rel(parent, path)
 			if err != nil {
 				return err
 			}
+			dst, image, ok := target(path, filepath.Join(job.Dest, filepath.Dir(rel)))
+			if !ok {
+				return nil
+			}
 			items = append(items, convertItem{
 				src:    path,
-				dst:    ConvertTarget(path, filepath.Join(job.Dest, filepath.Dir(rel)), f),
+				dst:    dst,
 				label:  filepath.ToSlash(rel),
+				image:  image,
 				walked: true,
 			})
 			return nil
@@ -397,18 +441,22 @@ func convertItems(ctx context.Context, job Job) ([]convertItem, error) {
 	return items, nil
 }
 
-// convert turns every audio file in job.Srcs into one in job.Dest, and returns
-// what it created for the undo history.
-func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string, error) {
-	if job.Convert.Encoder == "" {
-		return nil, fmt.Errorf("no encoder chosen")
+// convert turns every audio file and image in job.Srcs into one in job.Dest,
+// and returns what it created for the undo history, and notes worth showing
+// once it is done.
+func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string, []string, error) {
+	if job.Convert.Encoder == "" && !job.Convert.Images {
+		return nil, nil, fmt.Errorf("no encoder chosen")
 	}
 	items, err := convertItems(ctx, job)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no audio files in the selection")
+		if !job.Convert.Images {
+			return nil, nil, fmt.Errorf("no audio files in the selection")
+		}
+		return nil, nil, fmt.Errorf("nothing to convert in the selection")
 	}
 	r.total = len(items)
 
@@ -430,14 +478,15 @@ func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string,
 		}
 		return false
 	}
+	var tally stripTally
 	// finish adds the new folders that did get made, however far the job got.
-	finish := func(err error) ([]string, error) {
+	finish := func(err error) ([]string, []string, error) {
 		for _, root := range newRoots {
 			if exists(root) {
 				created = append(created, root)
 			}
 		}
-		return created, err
+		return created, tally.notes(), err
 	}
 
 	for _, it := range items {
@@ -445,7 +494,12 @@ func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string,
 			return finish(err)
 		}
 		existed := exists(it.dst)
-		out, err := convertOne(ctx, it, job, r, rv)
+		var out string
+		if it.image {
+			out, err = stripOne(it, job, rv, &tally)
+		} else {
+			out, err = convertOne(ctx, it, job, r, rv)
+		}
 		if err != nil {
 			return finish(err)
 		}
@@ -489,15 +543,8 @@ func convertOne(ctx context.Context, it convertItem, job Job, r *reporter, rv *r
 	r.part(it.label, 0, "")
 	length := probeLength(ctx, it.src, r)
 
-	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tyr-*")
+	tmpName, err := tempBeside(dst, 0o644)
 	if err != nil {
-		return "", err
-	}
-	tmpName := tmp.Name()
-	tmp.Close()
-	// CreateTemp makes the file private; the result is an ordinary file.
-	if err := os.Chmod(tmpName, 0o644); err != nil {
-		_ = os.Remove(tmpName)
 		return "", err
 	}
 

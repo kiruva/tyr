@@ -19,6 +19,9 @@ func Help(k Map, width, rows, scroll int) string {
 		lines := []string{ui.HelpKey.Render(g.title)}
 		for _, b := range g.binds {
 			h := b.Help()
+			if h.Key == "" {
+				continue // unbound: nothing to press
+			}
 			lines = append(lines, "  "+ui.HelpKey.Render(ui.PadRight(h.Key, 9))+ui.Faint.Render(h.Desc))
 		}
 		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -28,9 +31,9 @@ func Help(k Map, width, rows, scroll int) string {
 	body, more := ui.ScrollBlock(cols, rows, scroll)
 
 	header := ui.DialogTitle.Render("tyr — keys")
-	footer := ui.Faint.Render("C capabilities · any key to close")
+	footer := ui.Faint.Render("tab capabilities · any key to close")
 	if more {
-		footer = ui.Faint.Render("↑/↓ more · C capabilities · any key to close")
+		footer = ui.Faint.Render("↑/↓ more · tab capabilities · any key to close")
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 	return ui.Dialog.Render(content)

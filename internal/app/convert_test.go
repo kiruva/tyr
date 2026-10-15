@@ -17,7 +17,7 @@ func selectForConvert(t *testing.T, m tea.Model, name string) tea.Model {
 	t.Helper()
 	m = focusEntry(t, m, name)
 	m = press(t, m, "space")
-	m = press(t, m, "a")
+	m = press(t, m, "C")
 	if got := m.(Model).mode; got != modeConvert {
 		t.Fatalf("mode = %v, want modeConvert (err %q)", got, m.(Model).errText)
 	}
@@ -39,15 +39,15 @@ func arrow(t *testing.T, m tea.Model, k tea.KeyType) tea.Model {
 	return drain(t, m, cmd)
 }
 
-// Something that is not audio never reaches the dialog.
+// Something that is neither audio nor an image never reaches the dialog.
 func TestConvertRejectsNonAudio(t *testing.T) {
 	dir, dest := t.TempDir(), t.TempDir()
 	write(t, filepath.Join(dir, "notes.txt"))
 	m := focusEntry(t, twoPanes(t, dir, dest), "notes.txt")
 	m = press(t, m, "space")
-	m = press(t, m, "a")
+	m = press(t, m, "C")
 	app := m.(Model)
-	if app.mode == modeConvert || !strings.Contains(app.errText, "not an audio file") {
+	if app.mode == modeConvert || !strings.Contains(app.errText, "not audio or an image") {
 		t.Errorf("mode = %v, err = %q", app.mode, app.errText)
 	}
 }
@@ -147,7 +147,7 @@ func TestConvertAcceptsFolder(t *testing.T) {
 	dir, dest := t.TempDir(), t.TempDir()
 	write(t, filepath.Join(dir, "album", "01.mp3"))
 	m := selectForConvert(t, twoPanes(t, dir, dest), "album")
-	if got := convertExample(m.(Model).convert.srcs, m.(Model).convert.info()); !strings.HasPrefix(got, "album/ → album/…") {
+	if got := convertExample(m.(Model).convert.srcs, m.(Model).convert.info(), true); !strings.HasPrefix(got, "album/ → album/…") {
 		t.Errorf("example = %q", got)
 	}
 }

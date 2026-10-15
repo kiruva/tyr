@@ -166,7 +166,8 @@ func capabilityTable() []Capability {
 		{Group: "Remote (SSH)", Name: "copy / move on the host", Needs: nil},
 		{Group: "Remote (SSH)", Name: "upload / download", Needs: []string{"tar"}, Hint: "host needs tar too"},
 
-		{Group: "Convert audio", Name: "mp3 ogg opus m4a flac wav", Needs: []string{"ffmpeg"}, Hint: "install ffmpeg"},
+		{Group: "Convert", Name: "audio, six formats", Needs: []string{"ffmpeg"}, Hint: "install ffmpeg"},
+		{Group: "Convert", Name: "strip image metadata", Needs: nil},
 
 		{Group: "Local", Name: "copy, move, delete", Needs: nil},
 		{Group: "Local", Name: "view / edit files", Needs: nil},

@@ -125,8 +125,8 @@ func runConvert(t *testing.T, f *fakeTools, job Job, answer ConflictAction) Resu
 
 	done := make(chan Result, 1)
 	go func() {
-		created, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
-		done <- Result{Op: job.Op, Err: err, Created: created}
+		created, notes, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
+		done <- Result{Op: job.Op, Err: err, Created: created, Notes: notes}
 		close(ch)
 	}()
 	for ev := range ch {
@@ -320,7 +320,7 @@ func TestConvertReportsPartProgress(t *testing.T) {
 	ctx := context.Background()
 	r := &reporter{ctx: ctx, ch: ch, tools: f}
 	go func() {
-		_, _ = convert(ctx, job, r, newResolver(ctx, ch, ConflictAsk))
+		_, _, _ = convert(ctx, job, r, newResolver(ctx, ch, ConflictAsk))
 		close(ch)
 	}()
 	var parts []Progress

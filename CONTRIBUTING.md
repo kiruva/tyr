@@ -39,6 +39,7 @@ CI runs the same checks on every push and pull request.
 | `internal/pane`    | One directory pane; also the virtual archive browser.    |
 | `internal/fileops` | UI-agnostic create/copy/move/delete + archive engine.    |
 | `internal/rename`  | UI-agnostic batch-rename planner and applier.            |
+| `internal/metastrip` | UI-agnostic image metadata stripper and inspector.     |
 | `internal/remote`  | In-process ssh: listings, transfers, `~/.ssh/config`.    |
 | `internal/config`  | The `key = value` config file: theme, saved connections. |
 | `internal/ui`      | Lip Gloss theme and shared styles.                       |

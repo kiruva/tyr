@@ -33,8 +33,11 @@ too. Keyboard driven, intuitive like lazygit.
 - **Archives like folders.** Pack tar, zip, 7z with compression level and password (AES-256
   where 7-Zip installed). Unpack tar, zip, 7z, rar. Walk inside archive, add files without
   unpacking.
-- **Convert audio.** `a` turn mp3 into ogg, opus, flac, wav, m4a, any way round, whole pile
-  at once. Pick quality, `ffmpeg` do work, originals stay put.
+- **Convert audio, clean images.** `C` turn mp3 into ogg, opus, flac, wav, m4a, any way round,
+  whole pile at once; pick quality, `ffmpeg` do work. Same key on photos make clean copy: EXIF,
+  GPS, XMP, C2PA gone, pixels untouched, no tool needed. Originals stay put.
+- **See what image carry.** `v` on JPEG, PNG, GIF, WebP show its metadata decoded: where taken,
+  what camera, who signed, AI-generation markers. `x` for hex.
 - **Read and write files.** Pager with search, wrap, line numbers, syntax colors, hex dump for
   binary. Nano-style editor saves in place, even file inside archive.
 - **Remote panes.** One pane on ssh host, other local, transfer both ways. Reads
@@ -65,7 +68,7 @@ make build     # makes ./tyr
 ```
 
 Binary alone enough for browsing, copying, editing. Archives and ssh transfers call standard
-system tools. Press `C` inside tyr to see what this machine has and what missing.
+system tools. Press `?` then `Tab` inside tyr to see what this machine has and what missing.
 
 Windows works best in Windows Terminal. Few things differ there, see
 [MAN.md](MAN.md#on-windows).

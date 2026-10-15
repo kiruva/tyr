@@ -54,9 +54,9 @@ func View(width, rows, scroll int) string {
 	}
 	body, more := ui.ScrollBlock(cols, rows, scroll)
 
-	footer := ui.Faint.Render("? keys · any key to close")
+	footer := ui.Faint.Render("tab keys · any key to close")
 	if more {
-		footer = ui.Faint.Render("↑/↓ more · ? keys · any key to close")
+		footer = ui.Faint.Render("↑/↓ more · tab keys · any key to close")
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 	return ui.Dialog.Render(content)
