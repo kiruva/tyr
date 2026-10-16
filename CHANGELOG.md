@@ -9,6 +9,8 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
 ### Added
 
 - **Audio conversion** (`C`): converts the selected files into the other pane as `ogg`
