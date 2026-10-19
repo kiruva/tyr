@@ -18,7 +18,7 @@ func openIn(t *testing.T, name, body string) tea.Model {
 	}
 
 	m := focusEntry(t, newInDir(t, dir), name)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = press(t, m, "v")
 	if got := m.(Model).mode; got != modeView {
 		t.Fatalf("mode = %v, want modeView", got)
 	}
@@ -73,7 +73,7 @@ func TestViewerOpensBinaryAsHex(t *testing.T) {
 	}
 
 	m := focusEntry(t, newInDir(t, dir), "a.out")
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = press(t, m, "v")
 
 	app := m.(Model)
 	if app.mode != modeView {
@@ -196,7 +196,7 @@ func TestViewerSyntaxToggle(t *testing.T) {
 func TestViewerCloseAndEdit(t *testing.T) {
 	m := openIn(t, "notes.txt", "text\n")
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = press(t, m, "e")
 	if got := m.(Model).mode; got != modeEdit {
 		t.Fatalf("mode = %v, want modeEdit", got)
 	}

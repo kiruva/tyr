@@ -15,10 +15,13 @@ const (
 
 func stripWebP(b []byte, o Options) (*Result, error) {
 	r := &Result{}
-	end := 8 + int(binary.LittleEndian.Uint32(b[4:]))
-	if end > len(b) {
+	// Sizes are compared as uint64 before they become ints: on a 32-bit
+	// build a size near 4 GB turns negative and passes every check.
+	size := uint64(binary.LittleEndian.Uint32(b[4:]))
+	if 8+size > uint64(len(b)) {
 		return nil, errors.New("webp: truncated file")
 	}
+	end := 8 + int(size)
 	if extra := len(b) - end; extra > 0 {
 		r.add("data after RIFF", extra, "trailer", b[end:])
 	}
@@ -30,11 +33,12 @@ func stripWebP(b []byte, o Options) (*Result, error) {
 			return nil, fmt.Errorf("webp: truncated chunk at offset %d", i)
 		}
 		fcc := string(b[i : i+4])
-		n := int(binary.LittleEndian.Uint32(b[i+4:]))
-		dataEnd := i + 8 + n
-		if dataEnd > end || dataEnd < i {
+		n64 := uint64(binary.LittleEndian.Uint32(b[i+4:]))
+		if uint64(i)+8+n64 > uint64(end) {
 			return nil, fmt.Errorf("webp: bad chunk length at offset %d", i)
 		}
+		n := int(n64)
+		dataEnd := i + 8 + n
 		chunkEnd := min(dataEnd+n&1, end) // tolerate a missing final pad byte
 		chunk := b[i:chunkEnd]
 		i = chunkEnd

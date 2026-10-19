@@ -2,6 +2,7 @@ package metastrip
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -40,9 +41,24 @@ var generatorKeywords = map[string]string{
 // Names of image generators, matched case-insensitively in any value.
 var generatorNames = []string{
 	"midjourney", "dall-e", "dall·e", "stable diffusion", "stability ai", "adobe firefly",
-	"made with google ai", "imagen", "novelai", "openai", "chatgpt", "gpt-4o", "comfyui",
+	"made with google ai", "novelai", "openai", "chatgpt", "gpt-4o", "comfyui",
 	"automatic1111", "invokeai", "leonardo.ai", "ideogram", "black forest labs", "flux.1",
-	"bing image creator", "microsoft designer", "meta ai", "grok",
+	"bing image creator", "microsoft designer", "meta ai",
+}
+
+// Generator names that are also ordinary words — "imagen" is Spanish for
+// image — and so count only in a field that names the software behind the
+// file, never in a caption.
+var generatorToolNames = []string{"imagen", "grok"}
+
+// toolField reports whether a field names the program that made the file.
+func toolField(key string) bool {
+	for _, k := range []string{"software", "creatortool", "generator", "softwareagent", "originatingprogram"} {
+		if strings.Contains(key, k) {
+			return true
+		}
+	}
+	return false
 }
 
 type itemFields struct {
@@ -97,7 +113,11 @@ func findMarkers(items []itemFields) []string {
 				add("%s (PNG text %q)", generatorKeywords[f.Key], f.Key)
 			}
 			lv := strings.ToLower(f.Value)
-			for _, g := range generatorNames {
+			names := generatorNames
+			if toolField(key) {
+				names = append(slices.Clip(names), generatorToolNames...)
+			}
+			for _, g := range names {
 				if containsWord(lv, g) {
 					add("mentions %q in %s", g, fieldLabel(it.item, f))
 				}

@@ -3,12 +3,12 @@ package metastrip
 import (
 	"bytes"
 	"fmt"
-	"slices"
 )
 
 func stripJPEG(b []byte, o Options) (*Result, error) {
 	r := &Result{}
-	parts := map[string]int{} // group -> index of first item, for multi-segment payloads
+	parts := map[string]int{}    // group -> index of first item, for multi-segment payloads
+	pieces := map[int][][]byte{} // index of first item -> its payload, segment by segment
 	out := make([]byte, 0, len(b))
 	out = append(out, 0xFF, 0xD8)
 	i := 2
@@ -60,16 +60,18 @@ func stripJPEG(b []byte, o Options) (*Result, error) {
 			kind, group, data := jpegPayload(m, payload)
 			if group != "" {
 				// Large ICC profiles, extended XMP and C2PA manifests span several
-				// segments: reassemble them into the first one.
+				// segments: reassemble them into the first one. The pieces are
+				// joined once at the end; appending each to the last copied
+				// everything before it, a thousand segments over.
 				if first, ok := parts[group]; ok {
 					if kind == "jumbf" { // each segment repeats the JUMBF box header
 						data = data[min(jumbfHeaderLen(data), len(data)):]
 					}
-					prev := &r.Removed[first]
-					prev.Data = append(slices.Clip(prev.Data), data...)
+					pieces[first] = append(pieces[first], data)
 					kind, data = "cont", nil
 				} else {
 					parts[group] = len(r.Removed)
+					pieces[len(r.Removed)] = [][]byte{data}
 				}
 			}
 			r.add(name, n+2, kind, data)
@@ -87,6 +89,12 @@ func stripJPEG(b []byte, o Options) (*Result, error) {
 			if i >= len(b) { // truncated file: keep what is there
 				break
 			}
+		}
+	}
+
+	for first, p := range pieces {
+		if len(p) > 1 {
+			r.Removed[first].Data = bytes.Join(p, nil)
 		}
 	}
 

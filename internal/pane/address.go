@@ -29,6 +29,7 @@ func (m *Model) BeginEditPath() tea.Cmd {
 		m.addr.SetValue(m.baseDir())
 	}
 	m.addr.CursorEnd()
+	m.addrDir, m.addrList = "", nil // a fresh edit reads the folder afresh
 	m.suggest()
 	return m.addr.Focus()
 }
@@ -86,9 +87,14 @@ func (m *Model) CommitEditPath() error {
 
 // UpdateAddr forwards a message to the address input (typing, cursor blink).
 func (m *Model) UpdateAddr(msg tea.Msg) tea.Cmd {
+	before := m.addr.Value()
 	var cmd tea.Cmd
 	m.addr, cmd = m.addr.Update(msg)
-	m.suggest()
+	// The cursor blinks through here twice a second; only typing changes
+	// what there is to complete.
+	if m.addr.Value() != before {
+		m.suggest()
+	}
 	return cmd
 }
 
@@ -155,11 +161,16 @@ func (m *Model) suggest() {
 		return
 	}
 
-	entries, err := os.ReadDir(full)
-	if err != nil {
-		m.addr.SetSuggestions(nil)
-		return
+	if full != m.addrDir {
+		entries, err := os.ReadDir(full)
+		if err != nil {
+			m.addrDir, m.addrList = "", nil
+			m.addr.SetSuggestions(nil)
+			return
+		}
+		m.addrDir, m.addrList = full, entries
 	}
+	entries := m.addrList
 
 	var out []string
 	for _, e := range entries {

@@ -274,14 +274,21 @@ func str(v any) string {
 	return s
 }
 
-// render formats a decoded CBOR or JSON value compactly.
+// render formats a decoded CBOR or JSON value compactly, stopping once it has
+// written maxValueBytes.
 func render(v any) string {
 	var sb strings.Builder
 	renderTo(&sb, v, 0)
+	if sb.Len() > maxValueBytes {
+		return clipString(sb.String(), maxValueBytes)
+	}
 	return sb.String()
 }
 
 func renderTo(sb *strings.Builder, v any, depth int) {
+	if sb.Len() > maxValueBytes {
+		return
+	}
 	if depth > 16 {
 		sb.WriteString("...")
 		return
@@ -307,6 +314,9 @@ func renderTo(sb *strings.Builder, v any, depth int) {
 	case []any:
 		sb.WriteString("[")
 		for i, e := range t {
+			if sb.Len() > maxValueBytes {
+				break
+			}
 			if i > 0 {
 				sb.WriteString(", ")
 			}
@@ -316,6 +326,9 @@ func renderTo(sb *strings.Builder, v any, depth int) {
 	case []cborKV:
 		sb.WriteString("{")
 		for i, kv := range t {
+			if sb.Len() > maxValueBytes {
+				break
+			}
 			if i > 0 {
 				sb.WriteString(", ")
 			}
@@ -332,6 +345,9 @@ func renderTo(sb *strings.Builder, v any, depth int) {
 		slices.Sort(keys)
 		sb.WriteString("{")
 		for i, k := range keys {
+			if sb.Len() > maxValueBytes {
+				break
+			}
 			if i > 0 {
 				sb.WriteString(", ")
 			}

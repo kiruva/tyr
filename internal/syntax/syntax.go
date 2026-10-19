@@ -216,7 +216,7 @@ func (h *Highlighter) cLike(text string) []Span {
 			i += n
 
 		default:
-			out.add(string(text[i]), Plain)
+			out.add(text[i:i+1], Plain) // a slice, not string(byte): that splits UTF-8
 			i++
 		}
 	}
@@ -250,7 +250,7 @@ func (h *Highlighter) hash(text string) []Span {
 			i += n
 
 		default:
-			out.add(string(text[i]), Plain)
+			out.add(text[i:i+1], Plain) // a slice, not string(byte): that splits UTF-8
 			i++
 		}
 	}
@@ -285,7 +285,7 @@ func (h *Highlighter) json(text string) []Span {
 			i += n
 
 		default:
-			out.add(string(text[i]), Plain)
+			out.add(text[i:i+1], Plain) // a slice, not string(byte): that splits UTF-8
 			i++
 		}
 	}
@@ -336,7 +336,7 @@ func (h *Highlighter) markdown(text string) []Span {
 				continue
 			}
 		}
-		out.add(string(text[i]), Plain)
+		out.add(text[i:i+1], Plain) // a slice, not string(byte): that splits UTF-8
 		i++
 	}
 	return out.done()
@@ -351,25 +351,41 @@ func (h *Highlighter) wordKind(word string) Kind {
 }
 
 // spans accumulates runs, merging neighbours of the same kind so the renderer
-// is handed as few pieces as possible.
+// is handed as few pieces as possible. The merging is done once, in done:
+// joining each piece onto the last as it came copied the run every time, which
+// on a long line of punctuation is quadratic.
 type spans []Span
 
 func (s *spans) add(text string, kind Kind) {
 	if text == "" {
 		return
 	}
-	if n := len(*s); n > 0 && (*s)[n-1].Kind == kind {
-		(*s)[n-1].Text += text
-		return
-	}
 	*s = append(*s, Span{Text: text, Kind: kind})
 }
 
 func (s *spans) done() []Span {
-	if len(*s) == 0 {
+	in := *s
+	if len(in) == 0 {
 		return []Span{{Text: ""}}
 	}
-	return *s
+	out := make([]Span, 0, len(in))
+	for i := 0; i < len(in); {
+		j := i + 1
+		for j < len(in) && in[j].Kind == in[i].Kind {
+			j++
+		}
+		if j == i+1 {
+			out = append(out, in[i])
+		} else {
+			var b strings.Builder
+			for _, sp := range in[i:j] {
+				b.WriteString(sp.Text)
+			}
+			out = append(out, Span{Text: b.String(), Kind: in[i].Kind})
+		}
+		i = j
+	}
+	return out
 }
 
 // scanString measures a quoted string from its opening quote, honouring

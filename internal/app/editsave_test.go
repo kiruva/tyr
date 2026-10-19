@@ -15,8 +15,8 @@ import (
 func editIn(t *testing.T, dir, name string) tea.Model {
 	t.Helper()
 	m := focusEntry(t, newInDir(t, dir), name)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = press(t, m, "v")
+	m = press(t, m, "e")
 	if got := m.(Model).mode; got != modeEdit {
 		t.Fatalf("mode = %v, want modeEdit", got)
 	}

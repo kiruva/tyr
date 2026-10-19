@@ -11,6 +11,30 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **`v` on a named pipe no longer freezes tyr.** Opening it waited for a writer on the UI
+  thread, for good; `/dev/zero` read until memory ran out. Pipes, sockets and devices are
+  refused, files are read in the background, and the viewer holds the first 16 MB of a big one
+  (the editor refuses it rather than truncate it on save).
+- **Inspecting a hostile image is cheap.** A few hundred kilobytes of crafted metadata — one
+  EXIF string referenced thousands of times, twenty zlib bombs in PNG text, XML nested twelve
+  thousand deep, a C2PA assertion with millions of CBOR values, a profile spread over a thousand
+  JPEG segments — cost gigabytes of memory and minutes to decode. Values are now shown up to
+  4 KB with their real length, decompression is capped per image, and a report stops at about a
+  megabyte.
+- **"imagen" in a Spanish caption is no longer called an AI marker.** "imagen" and "grok" count
+  only in the field naming the software. The location is taken from EXIF GPS only, not from a
+  PNG text chunk that happens to be called `GPSPosition`.
+- **Highlighting keeps accented letters.** Markdown, JSON and code showed `café` as `cafÃ©`; and
+  a very long line took seconds to colour on every redraw.
+- **`=` measures folders a few at a time and stops when you leave**, instead of walking up to two
+  hundred trees at once and finishing them all regardless; pressing it twice no longer measures
+  everything twice.
+- Searching in the viewer no longer rebuilds the hex dump twice per keystroke; the address bar no
+  longer reads the folder each time the cursor blinks; the capabilities overlay no longer searches
+  `PATH` on every redraw.
+
+### Fixed
+
 - **Nothing is overwritten in place any more.** Every file tyr writes — a copy, a pack, an
   edited file, an archive member saved from the editor, the settings — is written beside its
   destination and moved into place once it is complete. A copy cancelled half-way, a pack that

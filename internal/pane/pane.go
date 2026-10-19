@@ -33,6 +33,10 @@ type Model struct {
 	// address bar (top line): mirrors the location, editable for direct jumps
 	addr        textinput.Model
 	editingAddr bool
+	// addrDir and addrList are the last folder the address bar completed
+	// from and what was in it: typing a name within one folder reads it once.
+	addrDir  string
+	addrList []os.DirEntry
 
 	// archive browsing (virtual filesystem inside a packed file)
 	archive string           // "" = real filesystem; otherwise the archive's real path

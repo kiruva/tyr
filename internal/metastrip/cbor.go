@@ -18,13 +18,18 @@ type cborTag struct {
 
 var errCBOR = errors.New("invalid CBOR")
 
+// cborDecode decodes one CBOR value. A document of more than maxCBORItems
+// values is refused as a whole: a C2PA manifest is a few hundred, and three
+// bytes per element is enough to ask for millions.
 func cborDecode(b []byte) (any, error) {
-	v, _, err := cborItem(b, 0)
+	left := maxCBORItems
+	v, _, err := cborItem(b, 0, &left)
 	return v, err
 }
 
-func cborItem(b []byte, depth int) (any, []byte, error) {
-	if depth > 64 || len(b) == 0 {
+func cborItem(b []byte, depth int, left *int) (any, []byte, error) {
+	*left--
+	if depth > 64 || len(b) == 0 || *left < 0 {
 		return nil, nil, errCBOR
 	}
 	major, ai := b[0]>>5, b[0]&31
@@ -75,7 +80,7 @@ func cborItem(b []byte, depth int) (any, []byte, error) {
 					b = b[1:]
 					break
 				}
-				chunk, rest, err := cborItem(b, depth+1)
+				chunk, rest, err := cborItem(b, depth+1, left)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -115,7 +120,7 @@ func cborItem(b []byte, depth int) (any, []byte, error) {
 					break
 				}
 			}
-			v, rest, err := cborItem(b, depth+1)
+			v, rest, err := cborItem(b, depth+1, left)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -124,7 +129,7 @@ func cborItem(b []byte, depth int) (any, []byte, error) {
 				arr = append(arr, v)
 				continue
 			}
-			val, rest, err := cborItem(b, depth+1)
+			val, rest, err := cborItem(b, depth+1, left)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -136,7 +141,7 @@ func cborItem(b []byte, depth int) (any, []byte, error) {
 		}
 		return m, b, nil
 	case 6:
-		v, rest, err := cborItem(b, depth+1)
+		v, rest, err := cborItem(b, depth+1, left)
 		if err != nil {
 			return nil, nil, err
 		}

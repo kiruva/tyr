@@ -188,3 +188,11 @@ func TestCapabilitiesEitherToolSatisfiesZip(t *testing.T) {
 		t.Errorf("detail with neither tool = %q, want both named as alternatives", got)
 	}
 }
+
+// The overlay asks on every frame; PATH is searched once.
+func TestCapabilitiesAreProbedOnce(t *testing.T) {
+	a, b := Capabilities(), Capabilities()
+	if len(a) == 0 || &a[0] != &b[0] {
+		t.Error("Capabilities probed PATH again")
+	}
+}

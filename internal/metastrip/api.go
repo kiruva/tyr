@@ -4,7 +4,11 @@
 // change. It knows nothing about files or the UI: bytes in, bytes out.
 package metastrip
 
-import "github.com/kiruva/tyr/internal/termsafe"
+import (
+	"fmt"
+
+	"github.com/kiruva/tyr/internal/termsafe"
+)
 
 // ErrUnsupported is returned by Strip for anything that is not one of the four
 // formats it handles. A format it recognises but does not handle (HEIC, TIFF)
@@ -49,21 +53,45 @@ type Report struct {
 
 // Inspect decodes everything Strip found in an image. Pass the Result of a
 // Strip of the same bytes; nothing is written anywhere.
+//
+// What it decodes is bounded (see limits.go): long values are cut short, and
+// once the report holds about a megabyte the remaining items are listed with
+// their sizes but not decoded.
 func Inspect(res *Result) Report {
 	var rep Report
 	var decoded []itemFields
+	bud, shown := newBudget(), 0
 	for _, it := range res.Removed {
-		fields := describe(it)
-		decoded = append(decoded, itemFields{it, fields})
 		sec := Section{Name: termsafe.Line(it.Name), Size: it.Size}
+		rep.Total += it.Size
+		if shown >= maxReportBytes {
+			sec.Fields = []Field{{"", "not decoded: the report is long enough already"}}
+			rep.Sections = append(rep.Sections, sec)
+			continue
+		}
+
+		fields := describe(it, bud)
+		if len(fields) > maxItemFields {
+			fields = append(fields[:maxItemFields], field{"", fmt.Sprintf("… %d more values not shown", len(fields)-maxItemFields)})
+		}
+		decoded = append(decoded, itemFields{it, fields})
 		for _, f := range fields {
-			sec.Fields = append(sec.Fields, Field{termsafe.Line(f.Key), termsafe.Line(f.Value)})
-			if f.Key == "GPSPosition" && rep.Location == "" {
-				rep.Location = termsafe.Line(f.Value)
+			if shown >= maxReportBytes {
+				sec.Fields = append(sec.Fields, Field{"", "… the rest not shown: the report is long enough already"})
+				break
+			}
+			// The parsers clip what they decode; this is the backstop, with
+			// room for a clipped value's "… (N bytes)" and Latin-1 doubling.
+			key, value := clipString(f.Key, maxKeyBytes+64), clipString(f.Value, 2*maxValueBytes+64)
+			shown += len(key) + len(value)
+			sec.Fields = append(sec.Fields, Field{termsafe.Line(key), termsafe.Line(value)})
+			// Only the EXIF GPS block is a location. A PNG text chunk can be
+			// called GPSPosition and say anything.
+			if f.Key == "GPSPosition" && it.Kind == "exif" && rep.Location == "" {
+				rep.Location = termsafe.Line(value)
 			}
 		}
 		rep.Sections = append(rep.Sections, sec)
-		rep.Total += it.Size
 	}
 	for _, m := range findMarkers(decoded) {
 		rep.Markers = append(rep.Markers, termsafe.Line(m))

@@ -1,6 +1,9 @@
 package fileops
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // Every archive operation shells out to a command-line tool, so what tyr can do
 // depends on what is installed. Capabilities() probes PATH and reports it, which
@@ -75,9 +78,12 @@ func (c Capability) DetailFull() string {
 
 // Capabilities probes PATH and reports what tyr can do here. Each binary is
 // looked up once however many capabilities need it.
-func Capabilities() []Capability {
-	return capabilities(installed)
-}
+//
+// The answer is worked out once and kept: the overlay draws it on every frame,
+// and every frame used to search PATH for a dozen tools.
+func Capabilities() []Capability { return probedCapabilities() }
+
+var probedCapabilities = sync.OnceValue(func() []Capability { return capabilities(installed) })
 
 // capabilities is Capabilities with the PATH lookup injected, for testing. A
 // tool that ships under several names (7z / 7zz / 7za) is reported under the
