@@ -166,9 +166,9 @@ func TestWalkCancelled(t *testing.T) {
 }
 
 func TestCounts(t *testing.T) {
-	pairs := []Pair{{Kind: Same}, {Kind: Differs}, {Kind: Differs}, {Kind: OnlyLeft}, {Kind: OnlyRight}}
-	same, differs, onlyLeft, onlyRight := Counts(pairs)
-	if same != 1 || differs != 2 || onlyLeft != 1 || onlyRight != 1 {
-		t.Fatalf("counts = %d/%d/%d/%d, want 1/2/1/1", same, differs, onlyLeft, onlyRight)
+	pairs := []Pair{{Kind: Same}, {Kind: Differs}, {Kind: Differs}, {Kind: OnlyLeft}, {Kind: OnlyRight}, {Kind: Conflict}}
+	same, differs, onlyLeft, onlyRight, conflicts := Counts(pairs)
+	if same != 1 || differs != 2 || onlyLeft != 1 || onlyRight != 1 || conflicts != 1 {
+		t.Fatalf("counts = %d/%d/%d/%d/%d, want 1/2/1/1/1", same, differs, onlyLeft, onlyRight, conflicts)
 	}
 }

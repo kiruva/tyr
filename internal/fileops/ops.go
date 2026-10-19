@@ -507,6 +507,13 @@ func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localR
 			}
 			var err error
 			if job.Op == OpSync {
+				// A sync overwrites without asking, which is right for a file
+				// and never for a folder: the folder's whole contents would go
+				// to make room for one file the comparison did not pair with it.
+				if isDir(pair.Dst) && !isDir(pair.Src) {
+					out.err = fmt.Errorf("%s: will not replace a folder with a file", filepath.Base(pair.Dst))
+					return out
+				}
 				_, err = rn.copyPath(pair.Src, pair.Dst)
 			} else {
 				_, err = rn.movePath(pair.Src, pair.Dst)

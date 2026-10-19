@@ -293,3 +293,25 @@ func TestFreeName(t *testing.T) {
 		t.Fatalf("freeName = %q, want %q", got, want)
 	}
 }
+
+// A sync carries out decisions about files. One that would put a file where a
+// folder is — the tree changed after the comparison, or the comparison missed
+// it — is refused rather than deleting the folder to make room.
+func TestSyncNeverReplacesAFolderWithAFile(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	seed(t, filepath.Join(src, "foo"), "a file", 0)
+	seed(t, filepath.Join(dst, "foo", "precious.txt"), "keep me", 0)
+
+	job := Job{
+		Op:         OpSync,
+		Pairs:      []Pair{{Src: filepath.Join(src, "foo"), Dst: filepath.Join(dst, "foo")}},
+		OnConflict: ConflictOverwrite,
+	}
+	res := run(t, job, ConflictOverwrite)
+	if res.Err == nil {
+		t.Error("the sync replaced a folder with a file without complaint")
+	}
+	if got := read(t, filepath.Join(dst, "foo", "precious.txt")); got != "keep me" {
+		t.Errorf("precious.txt = %q, want it untouched", got)
+	}
+}

@@ -717,7 +717,15 @@ inside an archive goes into it.
 Every row arrives with a direction already proposed: a file only one side has gets copied
 across, and where both have it the newer one wins. `→` and `←` change a row's direction, `s`
 skips it, and each of them steps down so a column of decisions takes one keypress each. `a`
-puts every row back to what was proposed.
+puts every row back to what was proposed. Two files that differ but carry the same time are
+left at skip: there is no newer one to pick.
+
+A row marked `!` is a conflict — a path that cannot be copied either way without losing
+something, so it is always skipped. It says what is in the way: a file on one side where the
+other has a folder, two names that differ only in case on a volume that ignores case (one
+file there, not two), or a symlinked folder on the way that would take the copy outside the
+tree. Sort those out by hand and compare again. Comparing a directory with one inside it, or
+with itself through a symlink, is refused.
 
 `e` shows the files that match as well, `.` includes dotfiles, and `c` compares same-size files
 byte for byte rather than trusting their timestamps — each re-runs the walk. `Enter` goes to
