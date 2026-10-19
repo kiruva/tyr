@@ -94,6 +94,7 @@ func (m *Model) reloadEntries() {
 		}
 		entries = read
 	}
+	m.forgetVanished(entries)
 
 	if !m.showHidden {
 		entries = dropDotfiles(entries)
@@ -103,6 +104,23 @@ func (m *Model) reloadEntries() {
 	sortEntries(entries, m.sort)
 	m.Entries = entries
 	m.clampCursor()
+}
+
+// forgetVanished drops marks on names the directory no longer has. Marks on
+// entries that are only out of view — a dotfile, a name the filter hides — stay.
+func (m *Model) forgetVanished(entries []Entry) {
+	if len(m.selected) == 0 {
+		return
+	}
+	present := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		present[e.Name] = true
+	}
+	for name := range m.selected {
+		if !present[name] {
+			delete(m.selected, name)
+		}
+	}
 }
 
 func dropDotfiles(entries []Entry) []Entry {
@@ -197,7 +215,7 @@ func (m *Model) MoveDown() {
 }
 
 func (m *Model) PageUp()   { m.Cursor = max(m.Cursor-m.visibleRows(), 0) }
-func (m *Model) PageDown() { m.Cursor = min(m.Cursor+m.visibleRows(), len(m.Entries)-1) }
+func (m *Model) PageDown() { m.Cursor = max(min(m.Cursor+m.visibleRows(), len(m.Entries)-1), 0) }
 func (m *Model) Top()      { m.Cursor = 0 }
 func (m *Model) Bottom()   { m.Cursor = max(len(m.Entries)-1, 0) }
 
@@ -282,8 +300,8 @@ func (m *Model) ToggleSelect() {
 	m.MoveDown()
 }
 
-// SelectedCount returns how many entries are selected.
-func (m *Model) SelectedCount() int { return len(m.selected) }
+// SelectedCount returns how many of the entries on show are selected.
+func (m *Model) SelectedCount() int { return len(m.shownSelected()) }
 
 // ClearSelection drops all marks (called after an operation completes).
 func (m *Model) ClearSelection() { m.selected = map[string]bool{} }
@@ -301,18 +319,32 @@ func (m *Model) Refresh() {
 
 // SelectedNames returns the selected entry names, or the current entry's name
 // if nothing is explicitly selected (the "act on cursor" fallback).
+//
+// Only marks on entries the pane is showing count. A mark survives a filter or
+// hiding dotfiles, so it is back when they are undone, but an operation must
+// never reach files that were marked and then filtered out of sight.
 func (m *Model) SelectedNames() []string {
-	if len(m.selected) > 0 {
-		names := make([]string, 0, len(m.selected))
-		for n := range m.selected {
-			names = append(names, n)
-		}
+	if names := m.shownSelected(); len(names) > 0 {
 		return names
 	}
 	if cur, ok := m.Current(); ok && cur.Name != ".." {
 		return []string{cur.Name}
 	}
 	return nil
+}
+
+// shownSelected is the marked entries among those on show, in listing order.
+func (m *Model) shownSelected() []string {
+	if len(m.selected) == 0 {
+		return nil
+	}
+	var names []string
+	for _, e := range m.Entries {
+		if m.selected[e.Name] {
+			names = append(names, e.Name)
+		}
+	}
+	return names
 }
 
 // View options ---------------------------------------------------------------
@@ -409,30 +441,10 @@ func formatEntry(e Entry, selected bool, width int) string {
 	avail := width - lipgloss.Width(gutter) - 1 // gutter + one space after it
 	gap := avail - lipgloss.Width(name) - lipgloss.Width(size)
 	if gap < 1 {
-		name = truncate(name, max(avail-lipgloss.Width(size)-1, 1))
+		name = ui.TruncHead(name, max(avail-lipgloss.Width(size)-1, 1))
 		gap = max(avail-lipgloss.Width(name)-lipgloss.Width(size), 0)
 	}
 	return gutter + " " + name + strings.Repeat(" ", gap) + size
-}
-
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	var out strings.Builder
-	for _, r := range s {
-		if lipgloss.Width(out.String()+string(r)) > w-1 {
-			break
-		}
-		out.WriteRune(r)
-	}
-	return out.String() + "…"
 }
 
 // HumanSize renders a byte count the way the panes show it.

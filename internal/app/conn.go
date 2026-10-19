@@ -289,11 +289,6 @@ func (m Model) connSucceeded(msg connResultMsg) (tea.Model, tea.Cmd) {
 
 // onConnKey dispatches a keypress to the modal's current stage.
 func (m Model) onConnKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "ctrl+c" {
-		remote.ForgetAll()
-		return m, tea.Quit
-	}
-
 	switch m.conn.stage {
 	case connStageList:
 		return m.onConnListKey(msg)

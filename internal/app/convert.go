@@ -185,8 +185,6 @@ func (m Model) onConvertKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.closeConvert()
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.commitConvert()
 	case "tab", "down":

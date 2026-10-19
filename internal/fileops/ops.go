@@ -871,6 +871,12 @@ func deletePath(ctx context.Context, src string, r *reporter) error {
 // chmodPath changes one path's permissions, walking into it when asked. A
 // directory that cannot be read stops the walk with its error rather than
 // leaving half the tree changed silently.
+//
+// A single path gets the mode exactly as typed. A recursive change is chmod -R
+// with X, because one mode cannot be right for both: a folder gets execute
+// wherever it gets read, or nobody could open it, and a file keeps execute only
+// where it had some — "644 on the tree" must not close every folder, nor "755"
+// make every text file a program.
 func chmodPath(ctx context.Context, path string, mode os.FileMode, recursive bool, r *reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -885,22 +891,60 @@ func chmodPath(ctx context.Context, path string, mode os.FileMode, recursive boo
 		return nil
 	}
 
-	if err := os.Chmod(path, mode); err != nil {
-		return err
-	}
-	r.step(path)
-
-	if !recursive || !info.IsDir() {
+	if !recursive {
+		if err := os.Chmod(path, mode); err != nil {
+			return err
+		}
+		r.step(path)
 		return nil
+	}
+
+	if !info.IsDir() {
+		if err := os.Chmod(path, TreeFileMode(mode, info.Mode())); err != nil {
+			return err
+		}
+		r.step(path)
+		return nil
+	}
+
+	// A folder is read before it is closed and opened before it is read: the
+	// new mode goes on first when it lets its owner in, last when it does not.
+	dirMode := TreeDirMode(mode)
+	opens := dirMode&0o500 == 0o500
+	if opens {
+		if err := os.Chmod(path, dirMode); err != nil {
+			return err
+		}
 	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if err := chmodPath(ctx, filepath.Join(path, e.Name()), mode, recursive, r); err != nil {
+		if err := chmodPath(ctx, filepath.Join(path, e.Name()), mode, true, r); err != nil {
 			return err
 		}
 	}
+	if !opens {
+		if err := os.Chmod(path, dirMode); err != nil {
+			return err
+		}
+	}
+	r.step(path)
 	return nil
+}
+
+// TreeDirMode is mode for a folder in a recursive change: execute added
+// wherever read is given.
+func TreeDirMode(mode os.FileMode) os.FileMode {
+	return mode | (mode&0o444)>>2
+}
+
+// TreeFileMode is mode for a file in a recursive change: execute dropped,
+// unless the file had some before, in which case it goes wherever read does.
+func TreeFileMode(mode, was os.FileMode) os.FileMode {
+	if was&0o111 == 0 {
+		return mode &^ 0o111
+	}
+	return mode | (mode&0o444)>>2
 }

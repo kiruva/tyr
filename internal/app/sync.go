@@ -201,10 +201,6 @@ func proposedAction(p compare.Pair) syncAction {
 
 // onSyncKey drives the tool.
 func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "ctrl+c" {
-		m.sync.task.stop()
-		return m, tea.Quit
-	}
 	if m.sync.stage == syncStageRunning {
 		if msg.String() == "esc" {
 			m.closeSync()

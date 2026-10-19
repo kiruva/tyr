@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kiruva/tyr/internal/fsutil"
@@ -205,9 +206,32 @@ func rewrite(mutate func(map[string]string)) error {
 	b.WriteString("# tyr configuration\n")
 	b.WriteString("# ssh passwords are never stored here\n")
 	for _, k := range keys {
-		fmt.Fprintf(&b, "%s = %s\n", k, pairs[k])
+		fmt.Fprintf(&b, "%s = %s\n", k, encodeValue(pairs[k]))
 	}
 	return fsutil.WriteFile(path, []byte(b.String()), 0o600)
+}
+
+// encodeValue writes a value so readPairs gets it back exactly. Most go in as
+// they are; one with space at either end — a directory can be named that way —
+// is quoted, since reading trims, and so is one starting with a quote, which
+// would otherwise be taken for quoting.
+func encodeValue(v string) string {
+	if v != strings.TrimSpace(v) || strings.HasPrefix(v, `"`) {
+		return strconv.Quote(v)
+	}
+	return v
+}
+
+// decodeValue is encodeValue undone. A value that only looks quoted — a
+// hand-written one with a stray quote — is kept as it is.
+func decodeValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	if strings.HasPrefix(v, `"`) {
+		if unquoted, err := strconv.Unquote(v); err == nil {
+			return unquoted
+		}
+	}
+	return v
 }
 
 // storable reports whether s fits on one line of the file.
@@ -261,7 +285,7 @@ func readPairs(path string) (map[string]string, error) {
 		if !ok {
 			continue
 		}
-		pairs[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		pairs[strings.TrimSpace(key)] = decodeValue(value)
 	}
 	return pairs, sc.Err()
 }

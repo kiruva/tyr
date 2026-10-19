@@ -130,7 +130,7 @@ func virtualEntries(members []fileops.Member, vpath string) []Entry {
 				entries = append(entries, Entry{Name: rest, IsDir: true})
 			}
 		} else {
-			entries = append(entries, Entry{Name: rest, IsDir: false, Size: mem.Size, HasSize: true})
+			entries = append(entries, Entry{Name: rest, IsDir: false, Size: mem.Size, HasSize: !mem.NoSize})
 		}
 	}
 	return entries

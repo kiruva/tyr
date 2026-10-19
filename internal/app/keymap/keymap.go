@@ -147,12 +147,15 @@ var specs = []Spec{
 	// Capabilities has no key of its own out of the box: tab in the help
 	// overlay is the way there. Binding one is still a key editor away.
 	{"capabilities", "App", "capabilities", nil, func(k *Map) *key.Binding { return &k.Caps }},
-	{"quit", "App", "quit", []string{"q", "ctrl+c"}, func(k *Map) *key.Binding { return &k.Quit }},
+	// Ctrl+C quits too, but it is not this action's to lose: the app answers
+	// it before any binding is looked at, so rebinding quit cannot take it away.
+	{"quit", "App", "quit", []string{"q"}, func(k *Map) *key.Binding { return &k.Quit }},
 }
 
 // reservedKeys are never given away. Ctrl+C is the way out of anything, and Esc
 // is what every prompt in the app answers to; binding either one to something
-// else would leave a modal with no exit.
+// else would leave a modal with no exit. A config file that binds one anyway
+// has it dropped (see From).
 var reservedKeys = map[string]bool{"ctrl+c": true, "esc": true}
 
 // Default is the keymap as it ships.
@@ -161,11 +164,12 @@ func Default() Map { return From(nil) }
 // From builds a keymap, with any action named in overrides bound to what the
 // config says instead of to its default. An override with no keys in it is
 // ignored: an action nothing can reach is not something to save someone into.
+// So is a reserved key in one.
 func From(overrides map[string][]string) Map {
 	var k Map
 	for _, spec := range specs {
 		keys := spec.def
-		if custom, ok := overrides[spec.id]; ok && len(custom) > 0 {
+		if custom := unreserved(overrides[spec.id]); len(custom) > 0 {
 			keys = custom
 		}
 		*spec.field(&k) = key.NewBinding(
@@ -174,6 +178,17 @@ func From(overrides map[string][]string) Map {
 		)
 	}
 	return k
+}
+
+// unreserved is keys without the ones the app keeps for itself.
+func unreserved(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if !reservedKeys[k] {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // boundKeys is what an action is currently bound to.

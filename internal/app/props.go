@@ -92,8 +92,6 @@ func (m Model) onPropsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.closeProps()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "tab", "down", "shift+tab", "up":
 		return m.movePropsFocus(msg.String())
 	case " ":
@@ -159,6 +157,13 @@ func (m Model) applyProps() (tea.Model, tea.Cmd) {
 	}
 	m.closeProps()
 	m.pending = job
+	if job.Recursive {
+		// A whole tree is a lot to change on one Enter, and there is no undo:
+		// the confirm prompt says what folders and files will each get.
+		m.undoing, m.willOverwrite = false, false
+		m.mode = modeConfirm
+		return m, nil
+	}
 	return m, m.startPending()
 }
 

@@ -34,3 +34,34 @@ func TestDefaultsAreConsistent(t *testing.T) {
 		}
 	}
 }
+
+// Ctrl+C and Esc belong to the app, not to any one action: none ships bound to
+// either, and a config file that binds one gets it dropped. An override left
+// with nothing in it falls back to the default.
+func TestReservedKeysAreNeverBound(t *testing.T) {
+	for _, spec := range specs {
+		for _, k := range spec.def {
+			if reservedKeys[k] {
+				t.Errorf("%s ships bound to reserved %s", spec.id, k)
+			}
+		}
+	}
+
+	keys := From(map[string][]string{"quit": {"Q", "ctrl+c"}, "copy": {"esc"}})
+	if got := keys.boundKeys(mustSpec(t, "quit")); !sameKeys(got, []string{"Q"}) {
+		t.Errorf("quit = %v, want [Q]", got)
+	}
+	copySpec := mustSpec(t, "copy")
+	if got := keys.boundKeys(copySpec); !sameKeys(got, copySpec.def) {
+		t.Errorf("copy = %v, want the default %v", got, copySpec.def)
+	}
+}
+
+func mustSpec(t *testing.T, id string) Spec {
+	t.Helper()
+	spec, ok := specByID(id)
+	if !ok {
+		t.Fatalf("no action %q", id)
+	}
+	return spec
+}

@@ -137,17 +137,6 @@ func TestScrollBlockClampsTheOffset(t *testing.T) {
 	}
 }
 
-func TestOverlayRowsKeepsAFloor(t *testing.T) {
-	if got := OverlayRows(30); got != 22 {
-		t.Errorf("OverlayRows(30) = %d, want 22", got)
-	}
-	// A terminal too short for the chrome still gets a usable window rather
-	// than a negative one.
-	if got := OverlayRows(4); got != 3 {
-		t.Errorf("OverlayRows(4) = %d, want the floor of 3", got)
-	}
-}
-
 func TestTwoColumnsPutsBlocksSideBySide(t *testing.T) {
 	got := TwoColumns([]string{"left", "right"})
 	line := strings.SplitN(got, "\n", 2)[0]
@@ -167,5 +156,29 @@ func TestTruncEscapesControlCharacters(t *testing.T) {
 		if !strings.Contains(got, `\u001b`) {
 			t.Errorf("%q does not show the escape", got)
 		}
+	}
+}
+
+// Wide glyphs take two cells each. A cut counted in runes left a CJK name twice
+// as wide as the room it was given, pushing the rest of the row off the pane.
+func TestTruncCountsCellsNotRunes(t *testing.T) {
+	for _, s := range []string{"日本語日本語", "a日本語b", "plain-ascii-name"} {
+		for w := 1; w <= 8; w++ {
+			for name, cut := range map[string]func(string, int) string{"TruncHead": TruncHead, "TruncTail": TruncTail} {
+				got := cut(s, w)
+				if gw := lipgloss.Width(got); gw > w {
+					t.Errorf("%s(%q, %d) = %q, %d cells wide", name, s, w, got, gw)
+				}
+				if lipgloss.Width(s) > w && !strings.Contains(got, "…") {
+					t.Errorf("%s(%q, %d) = %q, the cut is not marked", name, s, w, got)
+				}
+			}
+		}
+	}
+	if got := TruncTail("日本語日本語", 5); got != "…本語" {
+		t.Errorf("TruncTail = %q, want the end kept", got)
+	}
+	if got := TruncHead("日本語日本語", 5); got != "日本…" {
+		t.Errorf("TruncHead = %q, want the front kept", got)
 	}
 }

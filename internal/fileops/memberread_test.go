@@ -224,3 +224,16 @@ func TestNeedsPasswordIgnoresNames(t *testing.T) {
 		t.Errorf("finish = %v, want the disk error", err)
 	}
 }
+
+// A tool's bare listing has names and nothing else, which the members say.
+func TestParseMembersHasNoSizes(t *testing.T) {
+	ms := parseMembers([]byte("dir/\ndir/a.txt\n"))
+	if len(ms) != 2 {
+		t.Fatalf("got %d members, want 2", len(ms))
+	}
+	for _, m := range ms {
+		if !m.NoSize {
+			t.Errorf("%s: NoSize = false, want true", m.Path)
+		}
+	}
+}

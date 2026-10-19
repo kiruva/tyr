@@ -122,6 +122,38 @@ func TestSaveSessionRoundTrip(t *testing.T) {
 	}
 }
 
+// A directory name can start or end with a space, or start with a quote. Each
+// comes back exactly as saved — and a plain hand-written value is still read
+// the way it always was.
+func TestSaveSessionKeepsEdgeSpaces(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	state := [2]PaneState{{Path: "/tmp/trailing "}, {Path: `"quoted" dir`}}
+	if err := SaveSession(state); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range state {
+		if cfg.Panes[i].Path != state[i].Path {
+			t.Errorf("pane %d path = %q, want %q", i, cfg.Panes[i].Path, state[i].Path)
+		}
+	}
+
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("theme =   nord  \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := Load(); err != nil || cfg.Theme != "nord" {
+		t.Errorf("hand-written theme = %q, %v; want nord", cfg.Theme, err)
+	}
+}
+
 // A pane with no path to report — one that ended the run on a remote host —
 // leaves the saved path alone rather than blanking it.
 func TestSaveSessionKeepsPathWhenUnreported(t *testing.T) {

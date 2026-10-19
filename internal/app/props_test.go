@@ -56,7 +56,9 @@ func TestPropsShowsAndChmods(t *testing.T) {
 	}
 }
 
-// A recursive change reaches everything inside a directory.
+// A recursive change reaches everything inside a directory, once confirmed. A
+// folder keeps execute so it can still be opened; a file that was no program
+// does not become one.
 func TestPropsChmodRecursive(t *testing.T) {
 	skipWithoutUnixPerms(t)
 
@@ -86,14 +88,25 @@ func TestPropsChmodRecursive(t *testing.T) {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	m = typeKeys(t, m, "700")
-	press(t, m, "enter")
+	m = press(t, m, "enter")
 
-	info, err := os.Stat(nested)
-	if err != nil {
-		t.Fatal(err)
+	app := m.(Model)
+	if app.mode != modeConfirm {
+		t.Fatalf("mode = %v, want the change confirmed first", app.mode)
 	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("nested file mode = %o, want 700", got)
+	if view := app.View(); !strings.Contains(view, "folders → 0700") || !strings.Contains(view, "files → 0600") {
+		t.Errorf("the prompt does not say what folders and files get:\n%s", view)
+	}
+	press(t, m, "y")
+
+	for path, want := range map[string]os.FileMode{nested: 0o600, filepath.Join(sub, "inner"): 0o700} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s = %o, want %o", filepath.Base(path), got, want)
+		}
 	}
 }
 

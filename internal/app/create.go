@@ -59,8 +59,6 @@ func (m Model) onCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeCreate()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.commitCreate()
 	}

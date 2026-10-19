@@ -125,7 +125,7 @@ func findResultRow(m Model, i, width int) string {
 
 	inner := width - 2*dialogPadX - 2
 	name = ui.TruncTail(name, max(inner/2, 8))
-	detail = truncate(detail, max(inner-lipgloss.Width(name)-1, 0))
+	detail = ui.TruncHead(detail, max(inner-lipgloss.Width(name)-1, 0))
 	gap := strings.Repeat(" ", max(inner-lipgloss.Width(name)-lipgloss.Width(detail), 1))
 
 	if i == m.find.cursor {
@@ -135,19 +135,4 @@ func findResultRow(m Model, i, width int) string {
 		name = ui.DirName.Render(name)
 	}
 	return "  " + name + gap + ui.Faint.Render(detail)
-}
-
-// truncate keeps the head of a string, marking what it cut.
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	r := []rune(s)
-	return string(r[:w-1]) + "…"
 }

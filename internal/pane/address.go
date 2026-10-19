@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kiruva/tyr/internal/fileops"
-	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -202,21 +201,5 @@ func (m Model) addrView(width int, active bool) string {
 	if active {
 		style = ui.Title
 	}
-	return style.Render(truncTail(termsafe.Line(m.displayPath()), width))
-}
-
-// truncTail keeps the tail of a path, prefixing "…" when it doesn't fit — the
-// end of a path identifies the location better than its start.
-func truncTail(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	return "…" + string(r[len(r)-(w-1):])
+	return style.Render(ui.TruncTail(m.displayPath(), width))
 }

@@ -21,6 +21,7 @@ type Member struct {
 	IsDir   bool
 	Size    int64
 	ModTime time.Time // zero when the listing came from a tool
+	NoSize  bool      // the listing came from a tool, which gives no size
 }
 
 // Browsable reports whether an archive's members can be listed/streamed.
@@ -66,8 +67,9 @@ func parseMembers(out []byte) []Member {
 			continue
 		}
 		ms = append(ms, Member{
-			Path:  strings.TrimSuffix(p, "/"),
-			IsDir: strings.HasSuffix(p, "/"),
+			Path:   strings.TrimSuffix(p, "/"),
+			IsDir:  strings.HasSuffix(p, "/"),
+			NoSize: true,
 		})
 	}
 	return ms

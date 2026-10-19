@@ -2,8 +2,11 @@ package ui
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/kiruva/tyr/internal/termsafe"
 )
@@ -37,29 +40,31 @@ func TruncHead(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	s = termsafe.Line(s)
-	r := []rune(s)
-	if len(r) <= w {
-		return s
-	}
-	if w == 1 {
-		return "…"
-	}
-	return string(r[:w-1]) + "…"
+	return ansi.Truncate(termsafe.Line(s), w, "…")
 }
 
 // TruncTail cuts s down to w cells, keeping the end. It is for paths, where the
 // last component is the part worth seeing.
+//
+// ansi.TruncateLeft is not used: it counts the cells to drop, and a wide glyph
+// straddling that count is kept whole, so the result can be a cell too wide.
+// Counting what is kept, from the end, cannot overshoot.
 func TruncTail(s string, w int) string {
 	s = termsafe.Line(s)
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	r := []rune(s)
-	if w <= 1 {
-		return "…"
+	keep, used := len(s), 0
+	for keep > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:keep])
+		cw := runewidth.RuneWidth(r)
+		if used+cw > w-1 {
+			break
+		}
+		used += cw
+		keep -= size
 	}
-	return "…" + string(r[len(r)-(w-1):])
+	return "…" + s[keep:]
 }
 
 // JoinBlocks stacks blocks vertically with a blank line between them.
@@ -119,8 +124,3 @@ func ScrollBlock(block string, rows, offset int) (string, bool) {
 	window := lines[offset : offset+rows]
 	return strings.Join(window, "\n"), true
 }
-
-// OverlayRows is how many lines of a full-height overlay fit on a terminal of
-// this height, after the border, the padding, the header and the footer have
-// had theirs.
-func OverlayRows(height int) int { return max(height-8, 3) }

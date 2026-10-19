@@ -151,7 +151,7 @@ func (m Model) listMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case modeHelp, modeCaps:
-		m.overlayScroll = max(m.overlayScroll+step, 0)
+		m.overlayScroll = min(max(m.overlayScroll+step, 0), m.overlayMaxScroll())
 	case modeKeys:
 		m.keyEdit = m.keyEdit.MoveTo(m.keyEdit.Cursor() + step)
 	case modeSync:

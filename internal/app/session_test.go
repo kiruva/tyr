@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/kiruva/tyr/internal/app/keymap"
 	"github.com/kiruva/tyr/internal/config"
 	"github.com/kiruva/tyr/internal/pane"
 )
@@ -98,5 +101,37 @@ func TestSaveSessionWritesState(t *testing.T) {
 	}
 	if !cfg.Panes[1].Hidden {
 		t.Error("right pane's hidden setting was not saved")
+	}
+}
+
+// Ctrl+C quits from the file list even with quit rebound away from it, and it
+// leaves the way q does — from a prompt as well — with the session saved.
+func TestCtrlCQuitsAndSavesTheSession(t *testing.T) {
+	for _, open := range []string{"", "N"} { // the list, and the new-file prompt
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Chdir(t.TempDir())
+
+		m := New()
+		m.keys = keymap.From(map[string][]string{"quit": {"Q"}})
+		m.panes[0].CycleSort()
+		var next tea.Model = m
+		if open != "" {
+			next, _ = next.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(open)})
+		}
+
+		_, cmd := next.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Fatalf("%q: ctrl+c did nothing", open)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("%q: ctrl+c did not quit", open)
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Panes[0].Sort != "size" {
+			t.Errorf("%q: session not saved on ctrl+c (sort = %q)", open, cfg.Panes[0].Sort)
+		}
 	}
 }

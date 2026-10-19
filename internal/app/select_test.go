@@ -60,6 +60,9 @@ func TestSelectByMask(t *testing.T) {
 	if len(got) != 2 || got[0] != "one.go" || got[1] != "two.go" {
 		t.Fatalf("selected = %v, want the two .go files", got)
 	}
+	if app.noticeText != "selected 2 items" {
+		t.Errorf("notice = %q, want \"selected 2 items\"", app.noticeText)
+	}
 
 	// And "-" takes them back off.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
@@ -87,5 +90,31 @@ func TestSelectMaskCancel(t *testing.T) {
 	}
 	if app.panes[0].SelectedCount() != 0 {
 		t.Error("cancelling the prompt still marked something")
+	}
+}
+
+// Scrolling the help overlay stops at its last line: pressing on past the end
+// does not bank presses that the way back up then has to unwind.
+func TestOverlayScrollStopsAtTheEnd(t *testing.T) {
+	m := newInDir(t, t.TempDir())
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 14})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if m.(Model).mode != modeHelp {
+		t.Fatalf("mode = %v, want modeHelp", m.(Model).mode)
+	}
+	end := m.(Model).overlayMaxScroll()
+	if end == 0 {
+		t.Fatal("the help fits a 14-row terminal; the test needs it not to")
+	}
+
+	for range end + 20 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if got := m.(Model).overlayScroll; got != end {
+		t.Fatalf("overlayScroll = %d, want it held at %d", got, end)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if got := m.(Model).overlayScroll; got != end-1 {
+		t.Errorf("one up from the end = %d, want %d", got, end-1)
 	}
 }
