@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,7 +28,9 @@ const DefaultLimit = 20000
 // Names are the pane's selection: a plain file contributes itself, a directory
 // contributes its own name (with Options.Dirs) and, recursively, everything
 // inside it (with Options.Recursive).
-func Collect(root string, names []string, opt Options) ([]Candidate, bool, error) {
+//
+// A cancelled ctx stops the sweep where it is and returns ctx's error.
+func Collect(ctx context.Context, root string, names []string, opt Options) ([]Candidate, bool, error) {
 	limit := opt.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
@@ -72,7 +75,7 @@ func Collect(root string, names []string, opt Options) ([]Candidate, bool, error
 		if !opt.Recursive {
 			continue
 		}
-		if err := walk(root, name, opt, add); err != nil {
+		if err := walk(ctx, root, name, opt, add); err != nil {
 			return nil, false, err
 		}
 		if truncated {
@@ -87,10 +90,13 @@ func Collect(root string, names []string, opt Options) ([]Candidate, bool, error
 // walk adds everything under the directory at rel. An entry that cannot be read
 // is skipped rather than failing the sweep: one unreadable subdirectory should
 // not cost the whole preview.
-func walk(root, rel string, opt Options, add func(string, bool, os.FileInfo) bool) error {
+func walk(ctx context.Context, root, rel string, opt Options, add func(string, bool, os.FileInfo) bool) error {
 	base := filepath.Join(root, rel)
 
 	return filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			if d != nil && d.IsDir() {
 				return fs.SkipDir

@@ -20,6 +20,16 @@ from the commit history by GitVersion and tagged by CI; see
   it is opened.
 - **`e` in the viewer edits the file being viewed**, not whatever the pane's cursor is on — and
   does nothing on a command's output.
+- **A cancelled search, command or comparison no longer lands on the one started after it.**
+  Cancelling find, an `x` command or the compare tool and starting again straight away could
+  show the old run's leftovers as the new result — "nothing matched", the killed command's
+  output, or the compare tool closing itself — and left the new run impossible to stop with
+  `Esc`.
+- **Batch rename plans against the toggles as they are.** Flipping recursion off and on quickly
+  could let a slower sweep land last, so subfolder files were renamed with recursion shown off.
+  Closing the tool now also stops a sweep that is still walking.
+- **A new file or folder made on a host is highlighted only where it was made** — not in
+  whatever directory the pane had moved to by the time the host answered.
 
 ### Added
 
