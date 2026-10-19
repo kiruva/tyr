@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/kiruva/tyr/internal/termsafe"
 )
 
 // Fitting text to a terminal is measured in display cells, not bytes and not
@@ -11,6 +13,13 @@ import (
 // here goes through lipgloss.Width for that reason, and lives in ui rather than
 // in one overlay so the overlays that were split out of the app package share
 // one implementation instead of each carrying a copy.
+//
+// The truncators are also where outside text is made safe to draw. What they cut
+// is nearly always a name, a path or a message from somewhere else, so they
+// escape control characters first (termsafe.Line) — which is also what makes
+// the width they cut to the width that is drawn. Escaping is idempotent, so
+// text that was escaped already comes through unchanged. They are for plain
+// text only: styled text would have its own sequences escaped.
 
 // PadRight pads s out to w display cells. A string already that wide or wider
 // is returned unchanged, never truncated — use TruncHead or TruncTail to cut.
@@ -28,6 +37,7 @@ func TruncHead(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
+	s = termsafe.Line(s)
 	r := []rune(s)
 	if len(r) <= w {
 		return s
@@ -41,6 +51,7 @@ func TruncHead(s string, w int) string {
 // TruncTail cuts s down to w cells, keeping the end. It is for paths, where the
 // last component is the part worth seeing.
 func TruncTail(s string, w int) string {
+	s = termsafe.Line(s)
 	if lipgloss.Width(s) <= w {
 		return s
 	}

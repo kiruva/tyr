@@ -9,6 +9,21 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+### Security
+
+- **Names and file contents can no longer send commands to the terminal.** A file name, an
+  archive member, a remote listing, a line in the viewer or the find results, and an error
+  message are all text from somewhere else, and any of them could carry an escape sequence —
+  enough for a file name to write the clipboard (OSC 52), retitle the window or repaint the
+  screen just by being listed. Such text is now shown escaped (`\u001b`, `\n`) wherever it is
+  drawn, and every frame is filtered on its way out so that only tyr's own colours reach the
+  terminal, whatever path the text came by.
+  - An ANSI-coloured log opened in the viewer shows its escape codes instead of its colours.
+  - An error now stays on the status bar's one line: a multi-line message is joined with `·`
+    and cut to fit, instead of pushing the panes up off the screen.
+  - A find hit in a long line keeps the part around the match, up to 256 bytes, rather than
+    the whole line.
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

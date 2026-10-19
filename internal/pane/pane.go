@@ -12,6 +12,7 @@ import (
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
+	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -391,7 +392,7 @@ func formatEntry(e Entry, selected bool, width int) string {
 		gutter = "●"
 	}
 
-	name := e.Name
+	name := termsafe.Line(e.Name)
 	if e.IsDir && e.Name != ".." {
 		name += "/"
 	}

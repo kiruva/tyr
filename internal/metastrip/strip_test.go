@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kiruva/tyr/internal/termsafe"
 )
 
 const secret = "SECRET"
@@ -347,7 +349,7 @@ func FuzzStrip(f *testing.F) {
 			}
 			for _, it := range r.Removed {
 				for _, f := range describe(it) {
-					sanitize(f.Value)
+					termsafe.Line(f.Value)
 				}
 			}
 			if detect(r.Data) != detect(in) {
@@ -410,14 +412,6 @@ func TestDescribeDirtyFiles(t *testing.T) {
 	}
 	if m["Author"] != secret || m["Orientation"] != "8 (rotate 270 CW)" {
 		t.Errorf("unexpected fields: %v", m)
-	}
-}
-
-func TestSanitize(t *testing.T) {
-	got := sanitize("a\x1b[31mb\nc\u202Ed\xff")
-	want := `a\u001b[31mb\nc\u202ed` + "\uFFFD" // invalid UTF-8 becomes U+FFFD
-	if got != want {
-		t.Errorf("sanitize = %q, want %q", got, want)
 	}
 }
 

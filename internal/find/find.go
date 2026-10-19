@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // DefaultMax is the result cap applied when Options.Max is zero.
@@ -30,6 +31,11 @@ const maxContentBytes = 32 << 20
 // bundle is one enormous line, and refusing to buffer it is cheaper than
 // growing without limit.
 const maxLineBytes = 1 << 20
+
+// previewBytes is how much of a matching line a result keeps. Up to 500 hits
+// are held at once, and a hit in a minified bundle would otherwise carry the
+// whole megabyte line just to show one row of it.
+const previewBytes = 256
 
 // Options describes one search.
 type Options struct {
@@ -198,9 +204,37 @@ func grep(path, needle string, caseSensitive bool) (int, string, bool) {
 		if !caseSensitive {
 			hay = strings.ToLower(hay)
 		}
-		if strings.Contains(hay, needle) {
-			return i, strings.TrimSpace(line), true
+		if at := strings.Index(hay, needle); at >= 0 {
+			return i, preview(line, at), true
 		}
 	}
 	return 0, "", false
+}
+
+// preview cuts a matching line down to previewBytes, starting a little before
+// the match so the match itself is in what is shown. at is where the needle was
+// found in the (possibly lower-cased) haystack; lower-casing can change a
+// line's length, so it is only a guide, clamped and moved back onto a rune
+// boundary.
+func preview(line string, at int) string {
+	line = strings.TrimSpace(line)
+	if len(line) <= previewBytes {
+		return line
+	}
+	start := min(max(at-previewBytes/4, 0), len(line))
+	for start > 0 && !utf8.RuneStart(line[start]) {
+		start--
+	}
+	end := min(start+previewBytes, len(line))
+	for end < len(line) && !utf8.RuneStart(line[end]) {
+		end--
+	}
+	out := line[start:end]
+	if start > 0 {
+		out = "…" + out
+	}
+	if end < len(line) {
+		out += "…"
+	}
+	return out
 }

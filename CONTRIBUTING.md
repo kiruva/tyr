@@ -43,6 +43,7 @@ CI runs the same checks on every push and pull request.
 | `internal/remote`  | In-process ssh: listings, transfers, `~/.ssh/config`.    |
 | `internal/config`  | The `key = value` config file: theme, saved connections. |
 | `internal/ui`      | Lip Gloss theme and shared styles.                       |
+| `internal/termsafe` | Escaping outside text for the screen; the frame filter. |
 
 ## Guidelines
 

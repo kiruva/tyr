@@ -4,6 +4,8 @@
 // change. It knows nothing about files or the UI: bytes in, bytes out.
 package metastrip
 
+import "github.com/kiruva/tyr/internal/termsafe"
+
 // ErrUnsupported is returned by Strip for anything that is not one of the four
 // formats it handles. A format it recognises but does not handle (HEIC, TIFF)
 // is named in the wrapping error.
@@ -53,18 +55,18 @@ func Inspect(res *Result) Report {
 	for _, it := range res.Removed {
 		fields := describe(it)
 		decoded = append(decoded, itemFields{it, fields})
-		sec := Section{Name: sanitize(it.Name), Size: it.Size}
+		sec := Section{Name: termsafe.Line(it.Name), Size: it.Size}
 		for _, f := range fields {
-			sec.Fields = append(sec.Fields, Field{sanitize(f.Key), sanitize(f.Value)})
+			sec.Fields = append(sec.Fields, Field{termsafe.Line(f.Key), termsafe.Line(f.Value)})
 			if f.Key == "GPSPosition" && rep.Location == "" {
-				rep.Location = sanitize(f.Value)
+				rep.Location = termsafe.Line(f.Value)
 			}
 		}
 		rep.Sections = append(rep.Sections, sec)
 		rep.Total += it.Size
 	}
 	for _, m := range findMarkers(decoded) {
-		rep.Markers = append(rep.Markers, sanitize(m))
+		rep.Markers = append(rep.Markers, termsafe.Line(m))
 	}
 	return rep
 }
