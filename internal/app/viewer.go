@@ -39,6 +39,11 @@ type viewerState struct {
 	// switches between that and the bytes.
 	meta bool
 
+	// laid is viewerLines' last answer. A search re-renders on every
+	// keystroke, and a hex dump or a wrap of a big file is too slow to
+	// rebuild twice a key. A pointer, so the value receivers can fill it.
+	laid *laidLines
+
 	// search
 	input     textinput.Model
 	prompting bool
@@ -48,13 +53,20 @@ type viewerState struct {
 	status    string
 }
 
-// showBytes puts content in the viewer. A file that is not text opens as hex
-// rather than being turned away: "not a text file" is a fact about the file,
-// not a reason to refuse to look at it.
+// showBytes puts content in the viewer.
 func (m *Model) showBytes(title string, data []byte, lang syntax.Lang) {
+	m.installViewer(newViewer(title, data, lang))
+}
+
+// newViewer lays content out for the viewer. A file that is not text opens as
+// hex rather than being turned away: "not a text file" is a fact about the
+// file, not a reason to refuse to look at it. It touches nothing but its
+// arguments, so a file can be laid out off the UI thread.
+func newViewer(title string, data []byte, lang syntax.Lang) viewerState {
 	binary := isBinary(data)
 
-	m.viewer = viewerState{
+	v := viewerState{
+		laid:    &laidLines{},
 		title:   title,
 		raw:     data,
 		lines:   splitLines(data),
@@ -66,28 +78,26 @@ func (m *Model) showBytes(title string, data []byte, lang syntax.Lang) {
 	}
 	// An image says what it carries before it shows its bytes.
 	if lines, note, ok := imageReport(data); ok {
-		m.viewer.lines, m.viewer.lang = lines, syntax.None
-		m.viewer.meta, m.viewer.hex = true, false
-		m.viewer.numbers = false // a report has no line worth numbering
+		v.lines, v.lang = lines, syntax.None
+		v.meta, v.hex = true, false
+		v.numbers = false // a report has no line worth numbering
 	} else if note != "" {
-		m.viewer.status = note
+		v.status = note
 	}
-	m.viewTitle = title
+	return v
+}
+
+// installViewer opens the viewer on content newViewer laid out.
+func (m *Model) installViewer(v viewerState) {
+	m.viewer = v
+	m.viewTitle = v.title
 	m.refreshViewer()
 	m.viewport.GotoTop()
 	m.mode = modeView
 }
 
-// openViewer loads the highlighted file into the pager.
-func (m *Model) openViewer() tea.Cmd {
-	data, title, err := m.loadCurrent()
-	if err != nil {
-		m.errText = err.Error()
-		return nil
-	}
-	m.showBytes(title, data, syntax.Detect(title))
-	return nil
-}
+// openViewer loads the highlighted file into the pager (see startLoad).
+func (m *Model) openViewer() tea.Cmd { return m.startLoad(loadView) }
 
 // onViewKey drives the pager.
 func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -246,13 +256,34 @@ func (m *Model) refreshViewer() {
 // viewerLines is the text the viewer is searching and displaying, before any
 // styling: the hex dump when it is in hex, the file's lines otherwise.
 func (m Model) viewerLines() []string {
-	if m.viewer.hex {
-		return hexDump(m.viewer.raw)
-	}
-	if !m.viewer.wrap {
+	if !m.viewer.hex && !m.viewer.wrap {
 		return m.viewer.lines
 	}
-	return wrapLines(m.viewer.lines, m.textWidth())
+	key := laidKey{hex: m.viewer.hex, wrap: m.viewer.wrap, width: m.textWidth()}
+	if c := m.viewer.laid; c != nil && c.lines != nil && c.key == key {
+		return c.lines
+	}
+	var lines []string
+	if m.viewer.hex {
+		lines = hexDump(m.viewer.raw)
+	} else {
+		lines = wrapLines(m.viewer.lines, key.width)
+	}
+	if m.viewer.laid != nil {
+		*m.viewer.laid = laidLines{key: key, lines: lines}
+	}
+	return lines
+}
+
+// laidKey is what the hex dump or the wrapping depends on, beyond the bytes.
+type laidKey struct {
+	hex, wrap bool
+	width     int
+}
+
+type laidLines struct {
+	key   laidKey
+	lines []string
 }
 
 // renderViewerLines is viewerLines with the numbers, the highlighting and the

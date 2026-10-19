@@ -199,7 +199,7 @@ func TestWheelInViewer(t *testing.T) {
 	}
 
 	m := focusEntry(t, newInDir(t, dir), "long.txt")
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = press(t, m, "v")
 	m, _ = m.Update(wheel(false, 40, 10))
 
 	if got := m.(Model).viewport.YOffset; got == 0 {

@@ -348,7 +348,7 @@ func FuzzStrip(f *testing.F) {
 				continue
 			}
 			for _, it := range r.Removed {
-				for _, f := range describe(it) {
+				for _, f := range describe(it, newBudget()) {
 					termsafe.Line(f.Value)
 				}
 			}
@@ -406,7 +406,7 @@ func TestDescribeDirtyFiles(t *testing.T) {
 	r := mustStrip(t, dirtyPNG(t), Options{})
 	m := map[string]string{}
 	for _, it := range r.Removed {
-		for k, v := range fieldMap(describe(it)) {
+		for k, v := range fieldMap(describe(it, newBudget())) {
 			m[k] = v
 		}
 	}
@@ -484,7 +484,7 @@ func TestC2PAInPNG(t *testing.T) {
 	if len(r.Removed) != 1 || r.Removed[0].Kind != "jumbf" {
 		t.Fatalf("removed = %v", r.Removed)
 	}
-	fields := describe(r.Removed[0])
+	fields := describe(r.Removed[0], newBudget())
 	m := fieldMap(fields)
 	if m["ClaimGenerator"] != "TestGen 1.0" || m["Action"] != "c2pa.created" || m["SoftwareAgent"] != "Example Image Model 2" {
 		t.Errorf("fields = %v", fields)
@@ -520,7 +520,7 @@ func TestC2PAInJPEGSegments(t *testing.T) {
 	if len(r.Removed) != 3 || r.Removed[1].Kind != "cont" {
 		t.Fatalf("removed = %v", r.Removed)
 	}
-	if m := fieldMap(describe(r.Removed[0])); m["Title"] != "castle.png" {
+	if m := fieldMap(describe(r.Removed[0], newBudget())); m["Title"] != "castle.png" {
 		t.Errorf("reassembled manifest not decoded: %v", m)
 	}
 }

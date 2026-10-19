@@ -405,7 +405,7 @@ func TestConnDeleteSaved(t *testing.T) {
 func TestConnEditRename(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "old", Host: "web01", User: "kim"})
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = press(t, m, "e")
 	app := m.(Model)
 	if app.conn.stage != connStageForm || app.conn.editing != "old" {
 		t.Fatalf("stage = %v editing = %q", app.conn.stage, app.conn.editing)

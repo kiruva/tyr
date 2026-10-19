@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -17,8 +18,9 @@ import (
 // field is one decoded metadata value. An empty Key marks a free-form note.
 type field struct{ Key, Value string }
 
-// describe decodes an item's payload into human-readable fields for -i.
-func describe(it Item) []field {
+// describe decodes an item's payload into human-readable fields for -i,
+// spending from bud what decompression it needs.
+func describe(it Item, bud *budget) []field {
 	switch it.Kind {
 	case "exif":
 		return parseEXIF(it.Data)
@@ -31,7 +33,7 @@ func describe(it Item) []field {
 	case "icc":
 		return parseICC(it.Data)
 	case "comment":
-		return []field{{"Comment", latin1OrUTF8(it.Data)}}
+		return []field{{"Comment", clip(it.Data, latin1OrUTF8)}}
 	case "jfif":
 		return parseJFIF(it.Data)
 	case "trailer":
@@ -39,7 +41,7 @@ func describe(it Item) []field {
 	case "cont":
 		return []field{{"", "continuation, decoded with the first part above"}}
 	case "png:tEXt", "png:zTXt", "png:iTXt":
-		return parsePNGText(it.Kind[4:], it.Data)
+		return parsePNGText(it.Kind[4:], it.Data, bud)
 	case "png:tIME":
 		if d := it.Data; len(d) == 7 {
 			return []field{{"ModifyDate", fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d UTC",
@@ -58,8 +60,8 @@ func describe(it Item) []field {
 		if !ok || len(rest) < 1 {
 			break
 		}
-		f := []field{{"ProfileName", latin1(name)}}
-		if prof, err := inflate(rest[1:]); err == nil {
+		f := []field{{"ProfileName", clip(name, latin1)}}
+		if prof, err := inflate(rest[1:], bud); err == nil {
 			f = append(f, parseICC(prof)...)
 		}
 		return f
@@ -142,10 +144,10 @@ func parseEXIF(b []byte) []field {
 		n := int(bo.Uint16(b[off:]))
 		for k := range n {
 			e := off + 2 + 12*k
-			if e+12 > len(b) {
+			if e+12 > len(b) || len(out) >= maxItemFields {
 				return
 			}
-			tag, typ, cnt := bo.Uint16(b[e:]), int(bo.Uint16(b[e+2:])), int(bo.Uint32(b[e+4:]))
+			tag, typ, cnt64 := bo.Uint16(b[e:]), int(bo.Uint16(b[e+2:])), uint64(bo.Uint32(b[e+4:]))
 			if typ < 1 || typ >= len(tiffTypeSize) {
 				continue
 			}
@@ -155,18 +157,19 @@ func parseEXIF(b []byte) []field {
 			} else if ifd == "IFD1" {
 				name = "Thumbnail" + name
 			}
-			size := tiffTypeSize[typ] * cnt
+			size := uint64(tiffTypeSize[typ]) * cnt64
 			var val []byte
 			if size <= 4 {
-				val = b[e+8 : e+8+size]
+				val = b[e+8 : e+8+int(size)]
 			} else {
-				vo := int(bo.Uint32(b[e+8:]))
-				if vo+size > len(b) || vo+size < vo {
+				v, ok := span(b, uint64(bo.Uint32(b[e+8:])), size)
+				if !ok {
 					out = append(out, field{name, "<invalid offset>"})
 					continue
 				}
-				val = b[vo : vo+size]
+				val = v
 			}
+			cnt := int(cnt64) // no more than len(b) now, so it fits
 
 			if len(val) >= 4 && ifd != "GPS" && ifd != "Interop" {
 				switch tag {
@@ -236,7 +239,9 @@ func dms(bo binary.ByteOrder, typ int, val []byte) (float64, bool) {
 func formatTIFFValue(bo binary.ByteOrder, ifd string, tag uint16, typ, cnt int, val []byte) string {
 	switch typ {
 	case 2: // ASCII
-		return strings.TrimRight(string(bytes.ReplaceAll(val, []byte{0}, []byte(" "))), " ")
+		return clip(val, func(v []byte) string {
+			return strings.TrimRight(string(bytes.ReplaceAll(v, []byte{0}, []byte(" "))), " ")
+		})
 	case 1, 6, 7: // BYTE, SBYTE, UNDEFINED
 		switch {
 		case ifd != "GPS" && tag >= 0x9C9B && tag <= 0x9C9F:
@@ -315,7 +320,7 @@ func userComment(bo binary.ByteOrder, v []byte) string {
 	case "UNICODE\x00":
 		return strings.TrimRight(decodeUTF16(text, bo), " ")
 	case "ASCII\x00\x00\x00", "\x00\x00\x00\x00\x00\x00\x00\x00":
-		return strings.TrimRight(string(bytes.TrimRight(text, "\x00")), " ")
+		return clip(bytes.TrimRight(text, "\x00"), func(v []byte) string { return strings.TrimRight(string(v), " ") })
 	}
 	return bytesValue(v)
 }
@@ -332,7 +337,7 @@ func bytesValue(v []byte) string {
 	}
 	switch {
 	case printable:
-		return string(t)
+		return clip(t, func(v []byte) string { return string(v) })
 	case len(v) <= 16:
 		return fmt.Sprintf("% x", v)
 	}
@@ -340,11 +345,15 @@ func bytesValue(v []byte) string {
 }
 
 func decodeUTF16(b []byte, bo binary.ByteOrder) string {
+	more := ""
+	if len(b) > 2*maxValueBytes {
+		b, more = b[:2*maxValueBytes], fmt.Sprintf("… (%d bytes)", len(b))
+	}
 	u := make([]uint16, 0, len(b)/2)
 	for i := 0; i+1 < len(b); i += 2 {
 		u = append(u, bo.Uint16(b[i:]))
 	}
-	return strings.TrimRight(string(utf16.Decode(u)), "\x00")
+	return strings.TrimRight(string(utf16.Decode(u)), "\x00") + more
 }
 
 // ---- XMP ----
@@ -363,7 +372,11 @@ func parseXMP(b []byte) []field {
 	}
 	var out []field
 	var path []string // property path, "" for rdf and wrapper elements
-	for {
+	// Below maxXMPDepth an element still counts towards the nesting, so its
+	// end tag is matched, but nothing inside it is reported: real XMP is a
+	// handful of levels deep, and a path is rebuilt for every value.
+	shallow := func() bool { return len(path) <= maxXMPDepth }
+	for len(out) < maxItemFields {
 		tok, err := d.Token()
 		if err != nil {
 			break
@@ -381,21 +394,26 @@ func parseXMP(b []byte) []field {
 				seg = qname(t.Name)
 			}
 			path = append(path, seg)
+			if !shallow() {
+				continue
+			}
 			// Properties in attribute form: <rdf:Description dc:format="..."> or struct fields.
 			for _, a := range t.Attr {
 				if a.Name.Space == "xmlns" || a.Name.Space == rdfNS || a.Name.Space == "" ||
 					a.Name.Space == "http://www.w3.org/XML/1998/namespace" {
 					continue
 				}
-				out = append(out, field{joinPath(path, qname(a.Name)), a.Value})
+				out = append(out, field{joinPath(path, qname(a.Name)), clipString(a.Value, maxValueBytes)})
 			}
 		case xml.EndElement:
 			if len(path) > 0 {
 				path = path[:len(path)-1]
 			}
 		case xml.CharData:
-			if s := strings.TrimSpace(string(t)); s != "" && len(path) > 0 {
-				out = append(out, field{joinPath(path, ""), s})
+			if len(path) > 0 && shallow() {
+				if s := strings.TrimSpace(clip(t, func(v []byte) string { return string(v) })); s != "" {
+					out = append(out, field{joinPath(path, ""), s})
+				}
 			}
 		}
 	}
@@ -415,7 +433,7 @@ func joinPath(path []string, last string) string {
 	if last != "" {
 		parts = append(parts, last)
 	}
-	return strings.Join(parts, "/")
+	return clipString(strings.Join(parts, "/"), maxKeyBytes)
 }
 
 // ---- Photoshop / IPTC ----
@@ -433,20 +451,19 @@ var iptcNames = map[int]string{
 
 func parsePhotoshop(b []byte) []field {
 	var out []field
-	for i := 0; i+12 <= len(b) && string(b[i:i+4]) == "8BIM"; {
+	for i := 0; i+12 <= len(b) && string(b[i:i+4]) == "8BIM" && len(out) < maxItemFields; {
 		id := binary.BigEndian.Uint16(b[i+4:])
 		nl := int(b[i+6])
 		j := i + 7 + nl + (nl+1)&1 // Pascal name, padded to even length
 		if j+4 > len(b) {
 			break
 		}
-		sz := int(binary.BigEndian.Uint32(b[j:]))
-		j += 4
-		if j+sz > len(b) || j+sz < j {
+		data, ok := span(b, uint64(j+4), uint64(binary.BigEndian.Uint32(b[j:])))
+		if !ok {
 			break
 		}
-		data := b[j : j+sz]
-		i = j + sz + sz&1
+		sz := len(data)
+		i = j + 4 + sz + sz&1
 		switch id {
 		case 0x0404:
 			out = append(out, parseIPTC(data)...)
@@ -463,7 +480,7 @@ func parsePhotoshop(b []byte) []field {
 
 func parseIPTC(b []byte) []field {
 	var out []field
-	for i := 0; i+5 <= len(b) && b[i] == 0x1C; {
+	for i := 0; i+5 <= len(b) && b[i] == 0x1C && len(out) < maxItemFields; {
 		rec, ds := int(b[i+1]), int(b[i+2])
 		n := int(binary.BigEndian.Uint16(b[i+3:]))
 		i += 5
@@ -476,7 +493,7 @@ func parseIPTC(b []byte) []field {
 		if name == "" {
 			name = fmt.Sprintf("IPTC:%d:%d", rec, ds)
 		}
-		v := latin1OrUTF8(data)
+		v := clip(data, latin1OrUTF8)
 		switch {
 		case ds == 0 && n == 2:
 			v = strconv.Itoa(int(binary.BigEndian.Uint16(data)))
@@ -521,11 +538,11 @@ func parseICC(b []byte) []field {
 			break
 		}
 		name := tagNames[string(b[e:e+4])]
-		off, sz := int(be.Uint32(b[e+4:])), int(be.Uint32(b[e+8:]))
-		if name == "" || off+sz > len(b) || off+sz < off {
+		tag, ok := span(b, uint64(be.Uint32(b[e+4:])), uint64(be.Uint32(b[e+8:])))
+		if name == "" || !ok {
 			continue
 		}
-		if s := iccText(b[off : off+sz]); s != "" {
+		if s := iccText(tag); s != "" {
 			out = append(out, field{name, s})
 		}
 	}
@@ -539,19 +556,17 @@ func iccText(t []byte) string {
 	be := binary.BigEndian
 	switch string(t[:4]) {
 	case "desc":
-		n := int(be.Uint32(t[8:]))
-		if 12+n <= len(t) && n >= 0 {
-			return strings.TrimRight(string(t[12:12+n]), "\x00")
+		if s, ok := span(t, 12, uint64(be.Uint32(t[8:]))); ok {
+			return clip(bytes.TrimRight(s, "\x00"), func(v []byte) string { return string(v) })
 		}
 	case "text":
-		return strings.TrimRight(string(t[8:]), "\x00")
+		return clip(bytes.TrimRight(t[8:], "\x00"), func(v []byte) string { return string(v) })
 	case "mluc":
 		if len(t) < 28 || be.Uint32(t[8:]) == 0 {
 			return ""
 		}
-		n, off := int(be.Uint32(t[20:])), int(be.Uint32(t[24:]))
-		if off+n <= len(t) && off+n >= off {
-			return decodeUTF16(t[off:off+n], be)
+		if s, ok := span(t, uint64(be.Uint32(t[24:])), uint64(be.Uint32(t[20:]))); ok {
+			return decodeUTF16(s, be)
 		}
 	}
 	return ""
@@ -586,11 +601,13 @@ func parseJFIF(d []byte) []field {
 	return out
 }
 
-func parsePNGText(typ string, d []byte) []field {
+func parsePNGText(typ string, d []byte, bud *budget) []field {
 	key, rest, ok := bytes.Cut(d, []byte{0})
 	if !ok {
 		return nil
 	}
+	// Every PNG keyword is Latin-1, the iTXt one included.
+	k := clip(key, latin1)
 	var text []byte
 	switch typ {
 	case "tEXt":
@@ -599,9 +616,9 @@ func parsePNGText(typ string, d []byte) []field {
 		if len(rest) < 1 {
 			return nil
 		}
-		t, err := inflate(rest[1:])
+		t, err := inflate(rest[1:], bud)
 		if err != nil {
-			return []field{{latin1(key), "<corrupt compressed text>"}}
+			return []field{{k, inflateNote(err)}}
 		}
 		text = t
 	case "iTXt":
@@ -615,18 +632,25 @@ func parsePNGText(typ string, d []byte) []field {
 		}
 		text = parts[2]
 		if compressed {
-			t, err := inflate(text)
+			t, err := inflate(text, bud)
 			if err != nil {
-				return []field{{string(key), "<corrupt compressed text>"}}
+				return []field{{k, inflateNote(err)}}
 			}
 			text = t
 		}
-		if string(key) == "XML:com.adobe.xmp" {
+		if k == "XML:com.adobe.xmp" {
 			return parseXMP(text)
 		}
-		return []field{{string(key), string(text)}}
+		return []field{{k, clip(text, func(v []byte) string { return string(v) })}}
 	}
-	return []field{{latin1(key), latin1(text)}}
+	return []field{{k, clip(text, latin1)}}
+}
+
+func inflateNote(err error) string {
+	if errors.Is(err, errBudget) {
+		return "<compressed text not shown: this image already decompressed to over 16 MB>"
+	}
+	return "<corrupt compressed text>"
 }
 
 func describeTrailer(d []byte) string {
@@ -640,14 +664,21 @@ func describeTrailer(d []byte) string {
 	return fmt.Sprintf("starts with %q", head[:min(len(head), 24)])
 }
 
-// inflate decompresses zlib data, capped to guard against decompression bombs.
-func inflate(b []byte) ([]byte, error) {
+// inflate decompresses zlib data. What one image may decompress is shared
+// between all of its chunks: a cap per chunk let twenty small zlib bombs each
+// expand to the cap.
+func inflate(b []byte, bud *budget) ([]byte, error) {
+	if bud.inflate <= 0 {
+		return nil, errBudget
+	}
 	zr, err := zlib.NewReader(bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = zr.Close() }()
-	return io.ReadAll(io.LimitReader(zr, 16<<20))
+	out, err := io.ReadAll(io.LimitReader(zr, int64(bud.inflate)))
+	bud.inflate -= len(out)
+	return out, err
 }
 
 func latin1(b []byte) string {

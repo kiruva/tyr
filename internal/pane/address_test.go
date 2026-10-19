@@ -149,3 +149,31 @@ func TestAddressBarSuggestsDirectories(t *testing.T) {
 		}
 	}
 }
+
+// Completion reads a folder once while names in it are typed, and not at all
+// for a message that changes nothing (the cursor blinking).
+func TestAddressBarReadsAFolderOnce(t *testing.T) {
+	root := t.TempDir()
+	for _, n := range []string{"alpha", "alps"} {
+		if err := os.Mkdir(filepath.Join(root, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := New(root)
+	m.BeginEditPath()
+	typeAddr(&m, string(os.PathSeparator)+"a")
+	listed := m.addrList
+	if len(listed) != 2 {
+		t.Fatalf("listed %d entries, want the two folders", len(listed))
+	}
+
+	// Gone from disk now: a re-read would find nothing to suggest.
+	if err := os.Remove(filepath.Join(root, "alps")); err != nil {
+		t.Fatal(err)
+	}
+	typeAddr(&m, "l")
+	m.UpdateAddr(struct{}{})
+	if len(m.addrList) != 2 || &m.addrList[0] != &listed[0] {
+		t.Error("the folder was read again for a name typed in it")
+	}
+}

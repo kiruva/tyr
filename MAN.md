@@ -1027,6 +1027,10 @@ quits, and `Esc` guards unsaved changes. A save replaces the file whole, so a fu
 the old contents rather than half of the new. If something else changed the file after it was
 opened, the first `Ctrl+S` says so instead of saving; a second one overwrites it.
 
+The viewer holds the first 16 MB of a file and says so when there is more; the editor refuses a
+file that size, since saving would cut it short. A named pipe, socket or device has no contents
+to show and is refused.
+
 The pager has the four switches a pager is asked for:
 
 | Key   | What it does                                                            |

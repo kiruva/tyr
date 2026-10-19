@@ -118,6 +118,9 @@ type Model struct {
 	edit       editTarget
 	editOrig   string // content as loaded, for dirty detection
 	editStatus string // transient footer message ("saved", etc.)
+	loadSeq    int    // the open being waited for; an older reply is dropped
+
+	sizes [2]sizing // directory sizes being measured, per pane
 
 	// how far the help and capabilities overlays are scrolled, for a terminal
 	// too short to hold either of them at once

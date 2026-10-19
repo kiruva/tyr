@@ -24,6 +24,17 @@ import (
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	// Whatever moved a pane — a key, a click, a finished job — stops the
+	// directory sizes still being measured where it was.
+	if nm, ok := next.(Model); ok {
+		nm.dropStaleSizing()
+		return nm, cmd
+	}
+	return next, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -55,6 +66,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dirSizeMsg:
 		return m.onDirSize(msg)
+
+	case loadedMsg:
+		return m.onLoaded(msg)
 
 	case findDoneMsg:
 		return m.onFindDone(msg)
@@ -478,59 +492,8 @@ func (m *Model) enterOrOpen() {
 	p.Enter()
 }
 
-// loadCurrent reads the highlighted file (real or in-archive) into memory.
-func (m *Model) loadCurrent() (data []byte, title string, err error) {
-	p := &m.panes[m.active]
-	if p.IsRemote() {
-		return nil, "", fmt.Errorf("view and edit are local-only — copy the file across first")
-	}
-	if p.InArchive() {
-		mem, ok := p.CurrentMemberPath()
-		if !ok {
-			return nil, "", fmt.Errorf("select a file to open")
-		}
-		data, err = fileops.ReadMember(p.ArchivePath(), mem)
-		return data, mem, err
-	}
-	cur, ok := p.Current()
-	if !ok || cur.IsDir {
-		return nil, "", fmt.Errorf("select a file to open")
-	}
-	full := filepath.Join(p.Path, cur.Name)
-	data, err = os.ReadFile(full)
-	return data, cur.Name, err
-}
-
-// openEditor loads the current file into the editor and remembers where to save.
-func (m *Model) openEditor() tea.Cmd {
-	data, title, err := m.loadCurrent()
-	if err != nil {
-		m.errText = err.Error()
-		return nil
-	}
-	if isBinary(data) {
-		m.errText = "not a text file: " + title
-		return nil
-	}
-
-	p := &m.panes[m.active]
-	m.edit = editTarget{title: title}
-	if p.InArchive() {
-		mem, _ := p.CurrentMemberPath()
-		m.edit.archive = p.ArchivePath()
-		m.edit.member = mem
-	} else {
-		cur, _ := p.Current()
-		m.edit.realPath = filepath.Join(p.Path, cur.Name)
-		m.edit.stamp = stampOf(m.edit.realPath)
-	}
-
-	m.editOrig = string(data)
-	m.editStatus = ""
-	m.editor.SetValue(string(data))
-	m.mode = modeEdit
-	return m.editor.Focus()
-}
+// openEditor loads the current file into the editor (see startLoad).
+func (m *Model) openEditor() tea.Cmd { return m.startLoad(loadEdit) }
 
 // fileStamp is enough of a file's state to notice that something else wrote
 // to it.

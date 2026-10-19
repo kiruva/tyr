@@ -75,7 +75,7 @@ func TestRebindRefusesADuplicate(t *testing.T) {
 	m := focusAction(t, openKeys(t), "sort")
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}}) // already "view"
+	m = press(t, m, "v") // already "view"
 
 	app := m.(Model)
 	if _, refused := app.keyEdit.Status(); !refused {

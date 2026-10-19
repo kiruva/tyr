@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,5 +95,59 @@ func TestStaleDirSizeIgnored(t *testing.T) {
 	app := m.(Model)
 	if app.panes[0].DirSizeKnown("sub") {
 		t.Error("a total measured in another directory was applied here")
+	}
+}
+
+// Pressing = again while the first lot is still being measured starts nothing
+// new: each directory is walked once.
+func TestSizeAllDirectoriesTwiceWalksOnce(t *testing.T) {
+	dir := t.TempDir()
+	seedTree(t, dir, "one", 1024)
+	m := newInDir(t, dir)
+
+	m, first := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'='}})
+	if first == nil {
+		t.Fatal("= measured nothing")
+	}
+	_, again := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'='}})
+	if again != nil {
+		if batch, ok := again().(tea.BatchMsg); !ok || len(batch) != 0 {
+			t.Errorf("the second = started walks again: %v", again())
+		}
+	}
+}
+
+// Leaving the directory stops what is still being measured there.
+func TestLeavingStopsSizing(t *testing.T) {
+	dir := t.TempDir()
+	seedTree(t, dir, "one", 1024)
+	m := newInDir(t, dir)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'='}})
+	ctx := m.(Model).sizes[0].ctx
+	if ctx == nil || ctx.Err() != nil {
+		t.Fatal("no live measuring after =")
+	}
+	app := m.(Model)
+	if err := app.panes[0].GoTo(filepath.Dir(dir)); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if ctx.Err() == nil {
+		t.Error("the measuring went on after the pane left")
+	}
+	if m.(Model).sizes[0].cancel != nil {
+		t.Error("the pane still holds the old measuring")
+	}
+}
+
+// A cancelled walk stops, rather than adding up the rest of the tree.
+func TestTreeSizeCancelled(t *testing.T) {
+	dir := t.TempDir()
+	seedTree(t, dir, "one", 1024)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := treeSize(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }
