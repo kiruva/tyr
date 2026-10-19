@@ -11,6 +11,25 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Security
 
+- **On Windows, a file name can no longer change the command `x` runs.** cmd expands
+  `%VAR%` even inside double quotes, so a file called `%COMSPEC%.txt` reached the command as
+  `C:\Windows\system32\cmd.exe.txt` — and a variable holding a quote could break out of the
+  quoting altogether. The placeholders now reach cmd through the environment
+  (`"%TYR_ARG_1%"`), which cmd never re-expands, and the line is started with `cmd /S /C`
+  exactly as written: until now Go escaped its quotes as `\"`, which cmd does not read, so
+  any placeholder whose name had a space in it arrived mangled.
+- **A name that starts with `-` is no longer read as an option.** `rm %f` on a file called
+  `-rf` ran `rm -rf`; such a name is now passed as `./-rf`.
+
+### Fixed
+
+- `Esc` on a running command stops all of it. Only the shell was killed, so the rest of a
+  pipeline (`make | tee log`) went on running and the command never finished.
+- A command that will not stop printing (`yes`) is stopped once it has printed the 256 KB that
+  is kept, instead of being read into memory until `Esc`.
+
+### Security
+
 - **Accepting an unknown host key trusts that key, not the host.** The retry after
   `a` accepted whatever key it was offered, so an interceptor that let the first attempt
   through to the real server — the fingerprint you checked was genuine — could answer the

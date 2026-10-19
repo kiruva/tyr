@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -79,14 +80,67 @@ func TestExpandCommand(t *testing.T) {
 
 	m := focusEntry(t, twoPanes(t, left, right), awkward).(Model)
 
-	got := m.expandCommand("wc -c %f in %d then %D")
-	want := "wc -c " + shellQuote(awkward) + " in " + shellQuote(left) + " then " + shellQuote(right)
+	got := m.expandCommand("wc -c %f in %d then %D").shown
+	want := "wc -c " + shownWord(awkward) + " in " + shownWord(left) + " then " + shownWord(right)
 	if got != want {
 		t.Fatalf("expanded to\n%s\nwant\n%s", got, want)
 	}
 
-	if got := m.expandCommand("echo 100%%"); got != "echo 100%" {
-		t.Errorf("%%%% expanded to %q, want a literal percent", got)
+	for _, line := range []string{"echo 100%%", "echo 50%", "echo %x"} {
+		want := strings.ReplaceAll(line, "%%", "%")
+		if got := m.expandCommand(line); got.run != want || got.shown != want {
+			t.Errorf("%q expanded to %+v, want %q", line, got, want)
+		}
+	}
+}
+
+// shownWord is how a value appears in the line the user is shown.
+func shownWord(value string) string {
+	_, _, shown := shellWord(value, 1)
+	return shown
+}
+
+// A name that starts with a dash reaches the command as a path, not an
+// option: rm %f on a file called -rf removes that file.
+func TestExpandCommandNamesAreNotOptions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "-rf"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := focusEntry(t, newInDir(t, dir), "-rf").(Model)
+	want := shownWord("." + string(filepath.Separator) + "-rf")
+	if got := m.expandCommand("rm %f").shown; got != "rm "+want {
+		t.Errorf("expanded to %q, want rm %s", got, want)
+	}
+}
+
+// End to end: a name full of what a shell reads as syntax is handed to the
+// command as that name, and nothing in it runs.
+func TestRunCommandWithHostileName(t *testing.T) {
+	dir := t.TempDir()
+	name := "it's $(touch pwned) & echo %PATH% ;x.txt"
+	if runtime.GOOS == "windows" {
+		name = "it's & echo %PATH% ^ ;x.txt" // no $( ) meaning, and no " allowed
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("contents-ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	show := "cat %f"
+	if runtime.GOOS == "windows" {
+		show = "type %f"
+	}
+
+	m := focusEntry(t, newInDir(t, dir), name)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = typeKeys(t, m, show)
+	m = press(t, m, "enter")
+
+	view := m.(Model).View()
+	if !strings.Contains(view, "contents-ok") {
+		t.Fatalf("the file was not read by its name:\n%s", view)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
+		t.Fatal("part of the name ran as a command")
 	}
 }
 
@@ -104,12 +158,12 @@ func TestExpandCommandSelection(t *testing.T) {
 	m = press(t, m, "space") // marks b.txt
 
 	app := m.(Model)
-	got := app.expandCommand("cat %s")
-	if !strings.Contains(got, shellQuote("a.txt")) || !strings.Contains(got, shellQuote("b.txt")) {
+	got := app.expandCommand("cat %s").shown
+	if !strings.Contains(got, shownWord("a.txt")) || !strings.Contains(got, shownWord("b.txt")) {
 		t.Fatalf("expanded to %q, want both marked files", got)
 	}
 
-	full := app.expandCommand("stat %F")
+	full := app.expandCommand("stat %F").shown
 	if !strings.Contains(full, dir) {
 		t.Errorf("%%F expanded to %q, want the full path", full)
 	}

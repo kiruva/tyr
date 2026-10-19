@@ -1,11 +1,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,11 +25,18 @@ import (
 // The one-liner is where the pane's state gets in: %f is the entry under the
 // cursor, %s the selection, %d this directory and %D the other one — each
 // quoted, because a filename is allowed to contain anything a shell would
-// otherwise read as syntax.
+// otherwise read as syntax. How a value is put in front of the shell is the
+// platform's to say (shellWord): quoted into the line for sh, passed through
+// the environment for cmd, which expands %VAR% even inside quotes.
 
 // commandOutputLimit caps what is kept from a command that will not stop
 // printing. Past this the output is cut and said to be cut.
 const commandOutputLimit = 256 * 1024
+
+// commandWaitDelay is how long a cancelled command's output is waited for once
+// it has been killed. A grandchild that kept the pipe open would otherwise hold
+// the run open until it finished on its own.
+const commandWaitDelay = 2 * time.Second
 
 // commandState is the prompt and the run that follows it.
 type commandState struct {
@@ -132,24 +141,53 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	m.command.cancel = cancel
-	m.command.line = expanded
+	m.command.line = expanded.shown
 	m.command.input.Blur()
 	m.mode = modeRunning
 
 	dir := m.command.dir
 	return m, func() tea.Msg {
-		name, args := shellCommand(expanded)
-		c := exec.CommandContext(ctx, name, args...)
+		c := shellCmd(ctx, expanded.run)
 		c.Dir = dir
-		c.Env = append(os.Environ(), "TYR=1")
-		out, err := c.CombinedOutput()
+		c.Env = append(append(os.Environ(), "TYR=1"), expanded.env...)
+		c.WaitDelay = commandWaitDelay
 
-		text := string(out)
-		if len(text) > commandOutputLimit {
-			text = text[:commandOutputLimit] + "\n…output cut here\n"
+		// One writer for both streams keeps them in the order they were
+		// printed. It stops the command once it has printed all that will be
+		// kept, rather than holding everything a runaway one prints until Esc.
+		out := &capWriter{max: commandOutputLimit, full: cancel}
+		c.Stdout, c.Stderr = out, out
+		err := c.Run()
+
+		text := out.buf.String()
+		if out.cut {
+			text += "\n…output cut here — the command was stopped\n"
+			err = nil // killed for printing too much, which the line above says
 		}
-		return commandDoneMsg{line: expanded, output: text, err: err}
+		return commandDoneMsg{line: expanded.shown, output: text, err: err}
 	}
+}
+
+// capWriter keeps the first max bytes written to it and calls full once more
+// than that arrives. os/exec calls Write from one goroutine at a time when
+// Stdout and Stderr are the same writer, so it needs no lock.
+type capWriter struct {
+	buf  bytes.Buffer
+	max  int
+	cut  bool
+	full func()
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); len(p) > room {
+		w.buf.Write(p[:max(room, 0)])
+		if !w.cut {
+			w.cut = true
+			w.full()
+		}
+		return len(p), nil // swallowed, so the command is stopped, not broken-piped
+	}
+	return w.buf.Write(p)
 }
 
 // onCommandDone shows what the command printed, in the pager the viewer uses.
@@ -200,8 +238,16 @@ func (m *Model) closeCommand() {
 	m.command = commandState{}
 }
 
+// commandLine is a command line with its placeholders filled in: run is what
+// the shell is handed, env what it needs in its environment to make sense of
+// run, and shown the same line for the user to read.
+type commandLine struct {
+	run, shown string
+	env        []string
+}
+
 // expandCommand replaces the placeholders with what the panes are pointing at.
-func (m Model) expandCommand(line string) string {
+func (m Model) expandCommand(line string) commandLine {
 	p := &m.panes[m.active]
 	other := &m.panes[1-m.active]
 
@@ -210,20 +256,71 @@ func (m Model) expandCommand(line string) string {
 		current = cur.Name
 	}
 
-	selection := make([]string, 0, 4)
-	for _, name := range p.SelectedNames() {
-		selection = append(selection, shellQuote(name))
+	var out commandLine
+	word := func(value string) (run, shown string) {
+		run, env, shown := shellWord(value, len(out.env)+1)
+		if env != "" {
+			out.env = append(out.env, env)
+		}
+		return run, shown
+	}
+	// Each placeholder becomes a run form and a shown form, filled in as it is
+	// met, so a placeholder that is not in the line costs nothing.
+	fill := func(token string) (string, string) {
+		switch token {
+		case "%f":
+			return word(optionSafe(current))
+		case "%F":
+			return word(filepath.Join(p.Path, current))
+		case "%d":
+			return word(p.Path)
+		case "%D":
+			return word(other.Path)
+		case "%s":
+			var runs, shown []string
+			for _, name := range p.SelectedNames() {
+				r, s := word(optionSafe(name))
+				runs, shown = append(runs, r), append(shown, s)
+			}
+			return strings.Join(runs, " "), strings.Join(shown, " ")
+		}
+		return "%", "%" // %%
 	}
 
-	replacer := strings.NewReplacer(
-		"%%", "\x00",
-		"%f", shellQuote(current),
-		"%F", shellQuote(filepath.Join(p.Path, current)),
-		"%d", shellQuote(p.Path),
-		"%D", shellQuote(other.Path),
-		"%s", strings.Join(selection, " "),
-	)
-	return strings.ReplaceAll(replacer.Replace(line), "\x00", "%")
+	var run, shown strings.Builder
+	for len(line) > 0 {
+		i := strings.IndexByte(line, '%')
+		if i < 0 || i == len(line)-1 {
+			run.WriteString(line)
+			shown.WriteString(line)
+			break
+		}
+		run.WriteString(line[:i])
+		shown.WriteString(line[:i])
+		token := line[i : i+2]
+		switch token {
+		case "%%", "%f", "%F", "%d", "%D", "%s":
+			r, s := fill(token)
+			run.WriteString(r)
+			shown.WriteString(s)
+		default:
+			run.WriteString(token)
+			shown.WriteString(token)
+		}
+		line = line[i+2:]
+	}
+	out.run, out.shown = run.String(), shown.String()
+	return out
+}
+
+// optionSafe keeps a relative name from being read as an option: rm %f on a
+// file called -rf must remove the file, not run rm -rf. A ./ in front changes
+// nothing about which file it is.
+func optionSafe(name string) string {
+	if strings.HasPrefix(name, "-") {
+		return "." + string(filepath.Separator) + name
+	}
+	return name
 }
 
 // renderCommand draws the prompt.
