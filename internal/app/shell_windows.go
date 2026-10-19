@@ -1,12 +1,17 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
-// See shell_unix.go: the shell and its quoting are the platform-dependent part
-// of `!` and `x`.
+// See shell_unix.go: the shell, how a line is started and how a value reaches
+// it are the platform-dependent part of `!` and `x`.
 
 // interactiveShell is what `!` hands the terminal to. $SHELL wins when it is
 // set, because someone who exports it on Windows means it; otherwise it is
@@ -15,41 +20,57 @@ func interactiveShell() string {
 	if shell := os.Getenv("SHELL"); shell != "" {
 		return shell
 	}
-	if comspec := os.Getenv("COMSPEC"); comspec != "" {
-		return comspec
+	return comspec()
+}
+
+func comspec() string {
+	if c := os.Getenv("COMSPEC"); c != "" {
+		return c
 	}
 	return "cmd.exe"
 }
 
-// shellCommand is how one command line is run non-interactively. /C runs it and
-// exits; /S with the whole line quoted is what keeps cmd from re-parsing the
-// quotes inside it.
-func shellCommand(line string) (name string, args []string) {
-	shell := "cmd.exe"
-	if comspec := os.Getenv("COMSPEC"); comspec != "" {
-		shell = comspec
+// shellCmd runs one command line through cmd /S /C. The command line is
+// written out by hand: os/exec would quote the line as one argument and escape
+// its quotes as \", which is the C runtime's convention and not cmd's — cmd
+// would see the backslashes. With /S, cmd takes everything between the first
+// and the last quote after /C as the command, exactly as written.
+func shellCmd(ctx context.Context, line string) *exec.Cmd {
+	shell := comspec()
+	c := exec.CommandContext(ctx, shell)
+	c.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine(shell, line)}
+	// Cancelling kills the tree, not just cmd: what cmd started would
+	// otherwise run on, holding the output pipe open.
+	c.Cancel = func() error {
+		if err := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(c.Process.Pid)).Run(); err != nil {
+			return c.Process.Kill()
+		}
+		return nil
 	}
-	return shell, []string{"/C", line}
+	return c
 }
 
-// shellQuote wraps a value so cmd.exe reads it as one word. Two rules meet here:
+// cmdLine is the whole command line shellCmd starts.
+func cmdLine(shell, line string) string {
+	return syscall.EscapeArg(shell) + ` /S /C "` + line + `"`
+}
+
+// shellWord puts a value in front of cmd without letting cmd read it.
 //
-//   - cmd has no escape for a double quote inside a quoted string, so a value
-//     containing one is quoted around it. `a"b` becomes `"a"^"b"`: the quoted
-//     `"a"`, then a caret-escaped quote, which works only outside quotes, then
-//     the quoted `"b"`. The pieces are one argument because nothing separates
-//     them.
-//   - The program on the other end splits its own command line, and there a
-//     backslash run immediately before a closing quote escapes that quote. So
-//     `C:\dir\` has to be written `"C:\dir\"` to arrive intact.
-func shellQuote(s string) string {
-	if s == "" {
-		return `""`
-	}
-	parts := strings.Split(s, `"`)
-	for i, part := range parts {
-		trailing := len(part) - len(strings.TrimRight(part, `\`))
-		parts[i] = `"` + part + strings.Repeat(`\`, trailing) + `"`
-	}
-	return strings.Join(parts, `^"`)
+// Quoting alone cannot do that: cmd expands %VAR% inside double quotes, so a
+// file called %COMSPEC%.txt would arrive as C:\Windows\system32\cmd.exe.txt,
+// and there is no escape for % that works inside quotes. So the value goes
+// into the environment as TYR_ARG_n, and the line gets "%TYR_ARG_n%" in its
+// place. cmd expands a variable once and never expands what it expanded to,
+// and a Windows path cannot contain the double quote that would end the
+// quoting around it — so whatever the name holds, it is one argument and
+// nothing more.
+//
+// The program on the other end splits its own command line, and there a run
+// of backslashes just before a closing quote escapes that quote: C:\dir\ is
+// passed as C:\dir\\ to arrive intact.
+func shellWord(value string, n int) (run, env, shown string) {
+	name := fmt.Sprintf("TYR_ARG_%d", n)
+	trailing := len(value) - len(strings.TrimRight(value, `\`))
+	return `"%` + name + `%"`, name + "=" + value + strings.Repeat(`\`, trailing), `"` + value + `"`
 }

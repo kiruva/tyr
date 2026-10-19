@@ -25,7 +25,7 @@ shell runs a command:
 | Config file | `%AppData%\tyr\config`, themes in `%AppData%\tyr\themes`. `XDG_CONFIG_HOME` still wins where it is set. |
 | Trash | `%LocalAppData%\tyr\Trash`, with the same origin records, so `Ctrl+Z` restores. It is tyr's own trash, **not** the Recycle Bin. |
 | `!` | Opens `%COMSPEC%` (`cmd.exe` on a stock install), or `$SHELL` where that is set. |
-| `x` | Runs the line through `cmd /C`, and quotes the placeholders by cmd's rules rather than a POSIX shell's. |
+| `x` | Runs the line through `cmd /S /C`. The placeholders are passed as environment variables (`"%TYR_ARG_1%"`) rather than written into the line, since cmd expands `%VAR%` even inside quotes. |
 | `i` | No owner row and no hard-link count: a Windows file has an ACL, not a uid and gid. The permissions field still applies, but `chmod` there sets the read-only attribute and nothing more. |
 | `.` | Toggles dotfiles, as everywhere else. The Windows *hidden attribute* is not consulted, so a hidden file without a leading dot is always listed. |
 | `.zip` | Extracted with 7-Zip when it is installed, in preference to `unzip`: an `unzip` on PATH there is a Unix build that does not reliably open an archive named by a native path. |
@@ -770,7 +770,11 @@ state goes in through placeholders, each quoted so a filename cannot be read as 
 | `%D`        | the other pane's directory            |
 | `%%`        | a literal `%`                         |
 
-`Esc` cancels a command that is taking too long.
+A name under the cursor or in the selection that starts with `-` is passed as `./-name`, so
+`rm %f` on a file called `-rf` removes the file.
+
+`Esc` cancels a command that is taking too long, along with everything it started — the rest of
+a pipeline too. A command that prints more than 256 KB is stopped there, and the output says so.
 
 ### Following tyr out
 
