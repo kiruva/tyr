@@ -308,3 +308,42 @@ func TestLocalPrefixLeavesRemote(t *testing.T) {
 		t.Fatalf("path = %q, want %q", m.panes[0].Path, dir)
 	}
 }
+
+// An entry's name is used as it is. A directory called "~" is entered, not
+// mistaken for home, and an Office lock file "~$report.docx" is deleted where
+// it is listed — treating it as home-relative ran rm -rf on a file in $HOME.
+func TestRemoteNamesAreNotInterpreted(t *testing.T) {
+	box := remote.Host{Name: "box"}
+	m := New()
+	m.width, m.height = 100, 24
+	p := &m.panes[0]
+	p.OpenRemote(box, "/srv")
+	l := remote.Listing{Dir: "/srv", Entries: []remote.Entry{
+		{Name: "~", IsDir: true},
+		{Name: "~$report.docx", Size: 1},
+		{Name: " padded ", IsDir: true},
+	}}
+	if !p.SetRemoteListing("/srv", l) {
+		t.Fatal("listing was not applied")
+	}
+
+	for name, want := range map[string]string{"~": "/srv/~", " padded ": "/srv/ padded "} {
+		cursorTo(t, &m, 0, name)
+		m.remoteEnter(0)
+		if got := m.panes[0].Path; got != want {
+			t.Errorf("entering %q went to %q, want %q", name, got, want)
+		}
+		m.panes[0].Path = "/srv"
+		if !m.panes[0].SetRemoteListing("/srv", l) {
+			t.Fatal("listing was not applied")
+		}
+	}
+
+	cursorTo(t, &m, 0, "~$report.docx")
+	if got, _ := m.panes[0].RemoteEntryPath(); got != "/srv/~$report.docx" {
+		t.Errorf("entry path = %q", got)
+	}
+	if got := remotePaths("/srv", []string{"~$report.docx"}); got[0] != "/srv/~$report.docx" {
+		t.Errorf("remotePaths = %v", got)
+	}
+}

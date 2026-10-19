@@ -248,3 +248,29 @@ func TestConnectionsIgnoreEntriesWithoutHost(t *testing.T) {
 		t.Fatalf("conns = %+v", conns)
 	}
 }
+
+// Connections named after hosts nest: web and web.staging. Saving or deleting
+// one touches its own keys only — the prefix conn.web. is also the start of
+// every key web.staging has.
+func TestConnectionsWithNestedNamesAreSeparate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if err := SaveConnection(Connection{Name: "web.staging", Host: "stg", User: "deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConnection(Connection{Name: "web", Host: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	conns, _ := Connections()
+	if len(conns) != 2 {
+		t.Fatalf("after saving web: %+v, want both", conns)
+	}
+
+	if err := DeleteConnection("web"); err != nil {
+		t.Fatal(err)
+	}
+	conns, _ = Connections()
+	if len(conns) != 1 || conns[0].Name != "web.staging" || conns[0].User != "deploy" {
+		t.Fatalf("after deleting web: %+v, want web.staging intact", conns)
+	}
+}

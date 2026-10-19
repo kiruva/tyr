@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -164,7 +165,7 @@ func TestHostKeyCallbackClassification(t *testing.T) {
 	h := Host{Name: "box"}
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 
-	cb, err := hostKeyCallback(h, false)
+	cb, err := hostKeyCallback(h, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestHostKeyAcceptRecords(t *testing.T) {
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 	key := newEd25519Key(t)
 
-	accept, err := hostKeyCallback(h, true)
+	accept, err := hostKeyCallback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(key)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ func TestHostKeyAcceptRecords(t *testing.T) {
 		t.Fatal("nothing was recorded")
 	}
 
-	verify, err := hostKeyCallback(h, false)
+	verify, err := hostKeyCallback(h, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,5 +230,83 @@ func TestHostKeyAcceptRecords(t *testing.T) {
 	}
 	if got := knownHostAlgorithms("box:22"); !slices.Contains(got, ssh.KeyAlgoED25519) {
 		t.Fatalf("algorithms after accepting = %v", got)
+	}
+}
+
+// Saying yes to a fingerprint trusts that fingerprint, not whatever the host
+// offers next. An interceptor that let the first attempt through to the real
+// server — so the fingerprint the user checked was genuine — and then answers
+// the retry with its own key must be asked about, not recorded and logged in to.
+func TestHostKeyAcceptOnlyTrustsTheKeyShown(t *testing.T) {
+	path := writeKnownHosts(t, map[string]ssh.PublicKey{"other": newEd25519Key(t)})
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := Host{Name: "box"}
+	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
+	shown, swapped := newEd25519Key(t), newEd25519Key(t)
+
+	cb, err := hostKeyCallback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(shown)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cb("box:22", remoteAddr, swapped)
+	var hk *HostKeyError
+	if !errors.As(err, &hk) {
+		t.Fatalf("a key other than the one confirmed was let in: %v", err)
+	}
+	if hk.Fingerprint != ssh.FingerprintSHA256(swapped) {
+		t.Errorf("the error shows %s, want the key actually offered", hk.Fingerprint)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Error("the swapped key was recorded in known_hosts")
+	}
+}
+
+// A confirmation is for the host that showed the key. The same fingerprint
+// offered under another name — a jump host, say — is asked about on its own.
+func TestHostKeyTrustIsPerHost(t *testing.T) {
+	writeKnownHosts(t, map[string]ssh.PublicKey{"other": newEd25519Key(t)})
+	key := newEd25519Key(t)
+	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
+
+	cb, err := hostKeyCallback(Host{Name: "jump"}, []HostKey{{Host: Host{Name: "box"}, Fingerprint: ssh.FingerprintSHA256(key)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hk *HostKeyError
+	if err := cb("jump:22", remoteAddr, key); !errors.As(err, &hk) || hk.Host.Name != "jump" {
+		t.Fatalf("err = %v, want a HostKeyError for jump", err)
+	}
+}
+
+// The password goes to the one hidden prompt a password login asks, once. A
+// second factor's "Verification code:" — hidden too — must not get it as well.
+func TestPasswordOnlyAnswersThePasswordPrompt(t *testing.T) {
+	answer := passwordOnly("hunter2")
+
+	if got, err := answer("", "", nil, nil); err != nil || len(got) != 0 {
+		t.Fatalf("an informational round = %v, %v", got, err)
+	}
+	got, err := answer("", "", []string{"Password: "}, []bool{false})
+	if err != nil || len(got) != 1 || got[0] != "hunter2" {
+		t.Fatalf("password prompt = %v, %v", got, err)
+	}
+	if _, err := answer("", "", []string{"Verification code: "}, []bool{false}); err == nil {
+		t.Fatal("the password was offered a second time, to a code prompt")
+	}
+
+	for _, tt := range []struct {
+		qs    []string
+		echos []bool
+	}{
+		{[]string{"Username: "}, []bool{true}},
+		{[]string{"Password: ", "OTP: "}, []bool{false, false}},
+	} {
+		if _, err := passwordOnly("hunter2")("", "", tt.qs, tt.echos); err == nil {
+			t.Errorf("%q was answered with the password", tt.qs)
+		}
 	}
 }

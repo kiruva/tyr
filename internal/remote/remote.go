@@ -117,19 +117,44 @@ func parseHostPart(s string, allowPort bool) (Host, bool) {
 	return h, true
 }
 
-// Join resolves a possibly relative path against the pane's current remote
-// directory. Remote paths are always POSIX.
+// Join resolves a path the user typed against the pane's current remote
+// directory. Remote paths are always POSIX. "~" and "~/…" are the home
+// directory and are kept as they are, for List to expand (see shPath); any
+// other name starting with a tilde is a name like any other.
+//
+// Join is for typed input only, and does not trim it: that is the caller's to
+// do, since a path built from a listing can end in a space that belongs to it. The path of an entry in a listing is Child:
+// "~$report.docx" is a file in this directory, not something under $HOME.
 func Join(dir, p string) string {
-	p = strings.TrimSpace(p)
 	switch {
 	case p == "":
 		return dir
 	case strings.HasPrefix(p, "/"):
 		return path.Clean(p)
-	case strings.HasPrefix(p, "~"):
-		return p // let the remote shell expand it
+	case p == "~" || strings.HasPrefix(p, "~/"):
+		return path.Clean(p)
 	default:
 		return path.Clean(path.Join(dir, p))
+	}
+}
+
+// Child is the path of the entry called name in dir. name comes from a
+// listing (or is a name being created there), so nothing in it is interpreted.
+func Child(dir, name string) string {
+	return path.Join(dir, name)
+}
+
+// shPath quotes a remote path for the shell like shQuote, except that a
+// leading "~" or "~/" — the home directory, as Join keeps it — becomes "$HOME",
+// which the shell expands where it would not expand a quoted tilde.
+func shPath(p string) string {
+	switch {
+	case p == "~":
+		return `"$HOME"`
+	case strings.HasPrefix(p, "~/"):
+		return `"$HOME"/` + shQuote(strings.TrimPrefix(p, "~/"))
+	default:
+		return shQuote(p)
 	}
 }
 

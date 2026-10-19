@@ -121,12 +121,20 @@ func (m Model) renderConnHostKey() string {
 		return m.renderConnList()
 	}
 
+	// The key may be the jump host's rather than the target's: the question
+	// names whichever host actually showed it, since that is the key to check.
+	subject := ui.TruncTail(m.conn.connSummary(), contentWidth)
+	if hk.Host != connHost(m.conn.target) {
+		subject = ui.TruncTail("jump host "+hk.Host.String(), contentWidth) + "\n" +
+			ui.Faint.Render(ui.TruncTail("on the way to "+m.conn.connSummary(), contentWidth))
+	}
+
 	// The fingerprint gets a line of its own: it is the whole point of this
 	// stage, and a truncated one cannot be compared against anything.
 	lines := []string{
 		m.connTitle("Unknown host"),
 		"",
-		ui.TruncTail(m.conn.connSummary(), contentWidth),
+		subject,
 		ui.Faint.Render("is not in known_hosts. Its key fingerprint is:"),
 		"",
 		hk.Fingerprint,

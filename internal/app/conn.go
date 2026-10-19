@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -77,6 +78,13 @@ type connState struct {
 	password textinput.Model
 	hostKey  *remote.HostKeyError
 
+	// trusted are the fingerprints confirmed in this modal, each for the host
+	// that showed it (the target, or a jump host on the way). Every attempt
+	// carries them all, so accepting a jump host and then the target does not
+	// ask about the jump host twice — and a key that changes between the
+	// question and the answer is asked about again instead of trusted.
+	trusted []remote.HostKey
+
 	// pendingPassword carries an accepted password across the host-key stage, so
 	// confirming a fingerprint does not ask for it a second time. It lives only
 	// as long as the modal; remote.Connect keeps its own copy for the session.
@@ -91,7 +99,6 @@ type connResultMsg struct {
 	host     remote.Host
 	paneIdx  int
 	password string
-	accepted bool // the host key had been confirmed for this attempt
 	err      error
 }
 
@@ -149,7 +156,7 @@ func (m *Model) openConnForAddress(h remote.Host, path string) tea.Cmd {
 		Path: path,
 	}
 	m.mode = modeConn
-	return m.connAttempt("", false)
+	return m.connAttempt("")
 }
 
 // connBeginForm opens the form, seeded from c (zero c = a new connection).
@@ -188,26 +195,26 @@ func (s *connState) connFormValues() config.Connection {
 }
 
 // connAttempt tries to connect to the current target off the UI thread.
-func (m *Model) connAttempt(password string, acceptHostKey bool) tea.Cmd {
+func (m *Model) connAttempt(password string) tea.Cmd {
 	target := m.conn.target
 	paneIdx := m.conn.paneIdx
 	host := connHost(target)
+	trusted := slices.Clone(m.conn.trusted)
 
 	m.conn.stage = connStageBusy
 	m.conn.status = ""
 
 	return func() tea.Msg {
 		err := remote.Connect(host, remote.Options{
-			Password:      password,
-			IdentityFile:  target.Identity,
-			AcceptHostKey: acceptHostKey,
+			Password:     password,
+			IdentityFile: target.Identity,
+			TrustedKeys:  trusted,
 		})
 		return connResultMsg{
 			target:   target,
 			host:     host,
 			paneIdx:  paneIdx,
 			password: password,
-			accepted: acceptHostKey,
 			err:      err,
 		}
 	}
@@ -359,7 +366,7 @@ func (m Model) onConnListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.conn.target = m.conn.conns[m.conn.cursor]
 		m.conn.adHoc = false
-		cmd := m.connAttempt("", false)
+		cmd := m.connAttempt("")
 		return m, cmd
 	}
 	return m, nil
@@ -440,7 +447,7 @@ func (m Model) connSaveForm() (tea.Model, tea.Cmd) {
 	m.conn.target = c
 	m.conn.adHoc = false
 	m.conn.editing = ""
-	cmd := m.connAttempt("", false)
+	cmd := m.connAttempt("")
 	return m, cmd
 }
 
@@ -468,7 +475,7 @@ func (m Model) onConnPasswordKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.conn.pendingPassword = pw
 		// The host key may still need confirming; that stage re-attempts with
 		// the same password, which is why the modal holds on to it.
-		cmd := m.connAttempt(pw, m.conn.hostKey != nil)
+		cmd := m.connAttempt(pw)
 		return m, cmd
 	}
 
@@ -480,7 +487,8 @@ func (m Model) onConnPasswordKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) onConnHostKeyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "a", "y", "enter":
-		cmd := m.connAttempt(m.conn.lastPassword(), true)
+		m.conn.trusted = append(m.conn.trusted, m.conn.hostKey.Key())
+		cmd := m.connAttempt(m.conn.lastPassword())
 		return m, cmd
 	default:
 		m.conn.hostKey = nil

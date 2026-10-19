@@ -22,7 +22,8 @@ import (
 // has to remember which host it is browsing. A password, once accepted, stays in
 // the registry entry for the lifetime of the process: reconnecting after an idle
 // timeout must not interrupt the user with another prompt. It is never written
-// anywhere, and Forget zeroes it.
+// anywhere, and Forget drops it. (Dropped, not wiped: a Go string cannot be
+// overwritten in place, so there is no wiping to promise.)
 
 // ErrAuthRequired means the non-interactive methods (agent, key files) did not
 // get us in and a password is needed.
@@ -37,6 +38,19 @@ type HostKeyError struct {
 	Changed     bool
 }
 
+// Key is what the user confirms when accepting this error's key: the host it
+// was offered by and its fingerprint, to be handed back in Options.TrustedKeys.
+func (e *HostKeyError) Key() HostKey {
+	return HostKey{Host: e.Host, Fingerprint: e.Fingerprint}
+}
+
+// HostKey is one host key the user has seen and confirmed: which host offered
+// it, and its SHA256 fingerprint.
+type HostKey struct {
+	Host        Host
+	Fingerprint string
+}
+
 func (e *HostKeyError) Error() string {
 	if e.Changed {
 		return fmt.Sprintf("host key for %s CHANGED (%s %s)", e.Host.String(), e.KeyType, e.Fingerprint)
@@ -46,9 +60,15 @@ func (e *HostKeyError) Error() string {
 
 // Options carry what the connection modal collected.
 type Options struct {
-	Password      string // from the modal; never persisted
-	IdentityFile  string // explicit key, overriding ssh_config
-	AcceptHostKey bool   // the user confirmed the fingerprint
+	Password     string // from the modal; never persisted
+	IdentityFile string // explicit key, overriding ssh_config
+
+	// TrustedKeys are the unknown keys the user confirmed, each tied to the host
+	// that showed it. A key is trusted — and recorded in known_hosts — only if
+	// the same host offers exactly that key again. "The user said yes" is not
+	// enough: between the attempt that showed the fingerprint and the one that
+	// follows the yes, an interceptor can swap in a key of its own.
+	TrustedKeys []HostKey
 }
 
 type entry struct {
@@ -99,7 +119,7 @@ func Connected(h Host) bool {
 	return ok && e.client != nil
 }
 
-// Forget closes the session for h and wipes its stored password.
+// Forget closes the session for h and drops its stored password.
 func Forget(h Host) {
 	registryMu.Lock()
 	e, ok := registry[h]
@@ -111,8 +131,6 @@ func Forget(h Host) {
 	if e.client != nil {
 		_ = e.client.Close()
 	}
-	zero(&e.password)
-	zero(&e.opts.Password)
 }
 
 // ForgetAll drops every session; called on quit.
@@ -126,23 +144,7 @@ func ForgetAll() {
 		if e.client != nil {
 			_ = e.client.Close()
 		}
-		zero(&e.password)
-		zero(&e.opts.Password)
 	}
-}
-
-// zero overwrites a string's backing bytes before dropping the reference. Go
-// strings are immutable, so this is best-effort — the runtime may already have
-// copied the value — but it keeps the obvious copy from lingering in the heap.
-func zero(s *string) {
-	if *s == "" {
-		return
-	}
-	b := []byte(*s)
-	for i := range b {
-		b[i] = 0
-	}
-	*s = ""
 }
 
 // client returns the live session for h, reconnecting once with the remembered
@@ -162,9 +164,11 @@ func client(h Host) (*ssh.Client, error) {
 		e.client = nil
 	}
 
+	// The key accepted for this session is in known_hosts by now, so the
+	// redial verifies against it like any other; a different key is asked about
+	// again rather than taken on the strength of the earlier yes.
 	opts := e.opts
 	opts.Password = e.password
-	opts.AcceptHostKey = true // the key was already accepted for this session
 	fresh, err := dial(h, opts)
 	if err != nil {
 		return nil, err
@@ -188,7 +192,7 @@ func dial(h Host, opts Options) (*ssh.Client, error) {
 	}
 	addr := net.JoinHostPort(firstNonEmpty(cfg.HostName, h.Name), portOf(h, cfg))
 
-	hostKeys, err := hostKeyCallback(h, opts.AcceptHostKey)
+	hostKeys, err := hostKeyCallback(h, opts.TrustedKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +210,7 @@ func dial(h Host, opts Options) (*ssh.Client, error) {
 		Timeout:           15 * time.Second,
 	}
 
-	conn, err := dialThroughJump(cfg, addr, clientCfg)
+	conn, err := dialThroughJump(cfg, addr, clientCfg, opts.TrustedKeys)
 	if err != nil {
 		return nil, translateAuthError(h, opts, err)
 	}
@@ -216,7 +220,7 @@ func dial(h Host, opts Options) (*ssh.Client, error) {
 // dialThroughJump honours a ProxyJump entry from ssh_config. The jump host is
 // reached with the non-interactive methods only — prompting for two passwords in
 // sequence is not something the modal models.
-func dialThroughJump(cfg sshHostConfig, addr string, clientCfg *ssh.ClientConfig) (*ssh.Client, error) {
+func dialThroughJump(cfg sshHostConfig, addr string, clientCfg *ssh.ClientConfig, trusted []HostKey) (*ssh.Client, error) {
 	if cfg.ProxyJump == "" {
 		return ssh.Dial("tcp", addr, clientCfg)
 	}
@@ -227,7 +231,9 @@ func dialThroughJump(cfg sshHostConfig, addr string, clientCfg *ssh.ClientConfig
 	}
 	jumpCfg := lookupSSHConfig(jumpHost.Name)
 	jumpUser := firstNonEmpty(jumpHost.User, jumpCfg.User, currentUser())
-	jumpKeys, err := hostKeyCallback(jumpHost, false)
+	// The jump host's key is checked like the target's: an unknown one comes
+	// back as a HostKeyError naming the jump host, for the modal to ask about.
+	jumpKeys, err := hostKeyCallback(jumpHost, trusted)
 	if err != nil {
 		return nil, err
 	}
@@ -272,16 +278,29 @@ func authMethods(password string, identities []string) []ssh.AuthMethod {
 	}
 	if password != "" {
 		methods = append(methods, ssh.Password(password))
-		methods = append(methods, ssh.KeyboardInteractive(
-			func(_, _ string, questions []string, _ []bool) ([]string, error) {
-				answers := make([]string, len(questions))
-				for i := range answers {
-					answers[i] = password
-				}
-				return answers, nil
-			}))
+		methods = append(methods, ssh.KeyboardInteractive(passwordOnly(password)))
 	}
 	return methods
+}
+
+// passwordOnly answers a keyboard-interactive exchange with the password —
+// once, and only to a single hidden prompt, which is how a PAM password login
+// asks. Anything else is a question the modal never put to the user: a second
+// factor, a code, a username. Answering those with the password would send it
+// as the reply to "Verification code:", so they are refused with a reason.
+func passwordOnly(password string) ssh.KeyboardInteractiveChallenge {
+	given := false
+	return func(_, _ string, questions []string, echos []bool) ([]string, error) {
+		switch {
+		case len(questions) == 0:
+			return nil, nil // an informational round: nothing to answer
+		case len(questions) == 1 && !echos[0] && !given:
+			given = true
+			return []string{password}, nil
+		}
+		return nil, fmt.Errorf("the host asks %q, which tyr cannot answer — "+
+			"log in with a key or ssh-agent for hosts that want a second factor", strings.TrimSpace(questions[0]))
+	}
 }
 
 // agentSigners exposes the running ssh-agent, if there is one.
@@ -399,8 +418,9 @@ func knownHostsPath() (string, error) {
 
 // hostKeyCallback verifies against known_hosts. An unknown key becomes a
 // HostKeyError carrying the fingerprint for the modal to show; when the user has
-// accepted it, the key is appended to known_hosts so ssh itself trusts it too.
-func hostKeyCallback(h Host, accept bool) (ssh.HostKeyCallback, error) {
+// confirmed that very key for this host (it is in trusted), it is appended to
+// known_hosts so ssh itself trusts it too.
+func hostKeyCallback(h Host, trusted []HostKey) (ssh.HostKeyCallback, error) {
 	path, err := knownHostsPath()
 	if err != nil {
 		return nil, err
@@ -433,20 +453,14 @@ func hostKeyCallback(h Host, accept bool) (ssh.HostKeyCallback, error) {
 		// a mismatch: a host that has an ed25519 line in known_hosts and offers
 		// an ecdsa key is presenting a key we simply have not seen yet, which is
 		// how OpenSSH reads it too.
-		if sameTypeMismatch(keyErr.Want, key) {
-			return &HostKeyError{
-				Host:        h,
-				KeyType:     key.Type(),
-				Fingerprint: ssh.FingerprintSHA256(key),
-				Changed:     true,
-			}
+		offered := &HostKeyError{
+			Host:        h,
+			KeyType:     key.Type(),
+			Fingerprint: ssh.FingerprintSHA256(key),
+			Changed:     sameTypeMismatch(keyErr.Want, key),
 		}
-		if !accept {
-			return &HostKeyError{
-				Host:        h,
-				KeyType:     key.Type(),
-				Fingerprint: ssh.FingerprintSHA256(key),
-			}
+		if offered.Changed || !slices.Contains(trusted, offered.Key()) {
+			return offered
 		}
 		return appendKnownHost(path, hostname, addr, key)
 	}, nil

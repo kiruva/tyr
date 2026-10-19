@@ -42,13 +42,20 @@ func testHost(t *testing.T) (Host, string) {
 }
 
 // connectForTest opens a session, accepting the host key — these run against a
-// throwaway server whose key is not in the user's known_hosts.
+// throwaway server whose key is not in the user's known_hosts. It accepts the
+// way the modal does: by confirming the fingerprint the first attempt showed.
 func connectForTest(t *testing.T, h Host) {
 	t.Helper()
 	t.Cleanup(func() { Forget(h) })
 
-	opts := Options{IdentityFile: os.Getenv("TYR_TEST_SSH_KEY"), AcceptHostKey: true}
-	if err := Connect(h, opts); err != nil {
+	opts := Options{IdentityFile: os.Getenv("TYR_TEST_SSH_KEY")}
+	err := Connect(h, opts)
+	var hk *HostKeyError
+	if errors.As(err, &hk) {
+		opts.TrustedKeys = []HostKey{hk.Key()}
+		err = Connect(h, opts)
+	}
+	if err != nil {
 		t.Fatalf("connect to %s: %v", h.String(), err)
 	}
 }
@@ -89,7 +96,7 @@ func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
 
 	// Accepting records it, and the recorded entry is what makes the next
 	// connection succeed without asking again.
-	if err := Connect(h, Options{IdentityFile: key, AcceptHostKey: true}); err != nil {
+	if err := Connect(h, Options{IdentityFile: key, TrustedKeys: []HostKey{hk.Key()}}); err != nil {
 		t.Fatalf("connect after accepting: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join(home, ".ssh", "known_hosts"))

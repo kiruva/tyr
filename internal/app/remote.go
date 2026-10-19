@@ -85,7 +85,9 @@ func (m *Model) remoteEnter(paneIdx int) tea.Cmd {
 		m.errText = "not a directory: " + cur.Name
 		return nil
 	}
-	return m.remoteNavigate(paneIdx, cur.Name)
+	// Child, not the name alone: navigation goes through Join, which reads a
+	// typed "~" as home and trims spaces — neither of which a name is.
+	return m.remoteNavigate(paneIdx, remote.Child(p.Path, cur.Name))
 }
 
 // remoteAscend moves a remote pane to its parent directory.
@@ -256,7 +258,7 @@ func (m *Model) beginRemoteOp(op fileops.Op) {
 func remotePaths(dir string, names []string) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		out = append(out, remote.Join(dir, n))
+		out = append(out, remote.Child(dir, n))
 	}
 	return out
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -223,6 +224,37 @@ func TestConnHostKeyConfirmation(t *testing.T) {
 	}
 	if m.(Model).conn.stage != connStageBusy {
 		t.Fatalf("stage = %v, want busy", m.(Model).conn.stage)
+	}
+
+	// What the retry trusts is the fingerprint that was on screen, tied to the
+	// host that showed it — not "whatever key comes next".
+	want := []remote.HostKey{{Host: remote.Host{Name: "web01"}, Fingerprint: "SHA256:abc123"}}
+	if got := m.(Model).conn.trusted; !slices.Equal(got, want) {
+		t.Fatalf("trusted = %v, want %v", got, want)
+	}
+}
+
+// An unknown jump host is asked about as the jump host: its fingerprint is the
+// one to check, and it is that host the yes is recorded for.
+func TestConnHostKeyNamesTheJumpHost(t *testing.T) {
+	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	jump := remote.Host{Name: "bastion"}
+	m, _ = m.Update(connResultMsg{
+		target: config.Connection{Name: "prod", Host: "web01"}, paneIdx: 0,
+		err: &remote.HostKeyError{Host: jump, KeyType: "ssh-ed25519", Fingerprint: "SHA256:jjj"},
+	})
+	view := m.View()
+	for _, want := range []string{"jump host bastion", "on the way to prod", "SHA256:jjj"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("host key stage does not show %q:\n%s", want, view)
+		}
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if got := m.(Model).conn.trusted; len(got) != 1 || got[0].Host != jump {
+		t.Fatalf("trusted = %v, want the jump host's key", got)
 	}
 }
 

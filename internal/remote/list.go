@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,28 +34,80 @@ type Listing struct {
 // landed, then list. The GNU --time-style flag gives epoch timestamps; when the
 // far side is BSD (macOS) ls rejects it and the fallback runs, in which case the
 // three-column date is parsed instead.
+//
+// ls -l is the only metadata every host can produce, but its names cannot be
+// trusted on their own: a name may begin with a space, contain a newline, or
+// contain " -> ", and the row it is printed in reads the same as another name's.
+// Deleting the entry such a row seemed to show would delete something else. So
+// the script first prints the directory's real names, NUL-separated, using
+// nothing but shell builtins, and an ls row is only listed when it names one
+// of them unambiguously.
 func List(h Host, dir string) (Listing, error) {
 	cd := `cd -- "$HOME"`
 	if dir != "" {
-		cd = "cd -- " + shQuote(dir)
+		cd = "cd -- " + shPath(dir)
 	}
-	script := cd + ` && pwd && { LC_ALL=C ls -lAn --time-style=+%s 2>/dev/null || LC_ALL=C ls -lAn; }`
+	script := listScript(cd)
 
 	out, err := output(context.Background(), h, script)
 	if err != nil {
 		return Listing{}, err
 	}
+	return parseListing(out)
+}
 
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+// listScript is List's script for the far side. It runs under sh whatever the
+// login shell is: zsh, the default on a Mac, aborts the whole command on a glob
+// that matches nothing (an empty directory, or one with no dotfiles), and the
+// name loop is all globs.
+func listScript(cd string) string {
+	inner := "export LC_ALL=C; " + cd + ` && printf '%s\0' "$(pwd)" &&` +
+		` for f in .* *; do case $f in .|..) continue;; esac;` +
+		` if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; fi; done; printf '\0';` +
+		` if ls -d --time-style=+%s . >/dev/null 2>&1; then ls -lAn --time-style=+%s; else ls -lAn; fi`
+	return "exec sh -c " + shQuote(inner)
+}
+
+// parseListing reads List's output: the directory, NUL; each name in it, NUL
+// after each; an empty name; then the ls rows.
+func parseListing(out string) (Listing, error) {
+	dir, rest, ok := strings.Cut(out, "\x00")
+	if !ok || strings.TrimSpace(dir) == "" {
 		return Listing{}, errEmptyListing
 	}
 
-	l := Listing{Dir: strings.TrimSpace(lines[0])}
-	for _, line := range lines[1:] {
-		if e, ok := parseListLine(line); ok {
+	names := map[string]bool{}
+	for {
+		var name string
+		if name, rest, ok = strings.Cut(rest, "\x00"); !ok {
+			return Listing{}, errEmptyListing
+		}
+		if name == "" {
+			break
+		}
+		names[name] = true
+	}
+
+	l := Listing{Dir: dir}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(rest, "\n") {
+		if e, ok := parseListLine(line, names); ok && !seen[e.Name] {
+			seen[e.Name] = true
 			l.Entries = append(l.Entries, e)
 		}
+	}
+	// A name no row could be matched to (one with a newline in it) is still
+	// there, and still the user's to see and remove: it is listed by its exact
+	// name, without the size and date its row would have given it.
+	var unmatched []string
+	for n := range names {
+		if !seen[n] {
+			unmatched = append(unmatched, n)
+		}
+	}
+	slices.Sort(unmatched)
+	for _, n := range unmatched {
+		l.Entries = append(l.Entries, Entry{Name: n})
 	}
 	return l, nil
 }
@@ -97,13 +150,16 @@ type errorString string
 
 func (e errorString) Error() string { return string(e) }
 
-// parseListLine turns one `ls -lAn` row into an Entry.
+// parseListLine turns one `ls -lAn` row into an Entry, if the name at the end
+// of it is one of names — exactly, or, for a symlink, followed by " -> target"
+// with only one way to split it. A row that matches nothing (the second line
+// of a name with a newline in it) or more than one way is left out.
 //
 //	drwxr-xr-x  2 1000 1000 4096 1712345678 some dir      (GNU, epoch)
 //	drwxr-xr-x  2 1000 1000 4096 Apr  5 09:31 some dir    (BSD, 3 date columns)
 //	lrwxrwxrwx  1 1000 1000    7 1712345678 link -> target
 //	crw-rw-rw-  1 0    0    1, 3 1712345678 null          (device: size is 2 columns)
-func parseListLine(line string) (Entry, bool) {
+func parseListLine(line string, names map[string]bool) (Entry, bool) {
 	if line == "" || strings.HasPrefix(line, "total ") {
 		return Entry{}, false
 	}
@@ -153,20 +209,45 @@ func parseListLine(line string) (Entry, bool) {
 		mtime = parseBSDTime(stamp, day, timeOrYear)
 	}
 
-	name := strings.TrimLeft(rest, " \t")
-	if name == "" || name == "." || name == ".." {
+	// One space separates the last column from the name; any more belong to
+	// the name.
+	shown, ok := strings.CutPrefix(rest, " ")
+	if !ok {
 		return Entry{}, false
 	}
-
-	e := Entry{Name: name, Size: size, ModTime: mtime, Mode: parseMode(perms)}
-	if e.Mode&os.ModeSymlink != 0 {
-		// "link -> target": keep the link's own name.
-		if before, _, found := strings.Cut(name, " -> "); found {
-			e.Name = before
-		}
+	mode := parseMode(perms)
+	name, ok := matchName(shown, names, mode&os.ModeSymlink != 0)
+	if !ok {
+		return Entry{}, false
 	}
-	e.IsDir = perms[0] == 'd'
-	return e, true
+	return Entry{Name: name, Size: size, ModTime: mtime, Mode: mode, IsDir: perms[0] == 'd'}, true
+}
+
+// matchName finds which of names an ls row shows. A symlink's row carries
+// " -> target" after its name, and either side can contain " -> " too, so
+// every split is tried and only a single match is believed.
+func matchName(shown string, names map[string]bool, symlink bool) (string, bool) {
+	if !symlink {
+		return shown, names[shown]
+	}
+	found := ""
+	if names[shown] {
+		found = shown // an ls that does not print the target
+	}
+	for i := 0; ; {
+		j := strings.Index(shown[i:], " -> ")
+		if j < 0 {
+			break
+		}
+		if n := shown[:i+j]; names[n] {
+			if found != "" {
+				return "", false // two names fit: do not guess
+			}
+			found = n
+		}
+		i += j + 1
+	}
+	return found, found != ""
 }
 
 // parseBSDTime reconstructs the timestamp from BSD ls's three date columns.
