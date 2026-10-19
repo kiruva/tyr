@@ -6,14 +6,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/fileops"
-	"github.com/kiruva/tyr/internal/ui"
 )
 
 // The overlay is a fixed table in a bordered box: it has to stay inside the
 // window at any width, or the border breaks across lines.
 func TestCapsOverlayFitsWindow(t *testing.T) {
 	for _, w := range []int{60, 80, 100, 140, 200} {
-		dialog := View(w, ui.OverlayRows(30), 0)
+		dialog := View(w, 22, 0)
 		if got := lipgloss.Width(dialog); got > w {
 			t.Errorf("width %d: overlay is %d columns wide", w, got)
 		}

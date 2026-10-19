@@ -118,8 +118,6 @@ func (m Model) onCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeCommand()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.runCommand()
 	}

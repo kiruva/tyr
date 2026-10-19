@@ -30,8 +30,35 @@ from the commit history by GitVersion and tagged by CI; see
   Closing the tool now also stops a sweep that is still walking.
 - **A new file or folder made on a host is highlighted only where it was made** — not in
   whatever directory the pane had moved to by the time the host answered.
+- **Operations act only on the marked entries you can see.** Mark five files, filter down to
+  one, press F8: the four marked files the filter hid were deleted too. Marks hidden by a filter
+  or by hiding dotfiles are now set aside — they are back when the filter is — and a mark on a
+  file that has gone from the folder is forgotten.
+- **Undoing a copy no longer deletes your work.** A copy edited since was deleted for good along
+  with the rest. Copies that changed are now left alone, the prompt says how many, and the rest
+  go to the trash rather than being unlinked (a delete for good is offered, and named as one,
+  only when the trash cannot take them). Undoing a move likewise leaves a file that has since
+  been replaced where it is, and an undo that is cancelled part-way keeps the rest on the
+  history.
+- **Changing permissions recursively no longer locks you out of the folder.** One mode went on
+  files and folders alike, so `644` on a tree closed every folder in it and then failed reading
+  the first one. Folders now keep execute wherever they can be read, and files keep it only if
+  they had it — chmod's `X`. A recursive change asks first, and says what folders and files will
+  each get.
+- **Ctrl+C always quits**, even with quit rebound to another key, and quitting from a dialog
+  now saves where the panes were and closes ssh sessions the way `q` does.
+- **CJK and other wide names fit their column.** Names, paths and wrapped viewer lines were cut
+  by character count, so a Japanese file name took twice its room and pushed the size off the
+  pane.
+- **Smaller fixes:** deselecting by mask said "selected"; the help overlay could be scrolled
+  far past its end; PageDown in an empty folder left the cursor nowhere; members of an archive
+  listed by an external tool showed as 0 B (their size is now left blank); a session path ending
+  in a space came back without it.
 
 ### Added
+
+- **The pack dialog asks for an archive password twice**, so a typing mistake does not lock
+  the files away.
 
 - **The editor is fit for quick code fixes:** syntax colours, undo and redo (`Ctrl+Z`/`Ctrl+Y`),
   find as you type (`Ctrl+F`, `F3`), selecting with `Shift` and the mouse, copy, cut and paste

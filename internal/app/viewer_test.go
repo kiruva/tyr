@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // openIn writes a file, opens it in the viewer, and hands back the model.
@@ -107,6 +108,21 @@ func TestViewerWrap(t *testing.T) {
 		if len([]rune(line)) > app.textWidth() {
 			t.Fatalf("a wrapped line is %d wide, over the %d available", len([]rune(line)), app.textWidth())
 		}
+	}
+}
+
+// Wrapping counts cells: a line of CJK breaks at half the runes an ASCII one
+// does, or each piece runs past the window's edge.
+func TestWrapLinesCountsCells(t *testing.T) {
+	line := strings.Repeat("日本語", 10) + "  x  y"
+	got := wrapLines([]string{line}, 9)
+	for _, piece := range got {
+		if w := lipgloss.Width(piece); w > 9 {
+			t.Errorf("piece %q is %d cells, over 9", piece, w)
+		}
+	}
+	if joined := strings.Join(got, ""); joined != line {
+		t.Errorf("wrapping lost text: %q, want %q", joined, line)
 	}
 }
 

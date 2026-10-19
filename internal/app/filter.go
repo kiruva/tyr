@@ -49,8 +49,6 @@ func (m Model) onFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p.SetFilter(m.filter.prev)
 		m.closeFilter()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "up", "down", "pgup", "pgdown":
 		// Move through what is left without leaving the prompt.
 		m.moveInPane(p, msg.String())

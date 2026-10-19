@@ -35,3 +35,84 @@ func TestCopySkipsSpecialFiles(t *testing.T) {
 		t.Errorf("notes = %q, want the pipe named", res.Notes)
 	}
 }
+
+// A recursive change is chmod -R with X: folders get execute wherever they get
+// read, so they can still be opened, and a file keeps execute only if it was a
+// program already. "644 on the tree" used to close every folder in it — and
+// the walk then could not read the folder it had just closed.
+func TestChmodRecursiveKeepsFoldersOpen(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a closed folder anyway")
+	}
+	dir := t.TempDir()
+	top := filepath.Join(dir, "tree")
+	seed(t, filepath.Join(top, "inner", "notes.txt"), "x", 0)
+	seed(t, filepath.Join(top, "inner", "run.sh"), "x", 0)
+	if err := os.Chmod(filepath.Join(top, "inner", "run.sh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { // should a failure leave a folder closed
+		_ = os.Chmod(top, 0o755)
+		_ = os.Chmod(filepath.Join(top, "inner"), 0o755)
+	})
+
+	tests := []struct {
+		mode                 os.FileMode
+		dirs, files, scripts os.FileMode
+	}{
+		{0o644, 0o755, 0o644, 0o755},
+		{0o755, 0o755, 0o644, 0o755},
+		{0o600, 0o700, 0o600, 0o700},
+		{0o640, 0o750, 0o640, 0o750},
+	}
+	for _, tt := range tests {
+		res := run(t, Job{Op: OpChmod, Srcs: []string{top}, Mode: tt.mode, Recursive: true}, ConflictSkip)
+		if res.Err != nil {
+			t.Fatalf("%o: %v", tt.mode, res.Err)
+		}
+		for path, want := range map[string]os.FileMode{
+			top:                                      tt.dirs,
+			filepath.Join(top, "inner"):              tt.dirs,
+			filepath.Join(top, "inner", "notes.txt"): tt.files,
+			filepath.Join(top, "inner", "run.sh"):    tt.scripts,
+		} {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != want {
+				t.Errorf("%o: %s = %o, want %o", tt.mode, filepath.Base(path), got, want)
+			}
+		}
+	}
+}
+
+// A change that closes the folders still reaches everything inside them: the
+// walk reads each folder before it closes it.
+func TestChmodRecursiveCanCloseFolders(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a closed folder anyway")
+	}
+	dir := t.TempDir()
+	top := filepath.Join(dir, "tree")
+	nested := filepath.Join(top, "inner", "notes.txt")
+	seed(t, nested, "x", 0)
+	t.Cleanup(func() {
+		_ = os.Chmod(top, 0o755)
+		_ = os.Chmod(filepath.Join(top, "inner"), 0o755)
+	})
+
+	res := run(t, Job{Op: OpChmod, Srcs: []string{top}, Mode: 0o200, Recursive: true}, ConflictSkip)
+	if res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	_ = os.Chmod(top, 0o755)
+	_ = os.Chmod(filepath.Join(top, "inner"), 0o755)
+	info, err := os.Stat(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o200 {
+		t.Errorf("nested file = %o, want 200", got)
+	}
+}

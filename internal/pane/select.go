@@ -33,7 +33,7 @@ func (m *Model) InvertSelection() int {
 			m.selected[e.Name] = true
 		}
 	}
-	return len(m.selected)
+	return m.SelectedCount()
 }
 
 // SelectMatching marks (on) or unmarks (off) the visible entries matching mask,

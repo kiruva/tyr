@@ -3,11 +3,11 @@ package app
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kiruva/tyr/internal/syntax"
 	"github.com/kiruva/tyr/internal/termsafe"
@@ -188,8 +188,6 @@ func (m Model) onViewSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer.input.Blur()
 		m.clearViewSearch()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	}
 
 	var cmd tea.Cmd
@@ -427,14 +425,15 @@ func wrapLines(lines []string, width int) []string {
 		return lines
 	}
 
+	// Hardwrap counts display cells, so a line of wide glyphs breaks at the
+	// window's edge rather than at twice it.
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
-		for utf8.RuneCountInString(line) > width {
-			runes := []rune(line)
-			out = append(out, string(runes[:width]))
-			line = string(runes[width:])
+		if lipgloss.Width(line) <= width {
+			out = append(out, line)
+			continue
 		}
-		out = append(out, line)
+		out = append(out, strings.Split(ansi.Hardwrap(line, width, true), "\n")...)
 	}
 	return out
 }

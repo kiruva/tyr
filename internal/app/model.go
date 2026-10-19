@@ -145,10 +145,12 @@ type Model struct {
 	renOne renameOneState
 	ren    renameState
 
-	// what can be put back, most recent last, and whether the job running now
-	// is one of those reversals
+	// what can be put back, most recent last, whether the job running now is
+	// one of those reversals, and how many of its files it leaves alone
+	// because they changed since
 	undoStack []undoEntry
 	undoing   bool
+	undoLeft  int
 
 	// the collision question a copy or move is currently blocked on
 	conflict conflictState

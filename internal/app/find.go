@@ -105,11 +105,6 @@ func (m *Model) openFind() tea.Cmd {
 
 // onFindKey dispatches to whichever stage is on screen.
 func (m Model) onFindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "ctrl+c" {
-		m.find.task.stop()
-		return m, tea.Quit
-	}
-
 	switch m.find.stage {
 	case findStageRunning:
 		if msg.String() == "esc" {

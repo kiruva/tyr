@@ -61,8 +61,6 @@ func (m Model) onBookmarksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.bookmarks = bookmarkState{}
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "up", "k":
 		m.bookmarks.cursor = max(m.bookmarks.cursor-1, 0)
 	case "down", "j":
@@ -157,8 +155,6 @@ func (m Model) onBookmarkAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeBookmarkAdd()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		mark := config.Bookmark{Name: m.bookmarkAdd.input.Value(), Path: m.bookmarkAdd.path}
 		if err := config.SaveBookmark(mark); err != nil {

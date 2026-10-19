@@ -27,6 +27,30 @@ import (
 // owns it for exactly that reason.
 func View(width, rows, scroll int) string {
 	caps := fileops.Capabilities()
+	cols := columns(width, caps)
+
+	header := ui.DialogTitle.Render("tyr — capabilities")
+	if s := capSummary(caps); s != "" {
+		header += "  " + ui.Faint.Render(s)
+	}
+	body, more := ui.ScrollBlock(cols, rows, scroll)
+
+	footer := ui.Faint.Render("tab keys · any key to close")
+	if more {
+		footer = ui.Faint.Render("↑/↓ more · tab keys · any key to close")
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	return ui.Dialog.Render(content)
+}
+
+// Height is how many lines the overlay's body runs to unscrolled at this
+// width, which is what bounds how far it can scroll.
+func Height(width int) int {
+	return lipgloss.Height(columns(width, fileops.Capabilities()))
+}
+
+// columns is every capability, grouped, in two balanced columns.
+func columns(width int, caps []fileops.Capability) string {
 	nameW, detailW := capWidths(width, caps)
 
 	blocks := make([]string, 0, 8)
@@ -46,20 +70,7 @@ func View(width, rows, scroll int) string {
 		blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
-	cols := ui.TwoColumns(blocks)
-
-	header := ui.DialogTitle.Render("tyr — capabilities")
-	if s := capSummary(caps); s != "" {
-		header += "  " + ui.Faint.Render(s)
-	}
-	body, more := ui.ScrollBlock(cols, rows, scroll)
-
-	footer := ui.Faint.Render("tab keys · any key to close")
-	if more {
-		footer = ui.Faint.Render("↑/↓ more · tab keys · any key to close")
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
-	return ui.Dialog.Render(content)
+	return ui.TwoColumns(blocks)
 }
 
 // capWidths splits the terminal into the two columns the overlay renders in, so

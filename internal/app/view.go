@@ -243,12 +243,17 @@ func (m Model) renderConfirm() string {
 	case fileops.OpDelete:
 		if m.undoing {
 			title = ui.Danger.Render(fmt.Sprintf("Remove %d copied %s?", n, items(n)))
-			body = "Undoing a copy deletes what the copy created."
+			body = "The trash cannot take them, so they are deleted for good."
 			break
 		}
 		title = ui.Danger.Render(fmt.Sprintf("Delete %d %s?", n, items(n)))
 		body = "This cannot be undone."
 	case fileops.OpTrash:
+		if m.undoing {
+			title = ui.DialogTitle.Render(fmt.Sprintf("Remove %d copied %s?", n, items(n)))
+			body = "They go to the trash → " + ui.TruncTail(trash.Describe(), 30)
+			break
+		}
 		title = ui.DialogTitle.Render(fmt.Sprintf("Move %d %s to the trash?", n, items(n)))
 		body = "→ " + ui.TruncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
 	case fileops.OpRestore:
@@ -281,6 +286,11 @@ func (m Model) renderConfirm() string {
 			body += "\n" + ui.Danger.Render("Images are stripped in place: the originals are") +
 				"\n" + ui.Danger.Render("overwritten, and ctrl+z cannot bring the metadata back.")
 		}
+	case fileops.OpChmod:
+		title = ui.Danger.Render("Change permissions of everything in " + termsafe.Line(ui.TruncHead(filepath.Base(j.Srcs[0]), 30)) + "?")
+		body = fmt.Sprintf("folders → %04o\nfiles → %04o, or %04o if they run",
+			fileops.TreeDirMode(j.Mode), fileops.TreeFileMode(j.Mode, 0), fileops.TreeFileMode(j.Mode, 0o100)) +
+			"\n" + ui.Faint.Render("This cannot be undone.")
 	case fileops.OpUnpack:
 		title = ui.DialogTitle.Render(fmt.Sprintf("Unpack %d %s", n, archives(n)))
 		body = "→ " + ui.TruncTail(j.Dest, 44)
@@ -343,6 +353,9 @@ func (m Model) renderConfirm() string {
 	if m.undoing {
 		if label := m.undoLabel(); label != "" {
 			body += "\n" + ui.Faint.Render("undoing the "+termsafe.Line(label))
+		}
+		if m.undoLeft > 0 {
+			body += "\n" + ui.Faint.Render(countLabel(m.undoLeft)+" changed since — left alone")
 		}
 	}
 	if m.willOverwrite {

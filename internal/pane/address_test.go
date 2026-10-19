@@ -3,9 +3,11 @@ package pane
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // typeAddr feeds a string into the focused address bar one rune at a time.
@@ -175,5 +177,17 @@ func TestAddressBarReadsAFolderOnce(t *testing.T) {
 	m.UpdateAddr(struct{}{})
 	if len(m.addrList) != 2 || &m.addrList[0] != &listed[0] {
 		t.Error("the folder was read again for a name typed in it")
+	}
+}
+
+// A path of wide glyphs is cut to the cells the bar has, not to as many runes.
+func TestAddressBarFitsWidePaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), strings.Repeat("日本語", 8))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if got := lipgloss.Width(m.addrView(20, true)); got > 20 {
+		t.Errorf("address bar is %d cells, over the 20 it was given", got)
 	}
 }

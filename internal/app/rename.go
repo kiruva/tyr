@@ -113,8 +113,6 @@ func (m Model) onRenameOneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeRenameOne()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.commitRenameOne()
 	}
@@ -245,8 +243,6 @@ func (m Model) onRenameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeRename()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.commitRename()
 	case "tab":

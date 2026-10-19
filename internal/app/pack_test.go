@@ -204,8 +204,15 @@ func TestPackEncryptedThenUnpackAsksForPassword(t *testing.T) {
 	app := m.(Model)
 	app.pack.focus = packFieldPassword
 	app.pack.pw.SetValue("s3cr3t")
-	m = app
-	m = press(t, m, "enter")
+	app.pack.repeat.SetValue("s3cr3x")
+	m = press(t, app, "enter")
+	if got := m.(Model); got.mode != modePack || !strings.Contains(got.pack.status, "do not match") {
+		t.Fatalf("mode = %v status = %q, want a mistyped password refused", got.mode, got.pack.status)
+	}
+
+	app = m.(Model)
+	app.pack.repeat.SetValue("s3cr3t")
+	m = press(t, app, "enter")
 	if got := m.(Model).pending.Pack.Password; got != "s3cr3t" {
 		t.Fatalf("pending password = %q", got)
 	}

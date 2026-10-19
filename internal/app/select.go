@@ -39,13 +39,12 @@ func (m Model) onSelectMaskKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeSelectMask()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		p := &m.panes[m.selMask.paneIdx]
-		n := p.SelectMatching(m.selMask.input.Value(), m.selMask.on)
+		on := m.selMask.on // closing zeroes the prompt, this with it
+		n := p.SelectMatching(m.selMask.input.Value(), on)
 		m.closeSelectMask()
-		m.noticeText = fmt.Sprintf("%s %d %s", maskVerb(m.selMask.on), n, items(n))
+		m.noticeText = fmt.Sprintf("%s %d %s", maskVerb(on), n, items(n))
 		return m, nil
 	}
 

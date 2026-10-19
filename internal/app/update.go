@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kiruva/tyr/internal/app/caps"
 	"github.com/kiruva/tyr/internal/app/keymap"
 	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/fileops"
@@ -169,6 +170,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.noticeText = "" // a startup notice is read once and dismissed by any key
 
+	if msg.String() == "ctrl+c" && m.ctrlCQuits() {
+		return m, m.quit()
+	}
+
 	switch m.mode {
 	case modeAddress:
 		return m.onAddressKey(msg)
@@ -236,6 +241,34 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// ctrlCQuits reports whether Ctrl+C means quit right now. It does everywhere
+// but in the editor, where it copies; under a running job or command, which it
+// stops first (see onProgressKey); and in the key editor waiting for a key,
+// which says Ctrl+C cannot be bound rather than leaving.
+func (m Model) ctrlCQuits() bool {
+	switch m.mode {
+	case modeEdit, modeProgress, modeConflict, modeRunning:
+		return false
+	case modeKeys:
+		return !m.keyEdit.Capturing()
+	}
+	return true
+}
+
+// quit is the one way out of the app: q, or Ctrl+C from anywhere it means quit.
+// Whatever is still running in the background is stopped, where the panes were
+// is saved for the next run, and ssh sessions are closed with their passwords
+// dropped from memory.
+func (m Model) quit() tea.Cmd {
+	m.find.task.stop()
+	m.sync.task.stop()
+	m.command.task.stop()
+	m.ren.collect.stop()
+	m.saveSession()
+	remote.ForgetAll()
+	return tea.Quit
+}
+
 // scrollOverlay moves through an overlay too tall for the terminal. Anything
 // that is not a scroll key closes it, which is what "any key to close" means.
 func (m Model) scrollOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -254,8 +287,25 @@ func (m Model) scrollOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlayScroll = 0
 	default:
 		m.mode, m.overlayScroll = modeNormal, 0
+		return m, nil
 	}
+	m.overlayScroll = min(m.overlayScroll, m.overlayMaxScroll())
 	return m, nil
+}
+
+// overlayMaxScroll is as far as the open overlay scrolls: its last line at the
+// bottom of the window. Held there, rather than let run on past it, so a key
+// back up moves the view at once instead of first unwinding presses that
+// moved nothing.
+func (m Model) overlayMaxScroll() int {
+	height := 0
+	switch m.mode {
+	case modeHelp:
+		height = keymap.HelpHeight(m.keys)
+	case modeCaps:
+		height = caps.Height(m.width)
+	}
+	return max(height-m.overlayRows(), 0)
 }
 
 // onNormalKey handles navigation and triggers operations / view / edit.
@@ -265,9 +315,7 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Quit):
-		m.saveSession()    // where the panes were, for the next run
-		remote.ForgetAll() // close sessions and drop passwords from memory
-		return m, tea.Quit
+		return m, m.quit()
 	case key.Matches(msg, m.keys.Up):
 		p.MoveUp()
 	case key.Matches(msg, m.keys.Down):
@@ -425,8 +473,6 @@ func (m Model) onAddressKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.errText = ""
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	}
 	m.errText = ""
 	cmd := p.UpdateAddr(msg)
@@ -764,7 +810,7 @@ func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 			m.noticeText = fmt.Sprintf("renamed %s · ctrl+z to undo", rename.UndoLabel(res.Renamed))
 		}
 	case res.Op == fileops.OpRenameUndo:
-		m.popUndo()
+		m.spendUndo(res)
 		if n := len(res.Renamed); n > 0 {
 			m.noticeText = "put " + rename.UndoLabel(res.Renamed) + " back"
 		}

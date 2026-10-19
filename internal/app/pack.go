@@ -26,6 +26,7 @@ const (
 	packFieldFormat packField = iota
 	packFieldLevel
 	packFieldPassword
+	packFieldRepeat
 	packFieldName
 	packFieldCount
 )
@@ -37,8 +38,9 @@ type packState struct {
 	level   int
 	focus   packField
 
-	pw   textinput.Model
-	name textinput.Model
+	pw     textinput.Model
+	repeat textinput.Model // the password again: it is typed blind, once wrong is lost
+	name   textinput.Model
 	// named records that the output name was typed in, after which changing the
 	// format stops rewriting it.
 	named  bool
@@ -85,6 +87,7 @@ func (m *Model) openPack(srcs, names []string, dest string) {
 		dest:    dest,
 		base:    packBase(names),
 		pw:      newConnInput("none", true, packValueW-1),
+		repeat:  newConnInput("", true, packValueW-1),
 		name:    newConnInput("name", false, contentWidth-packLabelW),
 	}
 	s.level = s.info().DefLevel
@@ -119,8 +122,6 @@ func (m Model) onPackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closePack()
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		return m.commitPack()
 	case "tab", "down":
@@ -150,6 +151,8 @@ func (m Model) onPackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.pack.focus {
 	case packFieldPassword:
 		m.pack.pw, cmd = m.pack.pw.Update(msg)
+	case packFieldRepeat:
+		m.pack.repeat, cmd = m.pack.repeat.Update(msg)
 	case packFieldName:
 		m.pack.name, cmd = m.pack.name.Update(msg)
 		m.pack.named = true
@@ -164,7 +167,7 @@ func (m Model) movePackFocus(step int) (tea.Model, tea.Cmd) {
 	f := m.pack.focus
 	for i := 0; i < int(packFieldCount); i++ {
 		f = packField((int(f) + step + int(packFieldCount)) % int(packFieldCount))
-		if f == packFieldPassword && !m.pack.canEncrypt() {
+		if (f == packFieldPassword || f == packFieldRepeat) && !m.pack.canEncrypt() {
 			continue
 		}
 		if f == packFieldLevel && !m.pack.info().Levels() {
@@ -179,10 +182,13 @@ func (m Model) movePackFocus(step int) (tea.Model, tea.Cmd) {
 // refocusPack points the cursor at whichever text field has focus.
 func (m *Model) refocusPack() tea.Cmd {
 	m.pack.pw.Blur()
+	m.pack.repeat.Blur()
 	m.pack.name.Blur()
 	switch m.pack.focus {
 	case packFieldPassword:
 		return m.pack.pw.Focus()
+	case packFieldRepeat:
+		return m.pack.repeat.Focus()
 	case packFieldName:
 		return m.pack.name.Focus()
 	}
@@ -206,9 +212,10 @@ func (m *Model) cyclePackFormat(step int) {
 	}
 	// A password already typed for .zip is meaningless for .tar.gz; keep it in
 	// the field (switching back should not lose it) but move off it.
-	if m.pack.focus == packFieldPassword && !m.pack.canEncrypt() {
+	if (m.pack.focus == packFieldPassword || m.pack.focus == packFieldRepeat) && !m.pack.canEncrypt() {
 		m.pack.focus = packFieldFormat
 		m.pack.pw.Blur()
+		m.pack.repeat.Blur()
 	}
 }
 
@@ -230,6 +237,12 @@ func (m *Model) cyclePackLevel(step int) {
 // commitPack turns the dialog into a pending job and hands it to the confirm
 // prompt. A bad name keeps the dialog open with the reason under the fields.
 func (m Model) commitPack() (tea.Model, tea.Cmd) {
+	// A password typed blind and mistyped would lock the files away for good.
+	if m.pack.canEncrypt() && m.pack.pw.Value() != m.pack.repeat.Value() {
+		m.pack.status = "the passwords do not match"
+		m.pack.focus = packFieldRepeat
+		return m, m.refocusPack()
+	}
 	name, err := cleanNewName(m.pack.name.Value())
 	if err != nil {
 		m.pack.status = err.Error()
@@ -263,6 +276,7 @@ func (m Model) commitPack() (tea.Model, tea.Cmd) {
 func (m *Model) closePack() {
 	m.mode = modeNormal
 	m.pack.pw.Blur()
+	m.pack.repeat.Blur()
 	m.pack.name.Blur()
 	m.pack = packState{} // the password lives no longer than the dialog
 }
@@ -296,8 +310,6 @@ func (m Model) onUnpackPwKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeUnpackPw()
 		m.noticeText = "unpack cancelled"
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		pw := m.unpackPw.input.Value()
 		if pw == "" {
@@ -337,7 +349,8 @@ func (m Model) renderPack() string {
 	rows := []string{
 		packRow(m, packFieldFormat, "Format", packChoice(i.Label), strings.Join(i.Tools, ", ")),
 		packRow(m, packFieldLevel, "Level", packLevelValue(m.pack), packLevelHint(i)),
-		packRow(m, packFieldPassword, "Password", m.packPasswordValue(), m.packPasswordHint()),
+		packRow(m, packFieldPassword, "Password", m.packPasswordValue(m.pack.pw), m.packPasswordHint()),
+		packRow(m, packFieldRepeat, "Repeat", m.packPasswordValue(m.pack.repeat), ""),
 		packRow(m, packFieldName, "Name", m.pack.name.View(), ""),
 	}
 
@@ -400,11 +413,11 @@ func packLevelHint(i fileops.PackFormatInfo) string {
 	}
 }
 
-func (m Model) packPasswordValue() string {
+func (m Model) packPasswordValue(field textinput.Model) string {
 	if !m.pack.canEncrypt() {
 		return ui.Faint.Render(ui.PadRight("—", packValueW))
 	}
-	return ui.PadRight(m.pack.pw.View(), packValueW)
+	return ui.PadRight(field.View(), packValueW)
 }
 
 func (m Model) packPasswordHint() string {
