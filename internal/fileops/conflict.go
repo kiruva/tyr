@@ -102,6 +102,12 @@ func newResolver(ctx context.Context, ch chan<- Event, policy ConflictAction) *r
 // returns is always one of Overwrite, Skip or KeepBoth: "newer" is settled here
 // against the two timestamps, and "cancel" comes back as ErrCancelled.
 func (rv *resolver) resolve(src, dst string) (ConflictAction, error) {
+	return rv.resolveWith(src, dst, metaOf(dst))
+}
+
+// resolveWith is resolve for a destination that is not a file on disk — a
+// member inside an archive — and so has to be described by the caller.
+func (rv *resolver) resolveWith(src, dst string, dstInfo Meta) (ConflictAction, error) {
 	action := rv.standing
 	if action == ConflictAsk {
 		// Asking parks this goroutine on the UI. Both halves have to give way to
@@ -110,7 +116,7 @@ func (rv *resolver) resolve(src, dst string) (ConflictAction, error) {
 		reply := make(chan Resolution, 1)
 		conflict := Conflict{
 			Src: src, Dst: dst,
-			SrcInfo: metaOf(src), DstInfo: metaOf(dst),
+			SrcInfo: metaOf(src), DstInfo: dstInfo,
 			Reply: reply,
 		}
 		select {
@@ -135,7 +141,7 @@ func (rv *resolver) resolve(src, dst string) (ConflictAction, error) {
 	case ConflictCancel:
 		return ConflictCancel, ErrCancelled
 	case ConflictNewer:
-		if metaOf(src).ModTime.After(metaOf(dst).ModTime) {
+		if metaOf(src).ModTime.After(dstInfo.ModTime) {
 			return ConflictOverwrite, nil
 		}
 		return ConflictSkip, nil

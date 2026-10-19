@@ -1,10 +1,14 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/trash"
 )
 
 // Undoing a move puts the files back where they were.
@@ -107,5 +111,27 @@ func TestUndoWithEmptyHistory(t *testing.T) {
 	}
 	if !strings.Contains(app.errText, "nothing to undo") {
 		t.Errorf("errText = %q, want it to say there is nothing to undo", app.errText)
+	}
+}
+
+// A restore that brought back only some of its items keeps the rest on the
+// history: they are still in the trash, and Ctrl+Z still gets them out.
+func TestPartialRestoreKeepsTheRest(t *testing.T) {
+	m := New()
+	a := trash.Item{Original: "/w/a.txt", Path: "/t/a.txt"}
+	b := trash.Item{Original: "/w/b.txt", Path: "/t/b.txt"}
+	m.pushUndo(undoEntry{kind: undoTrash, label: "delete of 2 items", trashed: []trash.Item{a, b}})
+
+	m.spendUndo(fileops.Result{Op: fileops.OpRestore, Trashed: []trash.Item{a}, Err: errors.New("b.txt is no longer in the trash")})
+	if len(m.undoStack) != 1 {
+		t.Fatal("the entry was dropped with b.txt still in the trash")
+	}
+	if got := m.undoStack[0].trashed; len(got) != 1 || got[0] != b {
+		t.Errorf("left on the history: %v, want only b.txt", got)
+	}
+
+	m.spendUndo(fileops.Result{Op: fileops.OpRestore, Trashed: []trash.Item{b}})
+	if len(m.undoStack) != 0 {
+		t.Error("a restore that brought everything back left the entry behind")
 	}
 }

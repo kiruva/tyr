@@ -172,6 +172,32 @@ func (m *Model) undoJob(e undoEntry) (fileops.Job, error) {
 }
 
 // popUndo drops the entry whose reversal has just run.
+// spendUndo settles the top entry once its reversal has run. Usually that is
+// the end of it. A restore from the trash that brought back only some of its
+// items keeps the rest instead: they are still in the trash, and Ctrl+Z is
+// still the way to get them out.
+func (m *Model) spendUndo(res fileops.Result) {
+	if res.Op == fileops.OpRestore && res.Err != nil && len(m.undoStack) > 0 {
+		top := &m.undoStack[len(m.undoStack)-1]
+		back := make(map[string]bool, len(res.Trashed))
+		for _, it := range res.Trashed {
+			back[it.Path] = true
+		}
+		left := top.trashed[:0:0]
+		for _, it := range top.trashed {
+			if !back[it.Path] {
+				left = append(left, it)
+			}
+		}
+		if len(left) > 0 {
+			top.trashed = left
+			top.label = "delete of " + trash.Label(left)
+			return
+		}
+	}
+	m.popUndo()
+}
+
 func (m *Model) popUndo() {
 	if len(m.undoStack) > 0 {
 		m.undoStack = m.undoStack[:len(m.undoStack)-1]

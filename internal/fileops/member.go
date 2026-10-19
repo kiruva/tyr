@@ -2,19 +2,23 @@ package fileops
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	iofs "io/fs"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Member is a single entry inside an archive.
 type Member struct {
-	Path  string // full slash-separated path within the archive (no trailing slash)
-	IsDir bool
-	Size  int64
+	Path    string // full slash-separated path within the archive (no trailing slash)
+	IsDir   bool
+	Size    int64
+	ModTime time.Time // zero when the listing came from a tool
 }
 
 // Browsable reports whether an archive's members can be listed/streamed.
@@ -24,9 +28,13 @@ func Browsable(name string) bool {
 	return isTar(f) || f == fmtZip
 }
 
-// ListMembers returns the entries inside an archive.
+// ListMembers returns the entries inside an archive, read natively where the
+// format allows (see memberread.go) and through the tools otherwise.
 func ListMembers(archive string) ([]Member, error) {
 	f := detectFormat(archive)
+	if ms, err := listNative(archive, f); !errors.Is(err, errNotNative) {
+		return ms, err
+	}
 	var out []byte
 	var err error
 	switch {
@@ -63,11 +71,21 @@ func parseMembers(out []byte) []Member {
 	return ms
 }
 
-// ReadMember streams a single member's bytes into memory. The member name comes
-// out of the archive, so it is attacker-controlled and never goes on a command
-// line where a tool could read it as an option — see argsafe.go.
+// ReadMember reads a single member's bytes into memory, up to MaxMemberBytes.
+// It is read natively where the format allows (see memberread.go); otherwise a
+// tool streams it. The member name comes out of the archive, so it is
+// attacker-controlled and never goes on a command line where a tool could read
+// it as an option — see argsafe.go — or as a pattern.
 func ReadMember(archive, member string) ([]byte, error) {
 	f := detectFormat(archive)
+	if data, err := readNative(archive, f, member); !errors.Is(err, errNotNative) {
+		return data, err
+	}
+	if patternLike(member) {
+		return nil, fmt.Errorf("cannot open %q from inside this archive: the tool would read the name as a pattern — unpack it instead", member)
+	}
+
+	var cmd *exec.Cmd
 	switch {
 	case isTar(f):
 		a := []string{"-x"}
@@ -75,21 +93,44 @@ func ReadMember(archive, member string) ([]byte, error) {
 			a = append(a, c)
 		}
 		a = append(a, "-O", "-f", archive, "--", member)
-		return exec.Command("tar", a...).Output()
+		cmd = exec.Command("tar", a...)
 	case f == fmtZip:
 		// 7-Zip honours "--" and unzip does not, so an entry whose name starts
 		// with a "-" is only readable where 7-Zip is installed. unzip stays the
 		// default otherwise: it is the native tool for a zip on Unix.
 		if bin := tool("7z"); bin != "" && optionLike(member) {
-			return exec.Command(bin, "x", "-so", "--", argPath(archive), member).Output()
+			cmd = exec.Command(bin, "x", "-so", "--", argPath(archive), member)
+			break
 		}
 		if err := checkUnzipMember(member); err != nil {
 			return nil, err
 		}
-		return exec.Command("unzip", "-p", argPath(archive), member).Output()
+		cmd = exec.Command("unzip", "-p", argPath(archive), member)
 	default:
 		return nil, fmt.Errorf("reading members of this archive type is not supported")
 	}
+	return outputCapped(cmd)
+}
+
+// outputCapped is cmd.Output with the cap ReadMember keeps to: the tool is
+// stopped once it has written more than MaxMemberBytes.
+func outputCapped(cmd *exec.Cmd) ([]byte, error) {
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	data, readErr := readCapped(out)
+	if errors.Is(readErr, ErrMemberTooLarge) {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return nil, readErr
+	}
+	return data, waitErr
 }
 
 // WriteMember writes edited bytes back to a single member, preserving the
@@ -207,13 +248,13 @@ func topLevel(dir string) ([]string, error) {
 // addToArchive adds real files/dirs (job.Srcs) into archive job.Dest at the
 // virtual directory job.VDir, preserving the archive's format. If job.Move is
 // set, the sources are removed afterward.
-func addToArchive(ctx context.Context, job Job, r *reporter) error {
+func addToArchive(ctx context.Context, job Job, r *reporter, rv *resolver) error {
 	var err error
 	switch f := detectFormat(job.Dest); {
 	case isTar(f):
-		err = addToTar(ctx, f, job.Dest, job.VDir, job.Srcs, r)
+		err = addToTar(ctx, f, job.Dest, job.VDir, job.Srcs, r, rv)
 	case f == fmtZip:
-		err = addToZip(ctx, job.Dest, job.VDir, job.Srcs, r)
+		err = addToZip(ctx, job.Dest, job.VDir, job.Srcs, r, rv)
 	default:
 		return fmt.Errorf("adding to this archive type is not supported")
 	}
@@ -231,15 +272,15 @@ func addToArchive(ctx context.Context, job Job, r *reporter) error {
 }
 
 // stageSources copies each src into <root>/<vdir>/<basename>, reporting progress,
-// and returns the slash-separated relative paths that were staged.
-func stageSources(ctx context.Context, root, vdir string, srcs []string, r *reporter) ([]string, error) {
+// and returns the slash-separated relative paths that were staged. A collision
+// in root is put to rv: for a tar, root holds the archive's own contents, so a
+// name taken there is a name taken in the archive.
+func stageSources(ctx context.Context, root, vdir string, srcs []string, r *reporter, rv *resolver) ([]string, error) {
 	destDir := filepath.Join(root, filepath.FromSlash(vdir))
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
-	// Staging is tyr's own scratch directory: nothing there can collide with
-	// anything, so the copy answers its own (non-existent) conflicts.
-	rn := &runner{ctx: ctx, r: r, rv: newResolver(ctx, nil, ConflictOverwrite)}
+	rn := &runner{ctx: ctx, r: r, rv: rv}
 
 	rels := make([]string, 0, len(srcs))
 	for _, s := range srcs {
@@ -254,7 +295,7 @@ func stageSources(ctx context.Context, root, vdir string, srcs []string, r *repo
 
 // addToTar rewrites the tar with the new files spliced in at vdir. Rewriting
 // (rather than -r append) keeps one code path for both plain and compressed tar.
-func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string, r *reporter) error {
+func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string, r *reporter, rv *resolver) error {
 	tmp, err := os.MkdirTemp("", "tyr-add-")
 	if err != nil {
 		return err
@@ -270,7 +311,7 @@ func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string
 		return err
 	}
 
-	if _, err := stageSources(ctx, tmp, vdir, srcs, r); err != nil {
+	if _, err := stageSources(ctx, tmp, vdir, srcs, r, rv); err != nil {
 		return err
 	}
 
@@ -289,20 +330,106 @@ func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string
 
 // addToZip stages the sources and lets `zip` splice them in (updates existing
 // members in place, so no full rewrite is needed).
-func addToZip(ctx context.Context, archive, vdir string, srcs []string, r *reporter) error {
+//
+// zip replaces a member of the same name without a word, so before it runs,
+// every staged file that is already in the archive is asked about — against
+// the member's own size and date, as a copy would ask. A skip takes the staged
+// file out, a keep-both renames it; nothing of the archive's own is staged, so
+// nothing of it is written back.
+func addToZip(ctx context.Context, archive, vdir string, srcs []string, r *reporter, rv *resolver) error {
 	tmp, err := os.MkdirTemp("", "tyr-addzip-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
 
-	rels, err := stageSources(ctx, tmp, vdir, srcs, r)
+	// The scratch folder is empty: nothing in it can collide.
+	if _, err := stageSources(ctx, tmp, vdir, srcs, r, newResolver(ctx, nil, ConflictOverwrite)); err != nil {
+		return err
+	}
+	members, err := ListMembers(archive)
 	if err != nil {
 		return err
+	}
+	if err := resolveAgainstMembers(ctx, archive, tmp, members, srcs, vdir, rv); err != nil {
+		return err
+	}
+
+	names, err := topLevel(filepath.Join(tmp, filepath.FromSlash(vdir)))
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return nil // every one was skipped
+	}
+	rels := make([]string, 0, len(names))
+	for _, n := range names {
+		rels = append(rels, path.Join(vdir, n))
 	}
 	cmd := exec.CommandContext(ctx, "zip", append([]string{"-r", "-q", argPath(archive), "--"}, rels...)...)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
+}
+
+// resolveAgainstMembers walks the staged files under root and puts each one the
+// archive already holds to rv. srcs are the originals, so the question shows
+// the incoming file as it is on disk.
+func resolveAgainstMembers(ctx context.Context, archive, root string, members []Member, srcs []string, vdir string, rv *resolver) error {
+	taken := make(map[string]Member, len(members))
+	for _, m := range members {
+		taken[m.Path] = m
+	}
+	origin := make(map[string]string, len(srcs)) // staged top-level name → original
+	for _, s := range srcs {
+		origin[filepath.Base(s)] = s
+	}
+
+	base := filepath.Join(root, filepath.FromSlash(vdir))
+	return filepath.WalkDir(base, func(p string, d iofs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(base, p)
+		name := path.Join(vdir, filepath.ToSlash(rel))
+		m, ok := taken[name]
+		if !ok || m.IsDir {
+			return nil
+		}
+		top, rest, _ := strings.Cut(filepath.ToSlash(rel), "/")
+		src := filepath.Join(origin[top], filepath.FromSlash(rest))
+
+		action, err := rv.resolveWith(src, filepath.Join(archive, filepath.FromSlash(name)), Meta{Size: m.Size, ModTime: m.ModTime})
+		if err != nil {
+			return err
+		}
+		switch action {
+		case ConflictSkip:
+			return os.Remove(p)
+		case ConflictKeepBoth:
+			return os.Rename(p, filepath.Join(filepath.Dir(p), path.Base(freeMemberName(name, taken))))
+		}
+		return nil // overwrite: zip replaces it
+	})
+}
+
+// freeMemberName finds a name beside member that the archive does not hold,
+// the way freeName does on disk: notes.txt becomes "notes (2).txt".
+func freeMemberName(member string, taken map[string]Member) string {
+	dir, base := path.Split(member)
+	ext := path.Ext(base)
+	if strings.HasPrefix(base, ".") && ext == base {
+		ext = ""
+	}
+	stem := strings.TrimSuffix(base, ext)
+	for n := 2; ; n++ {
+		candidate := dir + fmt.Sprintf("%s (%d)%s", stem, n, ext)
+		if _, ok := taken[candidate]; !ok {
+			return candidate
+		}
+	}
 }
 
 func runQuiet(cmd *exec.Cmd) error {

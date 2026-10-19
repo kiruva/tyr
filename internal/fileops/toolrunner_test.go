@@ -66,7 +66,7 @@ func withTools(t *testing.T, f *fakeTools, job Job) Result {
 		case OpPack:
 			err = pack(ctx, job, r)
 		case OpUnpack, OpUnwrap:
-			err = extractAll(ctx, job, r)
+			err = extractAll(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
 		default:
 			t.Errorf("withTools does not drive %v", job.Op)
 		}
@@ -275,7 +275,7 @@ func TestToolProgressReachesTheChannel(t *testing.T) {
 	ch := make(chan Event, 16)
 	ctx := context.Background()
 	r := &reporter{ctx: ctx, ch: ch, tools: f}
-	if err := extractAll(ctx, Job{Op: OpUnpack, Srcs: []string{"/a/one.tar"}, Dest: filepath.Join(dir, "out")}, r); err != nil {
+	if err := extractAll(ctx, Job{Op: OpUnpack, Srcs: []string{"/a/one.tar"}, Dest: filepath.Join(dir, "out")}, r, newResolver(ctx, ch, ConflictAsk)); err != nil {
 		t.Fatal(err)
 	}
 	close(ch)
