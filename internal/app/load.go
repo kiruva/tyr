@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -57,7 +58,6 @@ func (m *Model) startLoad(purpose loadPurpose) tea.Cmd {
 	}
 
 	var target editTarget
-	var read func() ([]byte, bool, error)
 	if p.InArchive() {
 		mem, ok := p.CurrentMemberPath()
 		if !ok {
@@ -65,13 +65,6 @@ func (m *Model) startLoad(purpose loadPurpose) tea.Cmd {
 			return nil
 		}
 		target = editTarget{title: mem, archive: p.ArchivePath(), member: mem}
-		read = func() ([]byte, bool, error) {
-			data, err := fileops.ReadMember(target.archive, mem)
-			if len(data) > maxViewBytes {
-				return data[:maxViewBytes], true, err
-			}
-			return data, false, err
-		}
 	} else {
 		cur, ok := p.Current()
 		if !ok || cur.IsDir {
@@ -89,9 +82,12 @@ func (m *Model) startLoad(purpose loadPurpose) tea.Cmd {
 			return nil
 		}
 		target = editTarget{title: cur.Name, realPath: full}
-		read = func() ([]byte, bool, error) { return readCapped(full, maxViewBytes) }
 	}
+	return m.loadCmd(target, purpose)
+}
 
+// loadCmd reads target off the UI thread for purpose.
+func (m *Model) loadCmd(target editTarget, purpose loadPurpose) tea.Cmd {
 	m.loadSeq++
 	seq := m.loadSeq
 	return func() tea.Msg {
@@ -101,7 +97,7 @@ func (m *Model) startLoad(purpose loadPurpose) tea.Cmd {
 			// change the save notices, not one it misses.
 			msg.target.stamp = stampOf(target.realPath)
 		}
-		data, truncated, err := read()
+		data, truncated, err := readTarget(target)
 		switch {
 		case err != nil:
 			msg.err = err
@@ -111,6 +107,7 @@ func (m *Model) startLoad(purpose loadPurpose) tea.Cmd {
 			msg.data = data
 		default:
 			msg.view = newViewer(target.title, data, syntax.Detect(target.title))
+			msg.view.source = target
 			if truncated {
 				msg.view.status = "showing the first " + pane.HumanSize(maxViewBytes) + " only"
 			}
@@ -137,12 +134,37 @@ func (m Model) onLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		m.errText = "not a text file: " + msg.title
 		return m, nil
 	}
+	// The editor holds text as runes; bytes that are not UTF-8 would not
+	// survive the trip and are not opened for editing.
+	if !utf8.Valid(msg.data) {
+		m.errText = msg.title + " is not UTF-8 text — it cannot be edited here without changing it"
+		return m, nil
+	}
 	m.edit = msg.target
-	m.editOrig = string(msg.data)
 	m.editStatus = ""
-	m.editor.SetValue(string(msg.data))
+	m.editor.SetText(string(msg.data), syntax.Detect(msg.title))
 	m.mode = modeEdit
-	return m, m.editor.Focus()
+	return m, nil
+}
+
+// readTarget reads up to maxViewBytes of what target names, reporting whether
+// there was more.
+func readTarget(target editTarget) ([]byte, bool, error) {
+	if target.archive != "" {
+		data, err := fileops.ReadMember(target.archive, target.member)
+		if len(data) > maxViewBytes {
+			return data[:maxViewBytes], true, err
+		}
+		return data, false, err
+	}
+	// Checked again here: this may be a second open of what the viewer
+	// showed, and the name may since have become something else.
+	if info, err := os.Stat(target.realPath); err != nil {
+		return nil, false, err
+	} else if !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("%s is not a regular file", target.title)
+	}
+	return readCapped(target.realPath, maxViewBytes)
 }
 
 // readCapped reads up to limit bytes of path, reporting whether there was more.

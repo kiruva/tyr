@@ -152,9 +152,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case modeEdit:
-		var cmd tea.Cmd
-		m.editor, cmd = m.editor.Update(msg)
-		return m, cmd
+		return m, nil // the editor has no timers of its own
 	case modeView:
 		var cmd tea.Cmd
 		if m.viewer.prompting {
@@ -454,7 +452,8 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onEditKey drives the nano-style editor.
+// onEditKey drives the editor. Saving, quitting and closing are the app's;
+// every other key is the editor's.
 func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+s":
@@ -464,7 +463,10 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeEditor()
 		return m, nil
 	case "esc":
-		if m.editor.Value() != m.editOrig {
+		if m.editor.Finding() {
+			break // closes the find prompt
+		}
+		if m.editor.Dirty() {
 			m.editStatus = "unsaved — Ctrl+S to save, Ctrl+Q to discard"
 			return m, nil
 		}
@@ -473,9 +475,8 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.editStatus = ""
 	m.edit.overwrite = false // the warning was about the last Ctrl+S, not a later one
-	var cmd tea.Cmd
-	m.editor, cmd = m.editor.Update(msg)
-	return m, cmd
+	m.editor.Update(msg)
+	return m, nil
 }
 
 // enterOrOpen descends into a directory, or opens an archive for browsing.
@@ -518,7 +519,7 @@ func stampOf(path string) fileStamp {
 // git checkout — is not overwritten on the first Ctrl+S: the editor says so,
 // and a second Ctrl+S overwrites it knowingly.
 func (m *Model) saveEditor() {
-	data := []byte(m.editor.Value())
+	data := []byte(m.editor.Text())
 
 	var err error
 	if m.edit.archive != "" {
@@ -544,14 +545,13 @@ func (m *Model) saveEditor() {
 	if m.edit.archive == "" {
 		m.edit.stamp, m.edit.overwrite = stampOf(m.edit.realPath), false
 	}
-	m.editOrig = string(data) // buffer is now clean
+	m.editor.MarkSaved()
 	m.editStatus = "saved"
 	m.panes[m.active].Refresh()
 }
 
 func (m *Model) closeEditor() {
 	m.mode = modeNormal
-	m.editor.Blur()
 	m.editStatus = ""
 }
 
@@ -843,8 +843,7 @@ func (m *Model) resizePanes() {
 		// is a re-render, not just a smaller window onto the old one.
 		m.refreshViewer()
 	}
-	m.editor.SetWidth(m.width)
-	m.editor.SetHeight(compH)
+	m.editor.SetSize(m.width, compH)
 }
 
 // waitCmd blocks on the next value from the operation channel and delivers it

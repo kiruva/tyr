@@ -11,6 +11,25 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **Saving from the editor no longer changes what you did not touch.** The editor turned every
+  tab into four spaces, every `\r\n` into two line breaks, dropped other control characters and
+  cut files at 10000 lines — so a Makefile saved unchanged stopped working. It is replaced by
+  an editor of tyr's own that keeps a file as it found it: tabs stay tabs and are drawn as
+  indentation, CRLF stays CRLF, control characters show as `^X`, and there is no line limit.
+- **Enter works past line 99** in the editor, and a file no longer counts as changed the moment
+  it is opened.
+- **`e` in the viewer edits the file being viewed**, not whatever the pane's cursor is on — and
+  does nothing on a command's output.
+
+### Added
+
+- **The editor is fit for quick code fixes:** syntax colours, undo and redo (`Ctrl+Z`/`Ctrl+Y`),
+  find as you type (`Ctrl+F`, `F3`), selecting with `Shift` and the mouse, copy, cut and paste
+  through the system clipboard, `Tab`/`Shift+Tab` to indent a selection, `Enter` keeping the
+  indentation, and the cursor's line and column in the footer.
+
+### Fixed
+
 - **`v` on a named pipe no longer freezes tyr.** Opening it waited for a writer on the UI
   thread, for good; `/dev/zero` read until memory ran out. Pipes, sockets and devices are
   refused, files are read in the background, and the viewer holds the first 16 MB of a big one

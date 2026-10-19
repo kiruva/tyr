@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kiruva/tyr/internal/app/keymap"
 	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/config"
+	"github.com/kiruva/tyr/internal/editor"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/pane"
 )
@@ -27,7 +27,7 @@ const (
 	modeConfirm                 // awaiting y/n on a pending operation
 	modeProgress                // an operation is running
 	modeView                    // read-only text pager
-	modeEdit                    // nano-style text editor
+	modeEdit                    // the text editor
 	modeHelp                    // keybinding overlay
 	modeCaps                    // capabilities overlay: what the tools on PATH allow
 	modeTheme                   // theme picker overlay
@@ -114,9 +114,8 @@ type Model struct {
 	viewport   viewport.Model
 	viewTitle  string
 	viewer     viewerState
-	editor     textarea.Model
+	editor     editor.Model
 	edit       editTarget
-	editOrig   string // content as loaded, for dirty detection
 	editStatus string // transient footer message ("saved", etc.)
 	loadSeq    int    // the open being waited for; an older reply is dropped
 
@@ -189,17 +188,12 @@ func New() Model {
 		wd = string(os.PathSeparator)
 	}
 
-	ta := textarea.New()
-	ta.CharLimit = 0 // no limit
-	ta.ShowLineNumbers = true
-	ta.Prompt = ""
-
 	return Model{
 		panes:         [2]pane.Model{pane.New(wd), pane.New(wd)},
 		active:        0,
 		keys:          keymap.Default(),
 		viewport:      viewport.New(0, 0),
-		editor:        ta,
+		editor:        editor.New(),
 		deleteToTrash: true, // the config can turn it off; see WithSession
 	}
 }

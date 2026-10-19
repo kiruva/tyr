@@ -47,7 +47,7 @@ func TestEditorSaveRefusesAnOutsideChange(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
-	if got := readBody(t, path); got != "original\nX" {
+	if got := readBody(t, path); got != "Xoriginal\n" {
 		t.Errorf("file = %q after the second Ctrl+S, want the buffer", got)
 	}
 	if status := m.(Model).editStatus; status != "saved" {
@@ -56,7 +56,7 @@ func TestEditorSaveRefusesAnOutsideChange(t *testing.T) {
 
 	// Saved, the file is the editor's again: the next save goes straight through.
 	typeAndSave(m, "Y")
-	if got := readBody(t, path); got != "original\nXY" {
+	if got := readBody(t, path); got != "XYoriginal\n" {
 		t.Errorf("file = %q, want the next save to go through", got)
 	}
 }
@@ -79,7 +79,7 @@ func TestEditorSaveKeepsModeAndLink(t *testing.T) {
 	if status := m.(Model).editStatus; status != "saved" {
 		t.Fatalf("status = %q, want saved", status)
 	}
-	if got := readBody(t, real); got != "body\nX" {
+	if got := readBody(t, real); got != "Xbody\n" {
 		t.Errorf("target = %q", got)
 	}
 	if info, _ := os.Lstat(filepath.Join(dir, "link.txt")); info.Mode()&os.ModeSymlink == 0 {

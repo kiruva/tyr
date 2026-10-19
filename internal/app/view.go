@@ -2,10 +2,11 @@ package app
 
 import (
 	"fmt"
-	"github.com/kiruva/tyr/internal/app/caps"
-	"github.com/kiruva/tyr/internal/app/keymap"
 	"path/filepath"
 	"strings"
+
+	"github.com/kiruva/tyr/internal/app/caps"
+	"github.com/kiruva/tyr/internal/app/keymap"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -150,19 +151,21 @@ func (m Model) viewerFooter() string {
 	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 }
 
-// renderEditor draws the nano-style editor full-screen.
+// renderEditor draws the editor full-screen.
 func (m Model) renderEditor() string {
 	name := m.edit.title
-	if m.editor.Value() != m.editOrig {
+	if m.editor.Dirty() {
 		name += " *"
 	}
 	header := ui.StatusBar.Width(m.width).Render(" edit · " + ui.TruncTail(name, m.width-8))
 
-	hint := " Ctrl+S save · Ctrl+Q quit"
+	hint := " ^S save · ^Q quit · ^F find · ^Z undo · ^C/^X/^V"
 	if m.editStatus != "" {
-		hint += " · " + termsafe.Line(m.editStatus)
+		hint = " " + termsafe.Line(m.editStatus)
 	}
-	footer := ui.StatusBar.Width(m.width).Render(hint)
+	line, col := m.editor.Cursor()
+	where := fmt.Sprintf("Ln %d, Col %d ", line, col)
+	footer := ui.StatusBar.Width(m.width).Render(hint + spacer(m.width, hint, where) + where)
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)
 }
 
