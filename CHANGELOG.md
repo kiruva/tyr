@@ -11,6 +11,28 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **Synchronize no longer replaces a folder with a file.** A file `foo` on one side and a
+  folder `foo/` on the other were listed as two one-sided rows, and running the sync deleted
+  the folder and everything in it to copy the file across. A row that cannot be copied either
+  way without losing something is now a conflict: it says what is in the way, is skipped, and
+  cannot be turned into a copy. The same goes for `Foo.txt` against `foo.txt` on a volume that
+  ignores case — one file there, so either copy would have overwritten the other, possibly the
+  newer one — and for a copy that would land under a symlinked folder, outside the tree.
+- **Comparing a folder with one inside it is refused**, as is comparing a folder with itself
+  through a symlink. The sync would have copied the inner tree into itself.
+- **Two different files with the same timestamp are skipped**, rather than copied left to right
+  on no evidence.
+- **Compare and find follow a symlinked starting folder.** On macOS, comparing anything under
+  `/tmp` listed every file as one-sided, and a search from there found nothing.
+- **Find keeps reading past a very long line.** A line over a megabyte — a minified bundle —
+  ended the content search of that file, so a match further down was missed; its first
+  megabyte is now searched and the rest skipped. A malformed pattern such as `[abc` is reported
+  instead of matching nothing.
+- Cancelling a byte-for-byte compare stops it straight away, not after the pair of files it
+  was reading.
+
+### Fixed
+
 - **Copying or moving a file onto itself no longer deletes it.** A file reached through a
   symlinked folder — or under another case on a volume that ignores case — is the same file
   as the one in the folder, and answering "overwrite" removed it before copying from it. It

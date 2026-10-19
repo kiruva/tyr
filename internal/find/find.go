@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,9 +28,9 @@ const DefaultMax = 500
 // nobody is waiting for.
 const maxContentBytes = 32 << 20
 
-// maxLineBytes is the longest line the content scanner will hold. A minified
-// bundle is one enormous line, and refusing to buffer it is cheaper than
-// growing without limit.
+// maxLineBytes is how much of one line the content scanner holds. A minified
+// bundle is one enormous line; its first megabyte is searched and the rest is
+// read past, which is cheaper than growing without limit.
 const maxLineBytes = 1 << 20
 
 // previewBytes is how much of a matching line a result keeps. Up to 500 hits
@@ -70,7 +71,21 @@ func Run(ctx context.Context, o Options) ([]Result, bool, error) {
 	if o.Max <= 0 {
 		o.Max = DefaultMax
 	}
-	root, err := filepath.Abs(o.Root)
+	// A malformed glob would match nothing, which looks like a search that
+	// found nothing. It is said instead.
+	if strings.ContainsAny(o.Name, "*?[") {
+		if _, err := filepath.Match(o.Name, ""); err != nil {
+			return nil, false, fmt.Errorf("name pattern %q: %w", o.Name, err)
+		}
+	}
+	shown, err := filepath.Abs(o.Root)
+	if err != nil {
+		return nil, false, err
+	}
+	// A root reached through a symlink is searched as the folder it points
+	// at, since WalkDir does not follow a link; the results keep the path
+	// the search was started from.
+	root, err := filepath.EvalSymlinks(shown)
 	if err != nil {
 		return nil, false, err
 	}
@@ -106,6 +121,7 @@ func Run(ctx context.Context, o Options) ([]Result, bool, error) {
 		if !ok {
 			return nil
 		}
+		res.Path = filepath.Join(shown, res.Rel)
 		out = append(out, res)
 		if len(out) >= o.Max {
 			truncated = true
@@ -196,10 +212,9 @@ func grep(path, needle string, caseSensitive bool) (int, string, bool) {
 		needle = strings.ToLower(needle)
 	}
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
-	for i := 1; sc.Scan(); i++ {
-		line := sc.Text()
+	br := bufio.NewReaderSize(f, 64*1024)
+	for i := 1; ; i++ {
+		line, err := readLine(br)
 		hay := line
 		if !caseSensitive {
 			hay = strings.ToLower(hay)
@@ -207,8 +222,29 @@ func grep(path, needle string, caseSensitive bool) (int, string, bool) {
 		if at := strings.Index(hay, needle); at >= 0 {
 			return i, preview(line, at), true
 		}
+		if err != nil {
+			return 0, "", false
+		}
 	}
-	return 0, "", false
+}
+
+// readLine returns the next line without its line ending, cut to maxLineBytes;
+// the rest of a longer line is read and dropped so the next call starts on the
+// line after it. The error is io.EOF after the last line, or a read failure.
+func readLine(br *bufio.Reader) (string, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if room := maxLineBytes - len(line); room > 0 {
+			line = append(line, chunk[:min(len(chunk), room)]...)
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		line = bytes.TrimSuffix(line, []byte("\n"))
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		return string(line), err
+	}
 }
 
 // preview cuts a matching line down to previewBytes, starting a little before

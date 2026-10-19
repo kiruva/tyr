@@ -42,11 +42,14 @@ func (m Model) renderSync() string {
 
 // syncHeader counts what the comparison found and what is about to happen.
 func (m Model) syncHeader() string {
-	same, differs, onlyLeft, onlyRight := compare.Counts(pairsOf(m.sync.rows))
+	same, differs, onlyLeft, onlyRight, conflicts := compare.Counts(pairsOf(m.sync.rows))
 	toRight, toLeft := m.syncCounts()
 
 	left := fmt.Sprintf(" compare · %d differ · %d only left · %d only right · %d same",
 		differs, onlyLeft, onlyRight, same)
+	if conflicts > 0 {
+		left += fmt.Sprintf(" · %d in conflict", conflicts)
+	}
 	if m.sync.truncated {
 		left += fmt.Sprintf(" · stopped at %d", compare.DefaultMax)
 	}
@@ -101,6 +104,12 @@ func (m Model) syncRow(index int, selected bool) string {
 		ui.PadRight(syncSide(r.pair.Left), sideW) + " " +
 		syncArrow(r) + " " +
 		ui.PadRight(syncSide(r.pair.Right), sideW)
+	if r.pair.Kind == compare.Conflict {
+		// What is in the way matters more than the sizes, and is what has to
+		// be sorted out by hand before this path can be synced.
+		line = " " + ui.PadRight(path, pathW) + " " +
+			ui.PadRight(ui.Danger.Render(ui.TruncTail("! "+r.pair.Note, 2*sideW+3)), 2*sideW+3)
+	}
 
 	switch {
 	case selected:

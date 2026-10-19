@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -95,14 +96,36 @@ func (m *Model) openSync() tea.Cmd {
 			return nil
 		}
 	}
-	if left.Path == right.Path {
-		m.errText = "both panes are in the same directory"
+	if msg := nestedRoots(left.Path, right.Path); msg != "" {
+		m.errText = msg
 		return nil
 	}
 
 	m.sync = syncState{leftRoot: left.Path, rightRoot: right.Path, hidden: left.HiddenShown()}
 	m.mode = modeSync
 	return m.startCompare()
+}
+
+// nestedRoots refuses two roots that are one directory, or one inside the
+// other: a sync of /a with /a/b would copy b into itself, level after level.
+// The paths are compared resolved, since a symlink is the easy way to reach
+// the same folder under another name.
+func nestedRoots(left, right string) string {
+	if l, err := filepath.EvalSymlinks(left); err == nil {
+		left = l
+	}
+	if r, err := filepath.EvalSymlinks(right); err == nil {
+		right = r
+	}
+	sep := string(filepath.Separator)
+	switch {
+	case left == right:
+		return "both panes are in the same directory"
+	case strings.HasPrefix(right, strings.TrimSuffix(left, sep)+sep),
+		strings.HasPrefix(left, strings.TrimSuffix(right, sep)+sep):
+		return "one pane is inside the other — compare two separate directories"
+	}
+	return ""
 }
 
 // startCompare kicks off the walk with the current switches.
@@ -158,7 +181,9 @@ func (m Model) onSyncDone(msg syncDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 // proposedAction is what the tool suggests for one pair: copy what is missing,
-// let the newer side win where both have it, and leave equal files alone.
+// let the newer side win where both have it, and leave equal files alone. Two
+// different files with the same time give no side to pick, and a conflict has
+// no safe direction at all; both are left for a person to look at.
 func proposedAction(p compare.Pair) syncAction {
 	switch p.Kind {
 	case compare.OnlyLeft:
@@ -166,13 +191,14 @@ func proposedAction(p compare.Pair) syncAction {
 	case compare.OnlyRight:
 		return syncToLeft
 	case compare.Differs:
-		if p.Newer == compare.Right {
+		switch p.Newer {
+		case compare.Left:
+			return syncToRight
+		case compare.Right:
 			return syncToLeft
 		}
-		return syncToRight
-	default:
-		return syncSkip
 	}
+	return syncSkip
 }
 
 // onSyncKey drives the tool.
@@ -191,6 +217,7 @@ func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	visible := m.visibleSyncRows()
 	last := len(visible) - 1
+	m.sync.status = "" // said once; the next key brings the legend back
 
 	switch msg.String() {
 	case "esc", "q":
@@ -232,13 +259,20 @@ func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // setSyncAction changes the highlighted row and steps down, so a column of
-// decisions can be made without moving the cursor by hand.
+// decisions can be made without moving the cursor by hand. A conflict can only
+// be skipped: either direction would overwrite something the comparison could
+// not pair up, such as a whole folder with a file.
 func (m *Model) setSyncAction(action syncAction) {
 	visible := m.visibleSyncRows()
 	if m.sync.cursor < 0 || m.sync.cursor >= len(visible) {
 		return
 	}
-	m.sync.rows[visible[m.sync.cursor]].action = action
+	row := &m.sync.rows[visible[m.sync.cursor]]
+	if row.pair.Kind == compare.Conflict && action != syncSkip {
+		m.sync.status = "can't sync " + row.pair.Rel + ": " + row.pair.Note
+		return
+	}
+	row.action = action
 	m.sync.cursor = min(m.sync.cursor+1, len(visible)-1)
 }
 
@@ -331,7 +365,7 @@ func (m *Model) closeSync() {
 }
 
 // errorIsCancelled reports whether err is a cancelled context.
-func errorIsCancelled(err error) bool { return err == context.Canceled }
+func errorIsCancelled(err error) bool { return errors.Is(err, context.Canceled) }
 
 // syncDirections counts a pending sync's copies by direction, which the confirm
 // prompt states before anything is overwritten. The job's Dest is the right-hand
