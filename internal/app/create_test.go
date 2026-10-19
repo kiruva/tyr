@@ -203,7 +203,7 @@ func TestRemoteCreateFailureReported(t *testing.T) {
 	app := m.(Model)
 	remotePane(t, &app, 0, remote.Host{Name: "box"}, "/srv")
 
-	next, _ := app.Update(createdMsg{pane: 0, name: "logs", dir: true, err: os.ErrPermission})
+	next, _ := app.Update(createdMsg{pane: 0, name: "logs", isDir: true, err: os.ErrPermission})
 	if got := next.(Model).errText; !strings.Contains(got, "New folder failed") {
 		t.Errorf("errText = %q, want it to name the failure", got)
 	}

@@ -57,7 +57,7 @@ type renameState struct {
 	trim   bool
 	opt    rename.Options
 
-	loading   bool
+	collect   bgTask // the candidate sweep in flight
 	cands     []rename.Candidate
 	truncated bool
 
@@ -78,8 +78,7 @@ type renameOneState struct {
 
 // renameCollectedMsg carries the candidate sweep back from off the UI thread.
 type renameCollectedMsg struct {
-	pane      int
-	root      string
+	seq       uint64
 	cands     []rename.Candidate
 	truncated bool
 	err       error
@@ -184,7 +183,6 @@ func (m *Model) openRename() tea.Cmd {
 		root:    p.Path,
 		mode:    rename.ModeRegex,
 		opt:     rename.Options{Recursive: true, Hidden: p.HiddenShown()},
-		loading: true,
 	}
 	for f := range st.fields {
 		st.fields[f] = newConnInput(renamePlaceholders[f], false, renameFieldWidth(renameField(f)))
@@ -196,10 +194,7 @@ func (m *Model) openRename() tea.Cmd {
 
 	m.ren = st
 	m.mode = modeRename
-	return tea.Batch(
-		m.ren.fields[renFind].Focus(),
-		collectRenameCmd(m.active, p.Path, names, st.opt),
-	)
+	return tea.Batch(m.ren.fields[renFind].Focus(), m.collectRename(names))
 }
 
 // renameAvailable reports why rename cannot run here, if it cannot. Renaming is
@@ -216,21 +211,23 @@ func (m *Model) renameAvailable() error {
 	return nil
 }
 
-// collectRenameCmd sweeps the selection off the UI thread: a recursive walk of a
-// deep tree is not something to do between keystrokes.
-func collectRenameCmd(paneIdx int, root string, names []string, opt rename.Options) tea.Cmd {
+// collectRename sweeps names off the UI thread: a recursive walk of a deep tree
+// is not something to do between keystrokes. A sweep still out is superseded —
+// it was made with the toggles as they were, not as they are.
+func (m *Model) collectRename(names []string) tea.Cmd {
+	ctx, seq := m.ren.collect.start()
+	root, opt := m.ren.root, m.ren.opt
 	return func() tea.Msg {
-		cands, truncated, err := rename.Collect(root, names, opt)
-		return renameCollectedMsg{pane: paneIdx, root: root, cands: cands, truncated: truncated, err: err}
+		cands, truncated, err := rename.Collect(ctx, root, names, opt)
+		return renameCollectedMsg{seq: seq, cands: cands, truncated: truncated, err: err}
 	}
 }
 
 // onRenameCollected stores a finished sweep and plans against it.
 func (m Model) onRenameCollected(msg renameCollectedMsg) (tea.Model, tea.Cmd) {
-	if !m.ren.open || msg.root != m.ren.root {
-		return m, nil // the tool was closed, or moved on, while the walk ran
+	if !m.ren.collect.finish(msg.seq) {
+		return m, nil // the tool was closed, or a toggle has moved on, while the walk ran
 	}
-	m.ren.loading = false
 	if msg.err != nil {
 		m.ren.status = msg.err.Error()
 		m.ren.cands, m.ren.changes = nil, nil
@@ -310,14 +307,13 @@ func (m *Model) recollect() tea.Cmd {
 		m.ren.status = "the selection is gone"
 		return nil
 	}
-	m.ren.loading = true
-	return collectRenameCmd(m.ren.paneIdx, m.ren.root, names, m.ren.opt)
+	return m.collectRename(names)
 }
 
 // commitRename hands the plan to the confirm prompt, which starts it as a job so
 // a big batch reports progress like every other operation.
 func (m Model) commitRename() (tea.Model, tea.Cmd) {
-	if m.ren.loading {
+	if m.ren.collect.running() {
 		return m, nil
 	}
 	if m.ren.status != "" && m.ren.summary.Renamed == 0 {
@@ -339,6 +335,7 @@ func (m Model) commitRename() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) closeRename() {
+	m.ren.collect.stop()
 	m.mode = modeNormal
 	m.ren.fields[m.ren.focus].Blur()
 	m.ren = renameState{}

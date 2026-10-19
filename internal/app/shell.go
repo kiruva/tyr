@@ -44,12 +44,13 @@ type commandState struct {
 	dir     string
 	line    string // what is running, for the "running…" box
 	status  string
-	cancel  context.CancelFunc
+	task    bgTask // the run in flight
 	paneIdx int
 }
 
 // commandDoneMsg carries a finished command back to the UI.
 type commandDoneMsg struct {
+	seq    uint64
 	line   string
 	output string
 	err    error
@@ -138,15 +139,17 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	}
 
 	expanded := m.expandCommand(line)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, seq := m.command.task.start()
 
-	m.command.cancel = cancel
 	m.command.line = expanded.shown
 	m.command.input.Blur()
 	m.mode = modeRunning
 
 	dir := m.command.dir
 	return m, func() tea.Msg {
+		ctx, stop := context.WithCancel(ctx)
+		defer stop()
+
 		c := shellCmd(ctx, expanded.run)
 		c.Dir = dir
 		c.Env = append(append(os.Environ(), "TYR=1"), expanded.env...)
@@ -155,7 +158,7 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 		// One writer for both streams keeps them in the order they were
 		// printed. It stops the command once it has printed all that will be
 		// kept, rather than holding everything a runaway one prints until Esc.
-		out := &capWriter{max: commandOutputLimit, full: cancel}
+		out := &capWriter{max: commandOutputLimit, full: stop}
 		c.Stdout, c.Stderr = out, out
 		err := c.Run()
 
@@ -164,7 +167,7 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 			text += "\n…output cut here — the command was stopped\n"
 			err = nil // killed for printing too much, which the line above says
 		}
-		return commandDoneMsg{line: expanded.shown, output: text, err: err}
+		return commandDoneMsg{seq: seq, line: expanded.shown, output: text, err: err}
 	}
 }
 
@@ -192,7 +195,7 @@ func (w *capWriter) Write(p []byte) (int, error) {
 
 // onCommandDone shows what the command printed, in the pager the viewer uses.
 func (m Model) onCommandDone(msg commandDoneMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeRunning {
+	if !m.command.task.finish(msg.seq) {
 		return m, nil // cancelled, or the tool was closed
 	}
 	paneIdx := m.command.paneIdx
@@ -217,22 +220,15 @@ func (m Model) onCommandDone(msg commandDoneMsg) (tea.Model, tea.Cmd) {
 func (m Model) onRunningKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.cancelCommand()
+		m.command.task.stop()
 		m.mode = modeNormal
 		m.noticeText = "command cancelled"
 	}
 	return m, nil
 }
 
-func (m *Model) cancelCommand() {
-	if m.command.cancel != nil {
-		m.command.cancel()
-		m.command.cancel = nil
-	}
-}
-
 func (m *Model) closeCommand() {
-	m.cancelCommand()
+	m.command.task.stop()
 	m.mode = modeNormal
 	m.command.input.Blur()
 	m.command = commandState{}

@@ -26,12 +26,16 @@ type createState struct {
 	status  string
 }
 
-// createdMsg reports the outcome of a remote create.
+// createdMsg reports the outcome of a remote create. The host and directory it
+// was made in travel with it, so a reply that lands after the pane has moved on
+// does not refresh — or highlight a same-named entry in — somewhere else.
 type createdMsg struct {
-	pane int
-	name string // as typed, for highlighting the result
-	dir  bool
-	err  error
+	pane  int
+	host  remote.Host
+	dir   string // the pane's directory when the create started
+	name  string // as typed, for highlighting the result
+	isDir bool
+	err   error
 }
 
 // openCreate opens the prompt for a new file (dir = false) or directory.
@@ -79,9 +83,8 @@ func (m Model) commitCreate() (tea.Model, tea.Cmd) {
 	dir := m.create.dir
 
 	if p.IsRemote() {
-		target := remote.Child(p.Path, name)
 		m.closeCreate()
-		return m, createRemoteCmd(idx, p.Host(), target, name, dir)
+		return m, createRemoteCmd(idx, p.Host(), p.Path, name, dir)
 	}
 
 	if err := createLocal(filepath.Join(p.Path, name), dir); err != nil {
@@ -108,28 +111,33 @@ func createLocal(target string, dir bool) error {
 	return fileops.CreateFile(target)
 }
 
-// createRemoteCmd makes the name on the far side, off the UI thread.
-func createRemoteCmd(paneIdx int, h remote.Host, target, name string, dir bool) tea.Cmd {
+// createRemoteCmd makes name in parent on the far side, off the UI thread.
+func createRemoteCmd(paneIdx int, h remote.Host, parent, name string, isDir bool) tea.Cmd {
 	return func() tea.Msg {
+		target := remote.Child(parent, name)
 		var err error
-		if dir {
+		if isDir {
 			err = remote.Mkdir(h, target)
 		} else {
 			err = remote.Touch(h, target)
 		}
-		return createdMsg{pane: paneIdx, name: name, dir: dir, err: err}
+		return createdMsg{pane: paneIdx, host: h, dir: parent, name: name, isDir: isDir, err: err}
 	}
 }
 
 // onCreated refreshes the pane a remote create landed in, or reports why it
 // didn't. The listing is asynchronous, so the new entry is highlighted by the
-// pane once it arrives.
+// pane once it arrives. A pane that has moved on is left alone.
 func (m Model) onCreated(msg createdMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.errText = createVerb(msg.dir) + " failed: " + msg.err.Error()
+		m.errText = createVerb(msg.isDir) + " failed: " + msg.err.Error()
 		return m, nil
 	}
-	m.panes[msg.pane].FocusAfterLoad(firstSegment(msg.name))
+	p := &m.panes[msg.pane]
+	if !p.IsRemote() || p.Host() != msg.host || p.Path != msg.dir {
+		return m, nil
+	}
+	p.FocusAfterLoad(firstSegment(msg.name))
 	return m, m.refreshPane(msg.pane)
 }
 

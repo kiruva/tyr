@@ -72,15 +72,15 @@ type syncState struct {
 	hidden    bool
 	byContent bool
 
-	cancel context.CancelFunc
+	task bgTask // the comparison in flight
 }
 
 // syncDoneMsg carries a finished comparison back to the UI.
 type syncDoneMsg struct {
-	leftRoot, rightRoot string
-	pairs               []compare.Pair
-	truncated           bool
-	err                 error
+	seq       uint64
+	pairs     []compare.Pair
+	truncated bool
+	err       error
 }
 
 // openSync starts a comparison of the two panes.
@@ -130,8 +130,7 @@ func nestedRoots(left, right string) string {
 
 // startCompare kicks off the walk with the current switches.
 func (m *Model) startCompare() tea.Cmd {
-	ctx, cancel := context.WithCancel(context.Background())
-	m.sync.cancel = cancel
+	ctx, seq := m.sync.task.start()
 	m.sync.stage = syncStageRunning
 	m.sync.status = ""
 
@@ -143,17 +142,16 @@ func (m *Model) startCompare() tea.Cmd {
 	left, right := m.sync.leftRoot, m.sync.rightRoot
 	return func() tea.Msg {
 		pairs, truncated, err := compare.Walk(ctx, left, right, opts)
-		return syncDoneMsg{leftRoot: left, rightRoot: right, pairs: pairs, truncated: truncated, err: err}
+		return syncDoneMsg{seq: seq, pairs: pairs, truncated: truncated, err: err}
 	}
 }
 
 // onSyncDone installs a finished comparison, with a direction proposed for
 // every row that needs one.
 func (m Model) onSyncDone(msg syncDoneMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeSync || msg.leftRoot != m.sync.leftRoot || msg.rightRoot != m.sync.rightRoot {
-		return m, nil
+	if !m.sync.task.finish(msg.seq) {
+		return m, nil // cancelled, or the tool was closed
 	}
-	m.sync.cancel = nil
 
 	if msg.err != nil && !errorIsCancelled(msg.err) {
 		m.closeSync()
@@ -204,12 +202,11 @@ func proposedAction(p compare.Pair) syncAction {
 // onSyncKey drives the tool.
 func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
-		m.cancelCompare()
+		m.sync.task.stop()
 		return m, tea.Quit
 	}
 	if m.sync.stage == syncStageRunning {
 		if msg.String() == "esc" {
-			m.cancelCompare()
 			m.closeSync()
 		}
 		return m, nil
@@ -351,15 +348,8 @@ func (m Model) syncCounts() (toRight, toLeft int) {
 	return toRight, toLeft
 }
 
-func (m *Model) cancelCompare() {
-	if m.sync.cancel != nil {
-		m.sync.cancel()
-		m.sync.cancel = nil
-	}
-}
-
 func (m *Model) closeSync() {
-	m.cancelCompare()
+	m.sync.task.stop()
 	m.mode = modeNormal
 	m.sync = syncState{}
 }

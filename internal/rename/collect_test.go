@@ -1,6 +1,8 @@
 package rename
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -78,7 +80,7 @@ func TestCollect(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			root := tree(t, files...)
-			got, truncated, err := Collect(root, tc.names, tc.opt)
+			got, truncated, err := Collect(context.Background(), root, tc.names, tc.opt)
 			if err != nil {
 				t.Fatalf("Collect: %v", err)
 			}
@@ -95,7 +97,7 @@ func TestCollect(t *testing.T) {
 func TestCollectRecordsModTimeAndKind(t *testing.T) {
 	root := tree(t, "dir/one.txt")
 
-	got, _, err := Collect(root, []string{"dir"}, Options{Recursive: true, Dirs: true})
+	got, _, err := Collect(context.Background(), root, []string{"dir"}, Options{Recursive: true, Dirs: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +118,7 @@ func TestCollectRecordsModTimeAndKind(t *testing.T) {
 func TestCollectStopsAtTheLimit(t *testing.T) {
 	root := tree(t, "dir/a", "dir/b", "dir/c", "dir/d")
 
-	got, truncated, err := Collect(root, []string{"dir"}, Options{Recursive: true, Limit: 2})
+	got, truncated, err := Collect(context.Background(), root, []string{"dir"}, Options{Recursive: true, Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +132,19 @@ func TestCollectStopsAtTheLimit(t *testing.T) {
 
 func TestCollectMissingNameIsAnError(t *testing.T) {
 	root := tree(t, "a.txt")
-	if _, _, err := Collect(root, []string{"gone.txt"}, Options{}); err == nil {
+	if _, _, err := Collect(context.Background(), root, []string{"gone.txt"}, Options{}); err == nil {
 		t.Fatal("want an error for a name that is not there")
+	}
+}
+
+// A cancelled sweep stops and says so, rather than finishing a walk nobody is
+// waiting for.
+func TestCollectCancelled(t *testing.T) {
+	root := tree(t, "dir/a.txt")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := Collect(ctx, root, []string{"dir"}, Options{Recursive: true}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }

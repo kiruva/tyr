@@ -62,12 +62,12 @@ type findState struct {
 	truncated bool
 	status    string
 
-	cancel context.CancelFunc
+	task bgTask // the search in flight
 }
 
 // findDoneMsg carries a finished search back to the UI.
 type findDoneMsg struct {
-	root      string
+	seq       uint64
 	results   []find.Result
 	truncated bool
 	err       error
@@ -106,14 +106,14 @@ func (m *Model) openFind() tea.Cmd {
 // onFindKey dispatches to whichever stage is on screen.
 func (m Model) onFindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
-		m.cancelFind()
+		m.find.task.stop()
 		return m, tea.Quit
 	}
 
 	switch m.find.stage {
 	case findStageRunning:
 		if msg.String() == "esc" {
-			m.cancelFind()
+			m.find.task.stop()
 			m.find.stage = findStageForm
 			m.find.status = "cancelled"
 			return m, m.refocusFind()
@@ -195,8 +195,7 @@ func (m Model) runFind() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	m.find.cancel = cancel
+	ctx, seq := m.find.task.start()
 	m.find.stage = findStageRunning
 	m.find.results = nil
 	m.find.cursor = 0
@@ -205,24 +204,23 @@ func (m Model) runFind() (tea.Model, tea.Cmd) {
 	m.find.name.Blur()
 	m.find.content.Blur()
 
-	return m, findCmd(ctx, opts)
+	return m, findCmd(ctx, seq, opts)
 }
 
 // findCmd runs one search off the UI thread.
-func findCmd(ctx context.Context, opts find.Options) tea.Cmd {
+func findCmd(ctx context.Context, seq uint64, opts find.Options) tea.Cmd {
 	return func() tea.Msg {
 		results, truncated, err := find.Run(ctx, opts)
-		return findDoneMsg{root: opts.Root, results: results, truncated: truncated, err: err}
+		return findDoneMsg{seq: seq, results: results, truncated: truncated, err: err}
 	}
 }
 
 // onFindDone installs a finished search. A reply for a search that was
 // cancelled, or for a tool that has since been closed, is dropped.
 func (m Model) onFindDone(msg findDoneMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeFind || m.find.stage != findStageRunning || msg.root != m.find.root {
+	if !m.find.task.finish(msg.seq) {
 		return m, nil
 	}
-	m.find.cancel = nil
 
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 		m.find.stage = findStageForm
@@ -300,16 +298,8 @@ func (m Model) jumpToResult() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// cancelFind stops a running walk, if there is one.
-func (m *Model) cancelFind() {
-	if m.find.cancel != nil {
-		m.find.cancel()
-		m.find.cancel = nil
-	}
-}
-
 func (m *Model) closeFind() {
-	m.cancelFind()
+	m.find.task.stop()
 	m.mode = modeNormal
 	m.find.name.Blur()
 	m.find.content.Blur()

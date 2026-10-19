@@ -226,7 +226,7 @@ func openTool(t *testing.T, m tea.Model, names ...string) tea.Model {
 	if got := m.(Model).mode; got != modeRename {
 		t.Fatalf("mode = %v, want modeRename", got)
 	}
-	if m.(Model).ren.loading {
+	if m.(Model).ren.collect.running() {
 		t.Fatal("the candidate sweep did not finish")
 	}
 	return m

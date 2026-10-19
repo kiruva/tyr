@@ -86,7 +86,7 @@ func (m Model) renderRename() string {
 func (m Model) renameHeader() string {
 	s := m.ren.summary
 	parts := []string{"scanning…"}
-	if !m.ren.loading {
+	if !m.ren.collect.running() {
 		parts = []string{
 			fmt.Sprintf("%d %s", s.Total, items(s.Total)),
 			fmt.Sprintf("%d to rename", s.Renamed),
@@ -154,7 +154,7 @@ func (m Model) renameStatusLine() string {
 func (m Model) renamePreview() []string {
 	rows := m.renameRows()
 
-	if m.ren.loading {
+	if m.ren.collect.running() {
 		return padRows([]string{"  " + ui.Faint.Render("scanning the selection…")}, rows)
 	}
 	if len(m.ren.changes) == 0 {
