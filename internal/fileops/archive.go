@@ -94,7 +94,7 @@ func isTar(f format) bool {
 }
 
 // extractAll extracts each archive in job.Srcs into job.Dest.
-func extractAll(ctx context.Context, job Job, r *reporter) error {
+func extractAll(ctx context.Context, job Job, r *reporter, rv *resolver) error {
 	if err := os.MkdirAll(job.Dest, 0o755); err != nil {
 		return err
 	}
@@ -102,7 +102,39 @@ func extractAll(ctx context.Context, job Job, r *reporter) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := extractOne(ctx, arc, job.Dest, job.Password, r); err != nil {
+		if err := extractMerging(ctx, arc, job.Dest, job.Password, r, rv); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// extractMerging unpacks arc next to what is already in dest rather than over
+// it. Every extractor overwrites by default (tar), or is told to so it cannot
+// stop and prompt (unzip -o, 7z -y, unrar -y), so an edited notes.txt was
+// silently replaced by the archived one. Here the archive goes into a staging
+// folder inside dest — the same file system, so moving out of it is a rename
+// — and what came out is moved into place the way a move would be: a name
+// already taken is asked about, two folders merge.
+func extractMerging(ctx context.Context, arc, dest, password string, r *reporter, rv *resolver) error {
+	stage, err := os.MkdirTemp(dest, ".tyr-unpack-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage) // whatever was skipped, or left by a failure
+
+	if err := extractOne(ctx, arc, stage, password, r); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(stage)
+	if err != nil {
+		return err
+	}
+	// The extractor has counted the progress already; moving into place is
+	// not more of it.
+	rn := &runner{ctx: ctx, r: &reporter{ctx: ctx, quiet: true}, rv: rv}
+	for _, e := range entries {
+		if _, err := rn.movePath(filepath.Join(stage, e.Name()), filepath.Join(dest, e.Name())); err != nil {
 			return err
 		}
 	}
@@ -411,36 +443,41 @@ func (p *progressPipe) finish(bin string, waitErr error) error {
 }
 
 // scan drains the pipe until every writer is gone, stepping the progress bar
-// and keeping the tail of the output for finish.
+// and keeping the tail of what was not progress for finish. A progress line
+// names a member, and a member's name is the archive's to choose: kept, one
+// called encrypted_notes.txt made a full disk read as a missing password.
 func (p *progressPipe) scan(r *reporter, parse func(string) string) {
 	sc := bufio.NewScanner(p.r)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	tail := make([]string, 0, tailLines)
 	for sc.Scan() {
 		line := sc.Text()
+		if name := parse(line); name != "" {
+			r.step(name)
+			continue
+		}
 		if len(tail) == tailLines {
 			tail = tail[1:]
 		}
 		tail = append(tail, line)
-		if name := parse(line); name != "" {
-			r.step(name)
-		}
 	}
 	p.tail <- tail
 }
 
 // needsPassword recognises the many ways the archive tools say "encrypted".
+// Each marker is a whole phrase a tool prints: a bare "encrypted" also matched
+// any line naming a file with the word in it.
 func needsPassword(lines []string) bool {
 	markers := []string{
-		"unable to get password", // unzip, no password given
-		"incorrect password",     // unzip / unrar
-		"wrong password",         // 7z
-		"headers error",          // 7z, encrypted file names
-		"encrypted",              // 7z "Can not open encrypted archive"
-		"password is incorrect",  // unrar
-		"needs password",         // unrar
-		"enter password",         // any tool that got as far as prompting
-		"password incorrect",     // zip
+		"unable to get password",         // unzip, no password given
+		"incorrect password",             // unzip / unrar
+		"wrong password",                 // 7z
+		"can not open encrypted archive", // 7z, encrypted file names
+		"password is incorrect",          // unrar
+		"needs password",                 // unrar
+		"enter password",                 // any tool that got as far as prompting
+		"password incorrect",             // zip
+		"need pk compat. v5.1",           // unzip on an AES entry it cannot read
 	}
 	for _, l := range lines {
 		low := strings.ToLower(l)
@@ -490,6 +527,9 @@ func parseTarLine(s string) string { return strings.TrimSpace(s) }
 // parseUnzipLine: `unzip` prints "  inflating: path", "extracting: path", etc.
 func parseUnzipLine(s string) string {
 	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "skipping:") {
+		return "" // not extracted, and the reason is in the line
+	}
 	if i := strings.Index(s, ": "); i >= 0 {
 		return strings.TrimSpace(s[i+2:])
 	}

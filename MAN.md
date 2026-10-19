@@ -660,7 +660,14 @@ job; whatever it had already copied stays, and is still in the undo history.
 
 Two directories of the same name **merge** rather than colliding — the question is asked file
 by file, inside them. A job that already knows the answer never asks: a synchronize overwrites
-by design, and says so on its own prompt.
+by design, and says so on its own prompt. Unpacking an archive, and adding files into one, ask
+the same question about every name that is already taken.
+
+A copy keeps each file's and folder's modification time, and a read-only folder arrives
+read-only with its contents in it. Pipes, sockets and devices have no contents to copy: they
+are left out, and the job says which. A file reached through a symlinked folder is the same file
+as the one in the folder itself, and copying or moving it onto itself is refused, as is copying
+a folder into itself.
 
 ### Deleting, and getting it back
 
@@ -685,6 +692,10 @@ Put `delete = remove` in the config file to make `F8` the permanent one.
 | copy               | removes the copies it made — and only those            |
 | audio conversion   | removes the files it wrote                            |
 | delete to trash    | restores from the trash                                |
+
+A move or copy into a folder that was already there records what arrived in it, not the
+folder, so undoing it takes back what came and leaves what was there. A restore that cannot
+bring every item back keeps the rest in the history.
 
 A copy or conversion that overwrote something records nothing for that file: undoing it would mean deleting a file that
 was already there. The history lives in memory for the session only, and nothing over ssh or

@@ -9,6 +9,35 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+### Fixed
+
+- **Copying or moving a file onto itself no longer deletes it.** A file reached through a
+  symlinked folder — or under another case on a volume that ignores case — is the same file
+  as the one in the folder, and answering "overwrite" removed it before copying from it. It
+  is now refused, and so is copying a folder into itself, which used to copy itself a few
+  hundred levels deep until the path got too long.
+- **Unpacking asks before replacing.** Every extractor overwrites without asking, so an edited
+  `notes.txt` was replaced by the archived one. An archive now unpacks beside what is there,
+  and every name already taken is asked about, as a copy asks. Adding files into a `.tar` or
+  `.zip` that already holds those names asks too, instead of replacing them.
+- **Opening a file inside an archive opens that file.** The tools read a member's name as a
+  pattern, so opening `a[1].txt` showed `a1.txt`, and saving it from the editor wrote the
+  wrong contents back. Plain, gzip and bzip2 tar and zip archives are now read directly, by
+  exact name, and a member over 64 MB is refused rather than read into memory. Browsing them
+  shows real sizes instead of 0 B for every file.
+- **Copies keep their modification times**, for files and folders, so a synchronize no longer
+  finds everything it just copied newer on the other side and offers to copy it back. A
+  read-only folder copies with its contents instead of failing on its first file.
+- **Undoing a merge takes back only what arrived.** Moving `photos/` into a `photos/` that was
+  already there recorded the whole folder, so undo moved the files that had been there before
+  too. A copy into an existing folder is now undoable at all.
+- **A named pipe no longer hangs a copy.** Pipes, sockets and devices are left out, and the
+  job names them; a move to another drive that would leave one behind keeps the original.
+- **A full disk while unpacking says so**, instead of being taken for a wrong password because
+  a file in the archive had "encrypted" in its name — which asked for the password over and over.
+- **A restore from the trash that fails on one item still restores the rest**, and `Ctrl+Z`
+  keeps what is left instead of forgetting it.
+
 ### Security
 
 - **On Windows, a file name can no longer change the command `x` runs.** cmd expands

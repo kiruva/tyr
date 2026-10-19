@@ -83,7 +83,10 @@ func Move(path string) (Item, error) {
 		return Item{}, err
 	}
 
-	target := freeName(filepath.Join(files, filepath.Base(abs)))
+	target, err := freeName(filepath.Join(files, filepath.Base(abs)))
+	if err != nil {
+		return Item{}, err
+	}
 	item := Item{Original: abs, Path: target}
 
 	// The record goes first: a file in the trash with no record is a file whose
@@ -112,23 +115,39 @@ func Move(path string) (Item, error) {
 // directory is restored before the things that were inside it. A path that has
 // since been taken is not overwritten: the item comes back beside it under a
 // free name.
-func Restore(items []Item) error {
+//
+// One item that cannot come back does not keep the rest in the trash: each is
+// tried, and Restore returns the ones that came back along with every failure.
+// The caller needs both — what is still in the trash is still to be undone.
+func Restore(items []Item) (restored []Item, err error) {
+	var errs []error
 	for i := len(items) - 1; i >= 0; i-- {
 		it := items[i]
-		if _, err := os.Lstat(it.Path); err != nil {
-			return fmt.Errorf("%s is no longer in the trash", filepath.Base(it.Original))
+		if e := restoreOne(it); e != nil {
+			errs = append(errs, e)
+			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(it.Original), 0o755); err != nil {
-			return err
-		}
+		restored = append(restored, it)
+	}
+	return restored, errors.Join(errs...)
+}
 
-		target := freeName(it.Original)
-		if err := os.Rename(it.Path, target); err != nil {
-			return err
-		}
-		if it.Info != "" {
-			_ = os.Remove(it.Info)
-		}
+func restoreOne(it Item) error {
+	if _, err := os.Lstat(it.Path); err != nil {
+		return fmt.Errorf("%s is no longer in the trash", filepath.Base(it.Original))
+	}
+	if err := os.MkdirAll(filepath.Dir(it.Original), 0o755); err != nil {
+		return err
+	}
+	target, err := freeName(it.Original)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(it.Path, target); err != nil {
+		return err
+	}
+	if it.Info != "" {
+		_ = os.Remove(it.Info)
 	}
 	return nil
 }
@@ -202,10 +221,11 @@ func writeInfo(name, original string) (string, error) {
 }
 
 // freeName returns path itself when nothing is there, or the first free
-// "name (2)"-style variant beside it.
-func freeName(path string) string {
+// "name (2)"-style variant beside it — or an error when every one is taken:
+// handing back the occupied path would have the rename land on what is there.
+func freeName(path string) (string, error) {
 	if !exists(path) {
-		return path
+		return path, nil
 	}
 	dir, base := filepath.Dir(path), filepath.Base(path)
 	ext := filepath.Ext(base)
@@ -217,10 +237,10 @@ func freeName(path string) string {
 	for n := 2; n < 100000; n++ {
 		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
 		if !exists(candidate) {
-			return candidate
+			return candidate, nil
 		}
 	}
-	return path
+	return "", fmt.Errorf("no free name left beside %s", base)
 }
 
 func exists(path string) bool {

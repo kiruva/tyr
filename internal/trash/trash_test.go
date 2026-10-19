@@ -46,7 +46,7 @@ func TestMoveAndRestore(t *testing.T) {
 		t.Fatalf("nothing at the trashed path: %v", err)
 	}
 
-	if err := Restore([]Item{item}); err != nil {
+	if _, err := Restore([]Item{item}); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	data, err := os.ReadFile(file)
@@ -98,7 +98,7 @@ func TestRestoreDoesNotOverwrite(t *testing.T) {
 	}
 	write(t, file, "something else")
 
-	if err := Restore([]Item{item}); err != nil {
+	if _, err := Restore([]Item{item}); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if got, _ := os.ReadFile(file); string(got) != "something else" {
@@ -147,7 +147,7 @@ func TestTrashInfoRecord(t *testing.T) {
 	}
 
 	// Restoring takes the record with it.
-	if err := Restore([]Item{item}); err != nil {
+	if _, err := Restore([]Item{item}); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if _, err := os.Stat(item.Info); !os.IsNotExist(err) {
@@ -157,7 +157,7 @@ func TestTrashInfoRecord(t *testing.T) {
 
 func TestRestoreReportsAMissingItem(t *testing.T) {
 	isolate(t)
-	err := Restore([]Item{{Original: "/tmp/gone.txt", Path: filepath.Join(t.TempDir(), "gone.txt")}})
+	_, err := Restore([]Item{{Original: "/tmp/gone.txt", Path: filepath.Join(t.TempDir(), "gone.txt")}})
 	if err == nil {
 		t.Fatal("restoring something that is not there succeeded")
 	}
@@ -175,5 +175,38 @@ func TestLabel(t *testing.T) {
 	}
 	if got := Label([]Item{{}, {}}); got != "2 items" {
 		t.Errorf("Label(two) = %q, want 2 items", got)
+	}
+}
+
+// One item that cannot come back does not keep the others in the trash, and
+// the caller learns which came back.
+func TestRestoreKeepsGoingPastAFailure(t *testing.T) {
+	isolate(t)
+	work := t.TempDir()
+	var items []Item
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		write(t, filepath.Join(work, name), name)
+		it, err := Move(filepath.Join(work, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, it)
+	}
+	// b.txt goes missing from the trash behind tyr's back.
+	if err := os.Remove(items[1].Path); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := Restore(items)
+	if err == nil || !strings.Contains(err.Error(), "b.txt") {
+		t.Errorf("err = %v, want b.txt's failure", err)
+	}
+	if len(restored) != 2 {
+		t.Fatalf("restored %d items, want a.txt and c.txt", len(restored))
+	}
+	for _, name := range []string{"a.txt", "c.txt"} {
+		if _, err := os.Stat(filepath.Join(work, name)); err != nil {
+			t.Errorf("%s did not come back", name)
+		}
 	}
 }

@@ -5,10 +5,13 @@ package fileops
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	iofs "io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kiruva/tyr/internal/fsutil"
 	"github.com/kiruva/tyr/internal/remote"
@@ -261,9 +264,9 @@ func Run(ctx context.Context, job Job) <-chan Event {
 		case OpPack:
 			err = pack(ctx, job, r)
 		case OpUnpack, OpUnwrap:
-			err = extractAll(ctx, job, r)
+			err = extractAll(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
 		case OpAddToArchive:
-			err = addToArchive(ctx, job, r)
+			err = addToArchive(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
 		case OpRename:
 			renamed, err = rename.Apply(ctx, job.Dest, job.Renames, r.step)
 		case OpRenameUndo:
@@ -277,6 +280,7 @@ func Run(ctx context.Context, job Job) <-chan Event {
 			ch <- Result{
 				Op: job.Op, Err: r.cancelled(res.err),
 				Created: res.created, Moved: res.moved, Trashed: res.trashed,
+				Notes: res.notes,
 			}
 			return
 		}
@@ -344,9 +348,16 @@ type reporter struct {
 	tools toolRunner
 
 	done, total int
+
+	// quiet is a reporter that counts nothing: for work that is part of an
+	// item already counted, such as moving what an extractor wrote.
+	quiet bool
 }
 
 func (r *reporter) step(name string) {
+	if r.quiet {
+		return
+	}
 	r.done++
 	select {
 	case r.ch <- Progress{Current: name, Done: r.done, Total: r.total}:
@@ -393,11 +404,20 @@ func countItems(ctx context.Context, root string) int {
 }
 
 // runner carries what a local copy or move needs through the recursion: where
-// to report progress, who answers a collision, and when to give up.
+// to report progress, who answers a collision, and when to give up — and what
+// it did, for the undo: created is what a copy brought into being and moved
+// what a move took where, each at the level it happened. A folder copied or
+// moved whole is one entry; one merged into a folder already there is the
+// entries that went into it, so an undo takes back what arrived and leaves
+// what was there before alone.
 type runner struct {
 	ctx context.Context
 	r   *reporter
 	rv  *resolver
+
+	created []string
+	moved   []Pair
+	skipped []string // special files: pipes, sockets, devices
 }
 
 // localResult is what a local batch did, for the Result the job ends with.
@@ -406,7 +426,13 @@ type localResult struct {
 	created []string
 	moved   []Pair
 	trashed []trash.Item
+	notes   []string
 }
+
+// ErrSameFile is a copy or move whose source and destination are one file,
+// reached by two paths — through a symlinked folder, or in another case on a
+// volume that ignores it. Overwriting the destination would delete the source.
+var ErrSameFile = errors.New("the source and the destination are the same file")
 
 // runLocal performs the copy / move / delete family, one source at a time. It
 // records what it brought into being and what it moved, which is what an undo
@@ -418,12 +444,13 @@ func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localR
 	// Restoring works from the trash batch rather than from source paths: the
 	// paths it puts back are the ones recorded when the delete happened.
 	if job.Op == OpRestore {
-		if out.err = trash.Restore(job.Trash); out.err == nil {
-			for _, item := range job.Trash {
-				r.step(item.Original)
-			}
-			out.trashed = job.Trash
+		// Trashed carries what came back, which may be less than was asked
+		// for: the undo keeps the rest.
+		restored, err := trash.Restore(job.Trash)
+		for _, item := range restored {
+			r.step(item.Original)
 		}
+		out.trashed, out.err = restored, err
 		return out
 	}
 
@@ -435,26 +462,17 @@ func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localR
 		}
 		switch job.Op {
 		case OpCopy, OpMove:
+			if out.err = intoItself(src, job.Dest); out.err != nil {
+				return out
+			}
 			dst := filepath.Join(job.Dest, filepath.Base(src))
-			existed := exists(dst)
-
-			var (
-				landed string
-				err    error
-			)
 			if job.Op == OpCopy {
-				landed, err = rn.copyPath(src, dst)
+				_, out.err = rn.copyPath(src, dst)
 			} else {
-				landed, err = rn.movePath(src, dst)
+				_, out.err = rn.movePath(src, dst)
 			}
-			if landed != "" {
-				if job.Op == OpMove {
-					out.moved = append(out.moved, Pair{Src: src, Dst: landed})
-				} else if landed != dst || !existed {
-					out.created = append(out.created, landed)
-				}
-			}
-			out.err = err
+			out.created, out.moved = rn.created, rn.moved
+			out.notes = skippedNote(rn.skipped)
 
 		case OpDelete:
 			out.err = deletePath(ctx, src, r)
@@ -502,10 +520,47 @@ func runLocal(ctx context.Context, job Job, r *reporter, ch chan<- Event) localR
 	return out
 }
 
+// intoItself refuses a copy or move of a folder into itself or somewhere
+// inside it, which would never finish: each level copied is another level to
+// copy. The paths are compared resolved, since a symlink is the easy way to
+// reach a folder's inside without seeing it in the path.
+func intoItself(src, dest string) error {
+	info, err := os.Lstat(src)
+	if err != nil || !info.IsDir() {
+		return nil // not a folder, or the job will report it missing
+	}
+	from, err1 := filepath.EvalSymlinks(src)
+	to, err2 := filepath.EvalSymlinks(dest)
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	if to == from || strings.HasPrefix(to, from+string(filepath.Separator)) {
+		return fmt.Errorf("cannot put %s inside itself", filepath.Base(src))
+	}
+	return nil
+}
+
+// sameFile reports whether src and dst are one file under two names. Lstat on
+// both: the last component is compared as itself, while a symlinked folder on
+// the way is followed, which is exactly the case that hides a file from a
+// string comparison of the paths.
+func sameFile(src, dst string) bool {
+	a, err1 := os.Lstat(src)
+	b, err2 := os.Lstat(dst)
+	return err1 == nil && err2 == nil && os.SameFile(a, b)
+}
+
 // copyPath copies src to dst, asking about a collision unless both sides are
 // directories — those merge, which is what dragging one folder onto another has
 // always meant. It returns where the copy landed, or "" when it was skipped.
 func (rn *runner) copyPath(src, dst string) (string, error) {
+	return rn.copyEntry(src, dst, true)
+}
+
+// copyEntry is copyPath with a say in the undo record: track is whether what
+// this call creates is recorded in rn.created. The top of a new tree is; what
+// is copied inside it is covered by that one entry, and is not.
+func (rn *runner) copyEntry(src, dst string, track bool) (string, error) {
 	if err := rn.ctx.Err(); err != nil {
 		return "", err
 	}
@@ -513,8 +568,21 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if sameFile(src, dst) {
+		return "", fmt.Errorf("%s: %w", filepath.Base(src), ErrSameFile)
+	}
 
-	if exists(dst) && (!info.IsDir() || !isDir(dst)) {
+	// A pipe, socket or device has no contents to copy, and opening a pipe to
+	// read it waits for a writer that may never come. It is left out, and the
+	// job says so.
+	if !info.IsDir() && !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		rn.skipped = append(rn.skipped, src)
+		return "", nil
+	}
+
+	merging := info.IsDir() && isDir(dst)
+	fresh := !exists(dst)
+	if !fresh && !merging {
 		action, err := rn.rv.resolve(src, dst)
 		if err != nil {
 			return "", err
@@ -527,12 +595,17 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			dst = free
+			dst, fresh = free, true
 		case ConflictOverwrite:
 			if err := os.RemoveAll(dst); err != nil {
 				return "", err
 			}
 		}
+	}
+	// What did not exist before is the copy's to take back. What it
+	// overwrote is not: an undo cannot bring the old one back.
+	if track && fresh {
+		rn.created = append(rn.created, dst)
 	}
 
 	switch {
@@ -549,8 +622,14 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 		return dst, nil
 
 	case info.IsDir():
-		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
-			return "", err
+		// A new folder is made writable for as long as it is being filled, and
+		// given the source's mode only after: a read-only source would
+		// otherwise refuse its own first child. A folder merged into is the
+		// destination's own, and keeps its mode.
+		if !merging {
+			if err := os.Mkdir(dst, 0o700); err != nil {
+				return "", err
+			}
 		}
 		rn.r.step(src)
 		entries, err := os.ReadDir(src)
@@ -558,9 +637,15 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 			return "", err
 		}
 		for _, e := range entries {
-			if _, err := rn.copyPath(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			if _, err := rn.copyEntry(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), merging && track); err != nil {
 				return "", err
 			}
+		}
+		if !merging {
+			if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
+				return "", err
+			}
+			keepModTime(dst, info) // last: writing the children moved it
 		}
 		return dst, nil
 
@@ -568,9 +653,42 @@ func (rn *runner) copyPath(src, dst string) (string, error) {
 		if err := copyFile(rn.ctx, src, dst, info.Mode().Perm()); err != nil {
 			return "", err
 		}
+		keepModTime(dst, info)
 		rn.r.step(src)
 		return dst, nil
 	}
+}
+
+// keepModTime gives a copy its source's modification time. A copy stamped with
+// the moment it was made looks newer than its original, and the next compare
+// would offer to sync every file it just synced back the other way. The access
+// time is set to the same: there is no portable way to read the original's.
+func keepModTime(dst string, info os.FileInfo) {
+	_ = os.Chtimes(dst, info.ModTime(), info.ModTime())
+}
+
+// skippedNote says which special files a copy left out, if any.
+func skippedNote(skipped []string) []string {
+	if len(skipped) == 0 {
+		return nil
+	}
+	names := make([]string, 0, min(len(skipped), 3))
+	for _, p := range skipped[:min(len(skipped), 3)] {
+		names = append(names, filepath.Base(p))
+	}
+	more := ""
+	if len(skipped) > 3 {
+		more = fmt.Sprintf(" and %d more", len(skipped)-3)
+	}
+	return []string{fmt.Sprintf("left out %d special %s (pipes, sockets, devices): %s%s",
+		len(skipped), plural(len(skipped), "file", "files"), strings.Join(names, ", "), more)}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // copyFile copies one file, in chunks so that a cancellation is noticed part-way
@@ -621,9 +739,14 @@ func (rn *runner) movePath(src, dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if sameFile(src, dst) {
+		return "", fmt.Errorf("%s: %w", filepath.Base(src), ErrSameFile)
+	}
 
 	if exists(dst) {
 		if info.IsDir() && isDir(dst) {
+			// Each entry records its own move: undoing this must take back
+			// what arrived in dst, not dst itself with what was already there.
 			entries, err := os.ReadDir(src)
 			if err != nil {
 				return "", err
@@ -662,15 +785,30 @@ func (rn *runner) movePath(src, dst string) (string, error) {
 	// Fast path: same filesystem → atomic rename.
 	if err := os.Rename(src, dst); err == nil {
 		rn.r.step(src)
+		rn.moved = append(rn.moved, Pair{Src: src, Dst: dst})
 		return dst, nil
 	} else if !fsutil.CrossDevice(err) {
 		return "", err
 	}
-	// Cross-device: copy then remove the original.
-	if _, err := rn.copyPath(src, dst); err != nil {
+
+	// Cross-device: copy then remove the original. The copy is not recorded as
+	// created — the move it is part of is recorded instead — and a source that
+	// held something the copy had to leave out is not removed: that would
+	// delete what never arrived.
+	created, skipped := len(rn.created), len(rn.skipped)
+	if _, err := rn.copyEntry(src, dst, false); err != nil {
 		return "", err
 	}
-	return dst, os.RemoveAll(src)
+	rn.created = rn.created[:created]
+	if len(rn.skipped) > skipped {
+		return "", fmt.Errorf("%s holds special files that cannot be moved to another drive; "+
+			"the rest was copied to %s and the original left in place", filepath.Base(src), dst)
+	}
+	if err := os.RemoveAll(src); err != nil {
+		return "", err
+	}
+	rn.moved = append(rn.moved, Pair{Src: src, Dst: dst})
+	return dst, nil
 }
 
 // isDir reports whether path is a directory (following no symlinks).

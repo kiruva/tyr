@@ -773,8 +773,7 @@ func (m Model) finishOp(res fileops.Result) (tea.Model, tea.Cmd) {
 			m.noticeText = "put " + rename.UndoLabel(res.Renamed) + " back"
 		}
 	case wasUndo:
-		// The reversal ran: the entry it came from is spent either way.
-		m.popUndo()
+		m.spendUndo(res)
 		if res.Err == nil {
 			m.noticeText = "put it back"
 		}
