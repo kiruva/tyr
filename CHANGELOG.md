@@ -11,6 +11,45 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Security
 
+- **Accepting an unknown host key trusts that key, not the host.** The retry after
+  `a` accepted whatever key it was offered, so an interceptor that let the first attempt
+  through to the real server — the fingerprint you checked was genuine — could answer the
+  retry with its own key and receive the password. The retry, and every reconnect after it,
+  now trusts exactly the fingerprint that was shown. An unknown jump host is asked about
+  under its own name, instead of under the target's in a prompt that came back forever.
+- **A download only writes what was asked for.** The archive a host sends back is checked
+  entry by entry, and anything outside the requested names stops the transfer before it is
+  written: a hostile host could otherwise answer a download into `~` with
+  `.ssh/authorized_keys` or `.zshrc`. Downloads and uploads no longer restore the
+  archive's owner, and uploads from macOS no longer carry extended attributes (where a file
+  was downloaded from, among them) or `._` files to the host.
+- **Remote names are taken as names.** A name starting with `~` was treated as relative to
+  the home directory, so deleting `~$report.docx` in `/srv/x` ran `rm -rf` on that name in
+  `$HOME`. A remote listing could also show one name as another — a leading space was lost
+  (` data` listed as `data`) and a symlink called `data -> old` read as `data` — so an
+  operation on the entry acted on a different file. Listings now carry the directory's
+  real names and every row is matched against them. A name starting with `@` no longer
+  makes macOS's `tar` include another archive in a transfer.
+- **The password is no longer sent to every prompt.** A host asking for a second factor
+  over keyboard-interactive got the password as the answer to "Verification code:" too.
+  It is now given once, to a single hidden prompt, and anything else is refused with the
+  question the host asked.
+- **A directory name can no longer rewrite the config.** The config is one setting per
+  line, and a line break in the path saved for the session turned the rest of it into a
+  setting of its own — enough for a downloaded archive's folder name to repoint a saved
+  connection. Such a path is not remembered, and any other value with a line break is
+  refused instead of written.
+
+### Fixed
+
+- Typing `~` or `~/dev` in a remote pane's address bar goes to the home directory, as it
+  always meant to; it used to fail with "no such file or directory".
+- Saving or deleting a connection no longer wipes others whose name starts with its name
+  and a dot: saving `web` deleted `web.staging`.
+- Entering a remote directory whose name ends in a space no longer lands somewhere else.
+
+### Security
+
 - **Names and file contents can no longer send commands to the terminal.** A file name, an
   archive member, a remote listing, a line in the viewer or the find results, and an error
   message are all text from somewhere else, and any of them could carry an escape sequence —

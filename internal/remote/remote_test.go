@@ -2,6 +2,10 @@ package remote
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,6 +103,17 @@ func TestJoinAndParent(t *testing.T) {
 	if got := Join("/srv", "~/dev"); got != "~/dev" {
 		t.Fatalf("Join tilde = %q", got)
 	}
+	if got := Join("/srv", "~"); got != "~" {
+		t.Fatalf("Join home = %q", got)
+	}
+	// Only ~ and ~/ mean home. An Office lock file is a name in this directory,
+	// and treating it as home-relative ran rm -rf on a file in $HOME instead.
+	if got := Join("/srv/x", "~$report.docx"); got != "/srv/x/~$report.docx" {
+		t.Fatalf("Join ~name = %q", got)
+	}
+	if got := Child("/srv/x", "~backup"); got != "/srv/x/~backup" {
+		t.Fatalf("Child = %q", got)
+	}
 	if got := Parent("/srv/www"); got != "/srv" {
 		t.Fatalf("Parent = %q", got)
 	}
@@ -127,8 +142,12 @@ func TestParseListLine(t *testing.T) {
 		{"garbage", "", false, 0, 0, false},
 	}
 
+	names := map[string]bool{}
 	for _, tc := range tests {
-		e, ok := parseListLine(tc.line)
+		names[tc.name] = tc.name != ""
+	}
+	for _, tc := range tests {
+		e, ok := parseListLine(tc.line, names)
 		if ok != tc.ok {
 			t.Fatalf("parseListLine(%q) ok = %v, want %v", tc.line, ok, tc.ok)
 		}
@@ -141,6 +160,73 @@ func TestParseListLine(t *testing.T) {
 		if tc.epoch != 0 && !e.ModTime.Equal(time.Unix(tc.epoch, 0)) {
 			t.Fatalf("parseListLine(%q) mtime = %v", tc.line, e.ModTime)
 		}
+	}
+}
+
+// A name is only believed when it is one the directory really has. Each of
+// these rows reads as one name and is another — or reads as two.
+func TestParseListLineNeedsARealName(t *testing.T) {
+	names := map[string]bool{
+		" data":     true, // leading space
+		"data":      true,
+		"two  gaps": true,
+		"a -> b":    true, // a symlink whose own name has an arrow in it
+		"a":         true,
+		"old":       true,
+		"x -> y":    true,
+		"x":         false,
+	}
+	for _, tt := range []struct {
+		line, want string
+		ok         bool
+	}{
+		{"drwxr-xr-x 2 0 0 64 1712345678  data", " data", true},
+		{"drwxr-xr-x 2 0 0 64 1712345678 data", "data", true},
+		{"-rw-r--r-- 1 0 0 1 1712345678 two  gaps", "two  gaps", true},
+		{"lrwxrwxrwx 1 0 0 3 1712345678 old -> new", "old", true},
+		// "a -> b -> c" splits as a (-> b -> c) or as "a -> b" (-> c): both are
+		// names here, so neither is guessed.
+		{"lrwxrwxrwx 1 0 0 1 1712345678 a -> b -> c", "", false},
+		// Not a symlink, so the arrow is part of the name — and no such name.
+		{"drwxr-xr-x 2 0 0 64 1712345678 data -> old", "", false},
+		// The second line of a name with a newline in it.
+		{"-rw-r--r-- 1 0 0 1 1712345678 ghost", "", false},
+	} {
+		e, ok := parseListLine(tt.line, names)
+		if ok != tt.ok || (ok && e.Name != tt.want) {
+			t.Errorf("parseListLine(%q) = %q, %v; want %q, %v", tt.line, e.Name, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+// parseListing reads the whole reply: directory, the NUL-separated names, then
+// the rows.
+func TestParseListing(t *testing.T) {
+	out := "/srv/x\x00 data\x00data\x00multi\nline\x00\x00" +
+		"total 8\n" +
+		"drwxr-xr-x 2 0 0 64 1712345678  data\n" +
+		"drwxr-xr-x 2 0 0 64 1712345678 data\n" +
+		"-rw-r--r-- 1 0 0 5 1712345678 multi\n" +
+		"line\n"
+	l, err := parseListing(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Dir != "/srv/x" {
+		t.Errorf("dir = %q", l.Dir)
+	}
+	var got []string
+	for _, e := range l.Entries {
+		got = append(got, e.Name)
+	}
+	// The name with a newline in it matches no row, and is listed by its
+	// exact name rather than as the two halves ls printed.
+	if strings.Join(got, "|") != " data|data|multi\nline" {
+		t.Errorf("entries = %q, want the three real names and not the halves of the third", got)
+	}
+
+	if _, err := parseListing(""); err == nil {
+		t.Error("empty output was accepted")
 	}
 }
 
@@ -170,6 +256,73 @@ func TestParseTarVerbose(t *testing.T) {
 	for in, want := range tests {
 		if got := parseTarVerbose(in); got != want {
 			t.Fatalf("parseTarVerbose(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// shPath leaves the home directory for the shell to expand and quotes the rest,
+// which shQuote alone cannot do: '~/dev' is a directory called ~ in the cwd.
+func TestShPath(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"~", `"$HOME"`},
+		{"~/dev", `"$HOME"/'dev'`},
+		{"~/it's", `"$HOME"/'it'\''s'`},
+		{"/srv/x", `'/srv/x'`},
+		{"~backup", `'~backup'`},
+	} {
+		if got := shPath(tt.in); got != tt.want {
+			t.Errorf("shPath(%q) = %s, want %s", tt.in, got, tt.want)
+		}
+	}
+}
+
+// The listing script, run by the local shells against a directory of awkward
+// names, round-trips every one of them — under zsh too, whose unmatched-glob
+// error would otherwise kill it in an empty directory.
+func TestListScriptAgainstLocalShells(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell")
+	}
+	dir := t.TempDir()
+	weird := []string{" data", "data", "two  gaps", "a -> b", "~$lock.docx", "it's", "multi\nline", ".hidden"}
+	for _, n := range weird {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("data", filepath.Join(dir, "link -> me")); err != nil {
+		t.Fatal(err)
+	}
+	empty := t.TempDir()
+
+	for _, shell := range []string{"sh", "bash", "zsh"} {
+		if _, err := exec.LookPath(shell); err != nil {
+			continue
+		}
+		for _, d := range []string{dir, empty} {
+			out, err := exec.Command(shell, "-c", listScript("cd -- "+shQuote(d))).Output()
+			if err != nil {
+				t.Fatalf("%s: %v", shell, err)
+			}
+			l, err := parseListing(string(out))
+			if err != nil {
+				t.Fatalf("%s: %v", shell, err)
+			}
+			got := map[string]bool{}
+			for _, e := range l.Entries {
+				got[e.Name] = true
+			}
+			if d == empty {
+				if len(got) != 0 {
+					t.Errorf("%s: empty dir listed %v", shell, got)
+				}
+				continue
+			}
+			for _, n := range append(weird, "link -> me") {
+				if !got[n] {
+					t.Errorf("%s: %q missing from %v", shell, n, got)
+				}
+			}
 		}
 	}
 }

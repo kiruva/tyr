@@ -3,12 +3,14 @@ package remote
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -37,10 +39,14 @@ func Download(ctx context.Context, h Host, srcs []string, destDir string, step f
 	for _, s := range srcs {
 		names = append(names, path.Base(s))
 	}
-	script := "tar -C " + shQuote(parent) + " -cf - -- " + quoteAll(names)
+	// COPYFILE_DISABLE: a Mac host's tar would otherwise add a ._name file of
+	// extended attributes beside each one. Other tars ignore the variable.
+	script := "COPYFILE_DISABLE=1 tar -C " + shQuote(parent) + " -cf - -- " + quoteAll(dotSlash(names))
 
-	extract := exec.CommandContext(ctx, "tar", "-C", destDir, "-xvf", "-")
-	return remoteToLocal(ctx, h, script, extract, step)
+	// -o: files are owned by whoever runs tyr, not by the uid the host's
+	// archive names — which a tar run as root would otherwise restore.
+	extract := exec.CommandContext(ctx, "tar", "-C", destDir, "-x", "-o", "-v", "-f", "-")
+	return remoteToLocal(ctx, h, script, extract, names, step)
 }
 
 // Upload copies local srcs (which share a parent directory) into a remote dir.
@@ -50,14 +56,36 @@ func Upload(ctx context.Context, h Host, srcs []string, destDir string, step fun
 	}
 
 	parent := filepath.Dir(srcs[0])
-	args := []string{"-C", parent, "-cvf", "-", "--"}
-	for _, s := range srcs {
-		args = append(args, filepath.Base(s))
+	args := []string{"-C", parent, "-cvf", "-"}
+	if runtime.GOOS == "darwin" {
+		// macOS's tar otherwise packs every extended attribute and an
+		// AppleDouble ._name file beside each one: junk on the host, and
+		// attributes such as where a file was downloaded from going with it.
+		args = append(args, "--no-mac-metadata", "--no-xattrs")
 	}
-	script := "mkdir -p -- " + shQuote(destDir) + " && tar -C " + shQuote(destDir) + " -xf -"
+	args = append(args, "--")
+	for _, s := range srcs {
+		args = append(args, dotSlash([]string{filepath.Base(s)})...)
+	}
+	script := "mkdir -p -- " + shQuote(destDir) + " && tar -C " + shQuote(destDir) + " -x -o -f -"
 
 	create := exec.CommandContext(ctx, "tar", args...)
+	if runtime.GOOS == "darwin" {
+		create.Env = append(os.Environ(), "COPYFILE_DISABLE=1")
+	}
 	return localToRemote(ctx, h, script, create, step)
+}
+
+// dotSlash prefixes each name with ./ for tar's command line. bsdtar reads a
+// name starting with @ as another archive whose contents are to be included,
+// even after --: @notes would fail, and @old.tar would send what is inside
+// old.tar instead of the file. ./ makes every name a path.
+func dotSlash(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = "./" + n
+	}
+	return out
 }
 
 // Delete removes remote paths recursively, one at a time so each reports.
@@ -96,8 +124,9 @@ func Transfer(ctx context.Context, h Host, srcs []string, destDir string, move b
 	return nil
 }
 
-// remoteToLocal pipes a remote command's stdout into a local one's stdin.
-func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, step func(string)) error {
+// remoteToLocal pipes a remote command's stdout into a local one's stdin,
+// through allowOnly so that only the requested names can come out the far end.
+func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, names []string, step func(string)) error {
 	c, err := client(h)
 	if err != nil {
 		return err
@@ -116,24 +145,48 @@ func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, 
 	var remoteErr strings.Builder
 	sess.Stderr = &remoteErr
 
-	local.Stdin = data
-	names, wait, err := startWithProgress(local, step)
+	pr, pw := io.Pipe()
+	local.Stdin = pr
+	tailText, wait, err := startWithProgress(local, step)
 	if err != nil {
 		return err
 	}
 
+	// The filter runs beside the session. When it refuses an entry it closes
+	// the session too: nothing is reading the host's output any more, and a
+	// remote tar blocked on a full channel would keep Run from returning.
+	filterErr := make(chan error, 1)
+	go func() {
+		err := allowOnly(data, pw, names)
+		if err == nil {
+			_, err = io.Copy(io.Discard, data) // the zero padding after the end
+		}
+		_ = pw.CloseWithError(err)
+		if err != nil {
+			_ = sess.Close()
+		}
+		filterErr <- err
+	}()
+
 	runErr := sess.Run(script)
 	// The local end only sees EOF once the remote command has finished, so it is
 	// waited on after, not before.
+	refused := <-filterErr
 	localErr := wait()
 
-	if runErr != nil {
+	// A refusal is the reason for everything else that failed after it. Any
+	// other filter error is a symptom: the local tar gave up and stopped
+	// reading, and what it said is the better message.
+	var unrequested *unrequestedError
+	switch {
+	case errors.As(refused, &unrequested):
+		return refused
+	case runErr != nil && localErr == nil:
 		return remoteError(h, remoteErr.String(), runErr)
+	case localErr != nil:
+		return fmt.Errorf("extract failed: %s", tailText())
 	}
-	if localErr != nil {
-		return fmt.Errorf("extract failed: %s", names())
-	}
-	return nil
+	return refused
 }
 
 // localToRemote pipes a local command's stdout into a remote one's stdin.
@@ -248,13 +301,13 @@ func startWithProgress(cmd *exec.Cmd, step func(string)) (tailFn func() string, 
 func parseTarVerbose(line string) string {
 	for _, p := range []string{"x ", "a "} {
 		if rest, ok := strings.CutPrefix(line, p); ok {
-			return strings.TrimSpace(rest)
+			return strings.TrimPrefix(strings.TrimSpace(rest), "./")
 		}
 	}
 	if strings.Contains(line, ": ") || strings.HasPrefix(line, "Warning:") {
 		return "" // diagnostics, not a file name
 	}
-	return line
+	return strings.TrimPrefix(line, "./") // dotSlash put it there
 }
 
 // tail keeps the last n lines for error reporting.

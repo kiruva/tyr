@@ -265,3 +265,38 @@ func TestTrashDeletesSetting(t *testing.T) {
 		t.Error("an unreadable value should keep the reversible behaviour")
 	}
 }
+
+// A directory name can hold a line break, and one setting is one line. Saved
+// raw, the rest of the name would be read back as a setting of its own — here,
+// pointing a saved connection at another host.
+func TestSaveSessionCannotInjectSettings(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := SaveConnection(Connection{Name: "a", Host: "good.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	hostile := "/tmp/x\nconn.a.host = evil.example"
+	if err := SaveSession([2]PaneState{{Path: hostile, Sort: "size"}, {Path: "/tmp/ok"}}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	conns, _ := Connections()
+	if len(conns) != 1 || conns[0].Host != "good.example" {
+		t.Fatalf("connections = %+v, want a still on good.example", conns)
+	}
+	cfg, _ := Load()
+	if cfg.Panes[0].Path != "" || cfg.Panes[0].Sort != "size" || cfg.Panes[1].Path != "/tmp/ok" {
+		t.Errorf("panes = %+v, want the unstorable path skipped and the rest saved", cfg.Panes)
+	}
+}
+
+// Any other write with a line break in it is refused outright, not written.
+func TestRewriteRefusesLineBreaks(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{Theme: "nord\rkey.quit = x"}); err == nil {
+		t.Fatal("a value with a line break was saved")
+	}
+	if err := SaveConnection(Connection{Name: "b", Host: "h\nconn.b.user = root"}); err == nil {
+		t.Fatal("a connection field with a line break was saved")
+	}
+}

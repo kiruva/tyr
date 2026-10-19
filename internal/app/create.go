@@ -79,7 +79,7 @@ func (m Model) commitCreate() (tea.Model, tea.Cmd) {
 	dir := m.create.dir
 
 	if p.IsRemote() {
-		target := remote.Join(p.Path, name)
+		target := remote.Child(p.Path, name)
 		m.closeCreate()
 		return m, createRemoteCmd(idx, p.Host(), target, name, dir)
 	}

@@ -129,7 +129,10 @@ func SaveSession(panes [2]PaneState) error {
 	return rewrite(func(pairs map[string]string) {
 		for i, prefix := range paneKeys {
 			p := panes[i]
-			if p.Path != "" {
+			// A path with a line break in it cannot be one line of the file
+			// (see rewrite); it is not remembered, rather than the rest of the
+			// session going unsaved with it.
+			if p.Path != "" && storable(p.Path) {
 				setPreservingCase(pairs, prefix+".path", p.Path)
 			}
 			if p.Sort != "" {
@@ -185,7 +188,13 @@ func rewrite(mutate func(map[string]string)) error {
 	mutate(pairs)
 
 	keys := make([]string, 0, len(pairs))
-	for k := range pairs {
+	for k, v := range pairs {
+		// One setting is one line. A line break in a value — a directory name
+		// can hold one — would write the rest of it as a line of its own,
+		// which the next read takes as a setting: "conn.prod.host = …".
+		if !storable(k) || !storable(v) {
+			return fmt.Errorf("cannot save %q: it contains a line break", k)
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -198,6 +207,9 @@ func rewrite(mutate func(map[string]string)) error {
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o600)
 }
+
+// storable reports whether s fits on one line of the file.
+func storable(s string) bool { return !strings.ContainsAny(s, "\r\n") }
 
 // lookup finds a scalar setting case-insensitively. Keys keep the case they were
 // written with — a connection name is a display label — so reads normalise

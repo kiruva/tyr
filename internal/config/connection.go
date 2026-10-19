@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,7 +123,7 @@ func SaveConnection(c Connection) error {
 	}
 	return rewrite(func(pairs map[string]string) {
 		prefix := connPrefix + strings.TrimSpace(c.Name) + "."
-		deletePrefixed(pairs, prefix)
+		deleteConnKeys(pairs, prefix)
 		pairs[prefix+"host"] = c.Host
 		setIfPresent(pairs, prefix+"user", c.User)
 		setIfPresent(pairs, prefix+"port", c.Port)
@@ -149,15 +150,23 @@ func TouchConnection(name string) error {
 // DeleteConnection removes a saved connection.
 func DeleteConnection(name string) error {
 	return rewrite(func(pairs map[string]string) {
-		deletePrefixed(pairs, connPrefix+strings.TrimSpace(name)+".")
+		deleteConnKeys(pairs, connPrefix+strings.TrimSpace(name)+".")
 	})
 }
 
-// deletePrefixed removes every key under a connection's namespace, matching the
-// prefix case-insensitively so a hand-edited file still lines up.
-func deletePrefixed(pairs map[string]string, prefix string) {
+// connFields are the keys a connection is made of, under conn.<name>.
+var connFields = []string{"host", "user", "port", "path", "identity", "lastused"}
+
+// deleteConnKeys removes one connection's keys, matching case-insensitively so
+// a hand-edited file still lines up. It removes those fields by name rather
+// than everything under the prefix: a name can contain dots, so "conn.web." is
+// also the start of every key of a connection called web.staging.
+func deleteConnKeys(pairs map[string]string, prefix string) {
 	for key := range pairs {
-		if len(key) >= len(prefix) && strings.EqualFold(key[:len(prefix)], prefix) {
+		if len(key) <= len(prefix) || !strings.EqualFold(key[:len(prefix)], prefix) {
+			continue
+		}
+		if slices.ContainsFunc(connFields, func(f string) bool { return strings.EqualFold(key[len(prefix):], f) }) {
 			delete(pairs, key)
 		}
 	}

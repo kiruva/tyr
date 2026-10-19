@@ -109,7 +109,7 @@ func (m *Model) RemoteEntryPath() (string, bool) {
 	if !ok || cur.Name == ".." {
 		return "", false
 	}
-	return remote.Join(m.Path, cur.Name), true
+	return remote.Child(m.Path, cur.Name), true
 }
 
 // remoteRawEntries is the cached listing with ".." in front; the view options

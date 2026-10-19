@@ -1084,11 +1084,16 @@ time it starts:
 The password is offered to the server and kept in memory for that session, so
 transfers and reconnects after an idle timeout do not ask again. Quitting drops it.
 Authentication is tried in order: ssh-agent, then key files, then the password —
-so a key-based host never prompts at all.
+so a key-based host never prompts at all. A host that asks through keyboard-interactive
+gets the password once, as the answer to a single hidden prompt; one that goes on to
+ask for a verification code or anything else is refused with what it asked, rather
+than sent the password again — use a key or ssh-agent for hosts with a second factor.
 
 A host that isn't in `~/.ssh/known_hosts` shows its fingerprint for you to check
 before anything is sent to it; accepting appends it to `known_hosts`, as `ssh`
-would. A known host presenting a _different key of the same type_ is refused
+would. Accepting trusts that fingerprint, not the host: should the connection that
+follows your yes present any other key, it is asked about again. A jump host's key is
+asked about the same way, under the jump host's own name. A known host presenting a _different key of the same type_ is refused
 outright rather than offered as a yes/no — that is either a rebuilt server or an
 interception, and either way it wants looking at by hand. A key of an algorithm
 you have no entry for is just a key you have not seen, and prompts normally.
@@ -1152,6 +1157,16 @@ on the other) rather than using scp or sftp. Every path is quoted by tyr and
 interpreted by exactly one shell, and the local `tar -v` names each file as it moves,
 which is what fills the progress bar. The far side needs `tar` and a POSIX shell;
 nothing is installed.
+
+The host is not trusted with what it sends back. A download asks for some names, and
+the archive that comes back is checked entry by entry on its way to the local `tar`:
+anything that is not one of those names or inside one of them stops the transfer
+before it is written, so a compromised host cannot answer a request for `report.pdf`
+with `.ssh/authorized_keys`. Files land owned by you, whatever owner the archive
+names, and an upload from macOS leaves its extended attributes and `._` files behind.
+A listing is matched against the directory's real names too, so a name that begins
+with a space or contains `->` is shown as itself; a name with a line break in it is
+listed without its size and date.
 
 ## Themes
 
