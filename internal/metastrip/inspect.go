@@ -10,7 +10,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -664,23 +663,4 @@ func latin1OrUTF8(b []byte) string {
 		return string(b)
 	}
 	return latin1(b)
-}
-
-// sanitize makes untrusted metadata safe to print: control characters,
-// terminal escape sequences and bidi overrides are shown escaped.
-func sanitize(s string) string {
-	var sb strings.Builder
-	for _, r := range strings.ToValidUTF8(s, "�") {
-		switch {
-		case r == '\n':
-			sb.WriteString(`\n`)
-		case r == '\t':
-			sb.WriteString(`\t`)
-		case unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || r == ' ' || r == ' ':
-			fmt.Fprintf(&sb, `\u%04x`, r)
-		default:
-			sb.WriteRune(r)
-		}
-	}
-	return sb.String()
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/pane"
+	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -113,13 +114,13 @@ func (m Model) renderFindResults() string {
 func findResultRow(m Model, i, width int) string {
 	r := m.find.results[i]
 
-	name := r.Rel
+	name := termsafe.Line(r.Rel)
 	if r.IsDir {
 		name += "/"
 	}
 	detail := pane.HumanSize(r.Size)
 	if r.Line > 0 {
-		detail = fmt.Sprintf("%d: %s", r.Line, r.Text)
+		detail = fmt.Sprintf("%d: %s", r.Line, termsafe.Line(r.Text))
 	}
 
 	inner := width - 2*dialogPadX - 2

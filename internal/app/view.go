@@ -12,12 +12,21 @@ import (
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/syntax"
+	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/trash"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
-// View implements tea.Model.
+// View implements tea.Model. Every frame goes through termsafe.Frame on its way
+// out: names, paths, file contents and error text all come from outside, and a
+// render path that forgot to escape one must still not be able to hand the
+// terminal a command.
 func (m Model) View() string {
+	return termsafe.Frame(m.render())
+}
+
+// render draws the screen for the mode the app is in.
+func (m Model) render() string {
 	if m.width == 0 || m.height == 0 {
 		return "loading…"
 	}
@@ -151,7 +160,7 @@ func (m Model) renderEditor() string {
 
 	hint := " Ctrl+S save · Ctrl+Q quit"
 	if m.editStatus != "" {
-		hint += " · " + m.editStatus
+		hint += " · " + termsafe.Line(m.editStatus)
 	}
 	footer := ui.StatusBar.Width(m.width).Render(hint)
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)
@@ -167,7 +176,7 @@ func (m Model) statusBar() string {
 		return m.renderFilterBar()
 	}
 	if m.errText != "" {
-		return ui.ErrorBar.Width(m.width).Render(" " + m.errText)
+		return ui.ErrorBar.Width(m.width).Render(" " + barText(m.errText, m.width-1))
 	}
 	if m.noticeText != "" {
 		return ui.NoticeBar.Width(m.width).Render(" " + ui.TruncTail(m.noticeText, m.width-1))
@@ -202,6 +211,16 @@ func (m Model) statusBar() string {
 	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 }
 
+// barText fits an error to the one line the status bar has. Errors carry text
+// from outside — a remote's stderr, a tool's complaint, the name that failed —
+// so it is escaped (TruncHead does that), and its lines are joined into one: a
+// multi-line message would push the panes up off the screen. The front is kept
+// when it is cut, since that is where an error says what went wrong.
+func barText(s string, width int) string {
+	lines := strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' })
+	return ui.TruncHead(strings.Join(lines, " · "), width)
+}
+
 // spacer is the filler that pushes right up against the edge of a bar of the
 // given total width, never closing the gap entirely.
 func spacer(total int, left, right string) string {
@@ -231,7 +250,7 @@ func (m Model) renderConfirm() string {
 		body = "→ " + ui.TruncTail(trash.Describe(), 44) + "\n" + ui.Faint.Render("ctrl+z puts it back · D deletes for good")
 	case fileops.OpRestore:
 		title = ui.DialogTitle.Render("Restore from the trash")
-		body = "put " + trash.Label(j.Trash) + " back"
+		body = "put " + termsafe.Line(trash.Label(j.Trash)) + " back"
 	case fileops.OpSync:
 		toRight, toLeft := syncDirections(j.Pairs, j.Dest)
 		title = ui.DialogTitle.Render("Synchronize " + syncLabel(j))
@@ -299,7 +318,7 @@ func (m Model) renderConfirm() string {
 	case fileops.OpRenameUndo:
 		plan := rename.Applicable(j.Renames)
 		title = ui.DialogTitle.Render("Undo rename")
-		body = "put " + rename.UndoLabel(plan) + " back\n" + ui.Faint.Render("in "+ui.TruncTail(j.Dest, 40))
+		body = "put " + termsafe.Line(rename.UndoLabel(plan)) + " back\n" + ui.Faint.Render("in "+ui.TruncTail(j.Dest, 40))
 		if skipped := rename.Summarize(j.Renames).Conflicts; skipped > 0 {
 			body += "\n" + ui.Faint.Render(fmt.Sprintf("%d %s cannot be put back", skipped, items(skipped)))
 		}
@@ -320,7 +339,7 @@ func (m Model) renderConfirm() string {
 	}
 	if m.undoing {
 		if label := m.undoLabel(); label != "" {
-			body += "\n" + ui.Faint.Render("undoing the "+label)
+			body += "\n" + ui.Faint.Render("undoing the "+termsafe.Line(label))
 		}
 	}
 	if m.willOverwrite {

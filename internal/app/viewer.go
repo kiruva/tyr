@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/syntax"
+	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/ui"
 )
 
@@ -367,14 +368,16 @@ func numberWidth(lines int) int {
 }
 
 // splitLines breaks a file into display lines, without a trailing empty one for
-// the newline every text file ends with.
+// the newline every text file ends with. Control characters other than the tab
+// are escaped on the way: the file is somebody else's, and an ESC in it would
+// otherwise reach the terminal as the start of a command.
 func splitLines(data []byte) []string {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	text = strings.TrimSuffix(text, "\n")
 	if text == "" {
 		return []string{""}
 	}
-	return strings.Split(text, "\n")
+	return strings.Split(termsafe.Text(text), "\n")
 }
 
 // wrapLines breaks long lines at the window's width. It wraps on the character

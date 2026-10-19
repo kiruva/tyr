@@ -155,3 +155,17 @@ func TestTwoColumnsPutsBlocksSideBySide(t *testing.T) {
 		t.Errorf("first line = %q, want both blocks on it", line)
 	}
 }
+
+// The truncators are where names and paths are cut for the screen, so they
+// escape control characters first and cut what will actually be drawn.
+func TestTruncEscapesControlCharacters(t *testing.T) {
+	name := "a\x1b]0;x\x07b"
+	for _, got := range []string{TruncHead(name, 40), TruncTail(name, 40)} {
+		if strings.ContainsAny(got, "\x1b\x07") {
+			t.Errorf("%q still holds a control character", got)
+		}
+		if !strings.Contains(got, `\u001b`) {
+			t.Errorf("%q does not show the escape", got)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/termsafe"
 )
 
 // InArchive reports whether the pane is currently browsing inside an archive.
@@ -89,8 +90,10 @@ func (m Model) displayPath() string {
 	return base + "/" + m.vpath + "/"
 }
 
-// Title exposes the display path for the status bar.
-func (m *Model) Title() string { return m.displayPath() }
+// Title exposes the display path for the status bar, escaped for the screen.
+// displayPath itself stays raw: it seeds the address bar, where the user edits
+// the real path, not a picture of it.
+func (m *Model) Title() string { return termsafe.Line(m.displayPath()) }
 
 // virtualEntries computes the immediate children of vpath from a flat member
 // list, synthesizing directory entries and prepending "..".

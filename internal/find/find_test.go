@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // tree builds a small directory tree: keys are relative paths, values contents.
@@ -112,6 +114,37 @@ func TestFindByContent(t *testing.T) {
 	}
 	if res[0].Line != 2 || res[0].Text != "needle here" {
 		t.Errorf("hit = line %d %q, want line 2 \"needle here\"", res[0].Line, res[0].Text)
+	}
+}
+
+// A hit in a long line keeps a slice of it around the match rather than the
+// whole line: up to 500 hits are held, and a minified bundle is one line.
+func TestFindContentPreviewIsCapped(t *testing.T) {
+	long := strings.Repeat("x", 5000) + "needle" + strings.Repeat("y", 5000)
+	root := tree(t, map[string]string{"bundle.js": long + "\n"})
+
+	res, _, err := Run(context.Background(), Options{Root: root, Content: "needle"})
+	if err != nil || len(res) != 1 {
+		t.Fatalf("run: %v, %d hits", err, len(res))
+	}
+	text := res[0].Text
+	if len(text) > previewBytes+2*len("…") {
+		t.Errorf("preview is %d bytes, want at most %d", len(text), previewBytes)
+	}
+	if !strings.Contains(text, "needle") {
+		t.Errorf("preview %q does not show the match", text)
+	}
+	if !strings.HasPrefix(text, "…") || !strings.HasSuffix(text, "…") {
+		t.Errorf("preview %q does not mark both cuts", text)
+	}
+}
+
+// The cut never lands inside a character.
+func TestPreviewKeepsRunesWhole(t *testing.T) {
+	line := strings.Repeat("日本語", 200) + "needle" + strings.Repeat("日本語", 200)
+	got := preview(line, strings.Index(line, "needle"))
+	if !utf8.ValidString(got) || !strings.Contains(got, "needle") {
+		t.Errorf("preview = %q", got)
 	}
 }
 
