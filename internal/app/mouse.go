@@ -39,9 +39,9 @@ func (m Model) onMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
 	case modeEdit:
-		var cmd tea.Cmd
-		m.editor, cmd = m.editor.Update(msg)
-		return m, cmd
+		msg.Y-- // below the header line
+		m.editor.Update(msg)
+		return m, nil
 	default:
 		return m.listMouse(msg)
 	}

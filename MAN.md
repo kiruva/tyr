@@ -100,7 +100,7 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `U`                 | Unpack archive in place         |
 | `C`                 | Convert (audio, images) → other |
 | `v`                 | View file (images: metadata)    |
-| `e`                 | Edit file (nano-style)          |
+| `e`                 | Edit file                       |
 | `S` / `Ctrl+S`      | ssh connections                 |
 | `t`                 | Theme picker                    |
 | `K`                 | Edit the keybindings            |
@@ -1022,10 +1022,33 @@ it, and the `.7z` row turns green without restarting tyr.
 
 ## View & edit
 
-`v` opens a file in the pager, `e` opens it in a nano-style editor — `Ctrl+S` saves, `Ctrl+Q`
-quits, and `Esc` guards unsaved changes. A save replaces the file whole, so a full disk leaves
-the old contents rather than half of the new. If something else changed the file after it was
-opened, the first `Ctrl+S` says so instead of saving; a second one overwrites it.
+`v` opens a file in the pager, `e` opens it in the editor — `Ctrl+S` saves, `Ctrl+Q` quits, and
+`Esc` guards unsaved changes. A save replaces the file whole, so a full disk leaves the old
+contents rather than half of the new. If something else changed the file after it was opened,
+the first `Ctrl+S` says so instead of saving; a second one overwrites it. `e` in the viewer edits
+the file being viewed.
+
+The editor is for quick fixes to code and config, and keeps a file the way it found it: tabs
+stay tabs (drawn to the next stop, every 4 columns), a CRLF file stays CRLF, and any other
+control character shows as `^X` and is saved as itself. Code is coloured like in the pager.
+
+| Key                              | What it does                                         |
+| -------------------------------- | ---------------------------------------------------- |
+| arrows, `Home` `End` `PgUp` `PgDn` | move; `Home` goes to the first non-blank, then column 0 |
+| `Ctrl+←` `Ctrl+→` (or `Alt+`)    | word left / right                                    |
+| `Ctrl+Home` `Ctrl+End`           | top / bottom of the file                             |
+| `Shift` + any move, `Ctrl+A`     | select; select all                                   |
+| `Ctrl+C` `Ctrl+X` `Ctrl+V`       | copy, cut, paste — the system clipboard where there is one |
+| `Ctrl+K`                         | cut the line                                         |
+| `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them    |
+| `Enter`                          | new line, keeping the indentation                    |
+| `Alt+Backspace`, `Ctrl+W`        | delete the word before the cursor                    |
+| `Ctrl+Z` `Ctrl+Y`                | undo, redo                                           |
+| `Ctrl+F`                         | find, as you type; `Enter`/`↓` next, `↑` previous, `Esc` done |
+| `F3` / `Ctrl+G`, `Shift+F3`      | next / previous match of the last search             |
+
+The mouse places the cursor, drags a selection and scrolls. A file that is not UTF-8 text is
+refused, since the editor could not save it back unchanged; `v` still shows it.
 
 The viewer holds the first 16 MB of a file and says so when there is more; the editor refuses a
 file that size, since saving would cut it short. A named pipe, socket or device has no contents

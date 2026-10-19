@@ -39,6 +39,10 @@ type viewerState struct {
 	// switches between that and the bytes.
 	meta bool
 
+	// source is the file the viewer shows, for e to open in the editor; it
+	// is empty for a command's output, which has none.
+	source editTarget
+
 	// laid is viewerLines' last answer. A search re-renders on every
 	// keystroke, and a hex dump or a wrap of a big file is too slow to
 	// rebuild twice a key. A pointer, so the value receivers can fill it.
@@ -115,8 +119,12 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewer = viewerState{}
 		return m, nil
 	case "e":
-		cmd := m.openEditor() // hand off to the editor on the same file
-		return m, cmd
+		// The file being viewed, not whatever the pane's cursor is on now.
+		if m.viewer.source.realPath == "" && m.viewer.source.archive == "" {
+			m.viewer.status = "nothing to edit — this is not a file"
+			return m, nil
+		}
+		return m, m.loadCmd(m.viewer.source, loadEdit)
 	case "/":
 		return m.openViewSearch()
 	case "n":
