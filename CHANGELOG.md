@@ -11,6 +11,24 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **Nothing is overwritten in place any more.** Every file tyr writes — a copy, a pack, an
+  edited file, an archive member saved from the editor, the settings — is written beside its
+  destination and moved into place once it is complete. A copy cancelled half-way, a pack that
+  fails, a full disk while saving: each leaves the old file as it was, where before it left half
+  a file or none. Overwriting a file with a copy no longer deletes the old one first.
+- **Packing over an existing archive replaces it.** For `.zip` and `.7z` it added to the old
+  archive, so files deleted since the last pack lived on in it.
+- **Saving a file inside a plain `.tar` works on macOS and Windows.** It used `tar --delete`,
+  which only GNU tar has; it now repacks, as compressed tars already did.
+- **The editor notices a file changed underneath it.** Saving over a file that another program
+  wrote to since it was opened now asks for a second `Ctrl+S`. A save also keeps a symlink a
+  symlink and writes the file it points at.
+- **Removing metadata from a read-only image works.** It always failed with "permission denied".
+- On Linux, trashing a file never takes a name another program has just reserved in the trash,
+  and never overwrites an existing `.trashinfo` record.
+
+### Fixed
+
 - **Batch rename no longer crashes on some names.** Find and replace with *ignore case* on
   a name holding a letter whose lower case is longer in bytes — `Ⱥ`, `İ` — closed tyr with a
   panic, on the keystroke that typed the pattern.

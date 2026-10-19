@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // Member is a single entry inside an archive.
@@ -134,15 +136,17 @@ func outputCapped(cmd *exec.Cmd) ([]byte, error) {
 }
 
 // WriteMember writes edited bytes back to a single member, preserving the
-// archive's format. tar/zip get targeted updates; compressed tar is rewritten.
+// archive's format. A zip gets a targeted update (zip itself writes a new
+// archive and renames it into place); a tar of any kind is repacked.
 func WriteMember(archive, member string, data []byte) error {
 	switch f := detectFormat(archive); {
 	case f == fmtZip:
 		return writeZipMember(archive, member, data)
-	case f == fmtTar:
-		return writeUncompressedTarMember(archive, member, data)
 	case isTar(f):
-		return rewriteCompressedTarMember(f, archive, member, data)
+		return repackTar(context.Background(), f, archive, func(dir string) error {
+			_, err := writeMemberFile(dir, member, data)
+			return err
+		})
 	default:
 		return fmt.Errorf("editing members of this archive type is not supported")
 	}
@@ -175,52 +179,51 @@ func writeZipMember(archive, member string, data []byte) error {
 	if _, err := writeMemberFile(tmp, member, data); err != nil {
 		return err
 	}
-	cmd := exec.Command("zip", "-q", argPath(archive), "--", member)
+	// -nw: the name is a name. zip reads a [ in it as a wildcard otherwise.
+	cmd := exec.Command("zip", "-q", "-nw", argPath(archive), "--", member)
 	cmd.Dir = tmp
 	return runQuiet(cmd)
 }
 
-func writeUncompressedTarMember(archive, member string, data []byte) error {
-	if err := runQuiet(exec.Command("tar", "--delete", "-f", archive, "--", member)); err != nil {
-		return err
+// repackTar changes a tar of any kind: it is extracted whole into a scratch
+// folder, mutate changes that folder, and the result is packed into a new file
+// beside the archive that replaces it only once it is complete. A tar cannot be
+// edited in place portably — bsdtar has no --delete — and packing straight over
+// the original destroyed it whenever the pack failed.
+func repackTar(ctx context.Context, f format, archive string, mutate func(dir string) error) error {
+	// A link is followed: the archive it points at is the one being changed.
+	if real, err := filepath.EvalSymlinks(archive); err == nil {
+		archive = real
 	}
-	tmp, err := os.MkdirTemp("", "tyr-tar-")
+	info, err := os.Stat(archive)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
-	if _, err := writeMemberFile(tmp, member, data); err != nil {
-		return err
-	}
-	return runQuiet(exec.Command("tar", "-r", "-f", archive, "-C", tmp, "--", member))
-}
 
-// rewriteCompressedTarMember extracts the whole archive, replaces one member,
-// and repacks — the only way to update a member of a compressed tar via the CLI.
-func rewriteCompressedTarMember(f format, archive, member string, data []byte) error {
-	tmp, err := os.MkdirTemp("", "tyr-rewrite-")
+	tmp, err := os.MkdirTemp("", "tyr-repack-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
 
-	// extract everything
 	ex := []string{"-x"}
 	if c := tarComp(f); c != "" {
 		ex = append(ex, c)
 	}
 	ex = append(ex, "-f", archive, "-C", tmp)
-	if err := runQuiet(exec.Command("tar", ex...)); err != nil {
+	if err := runQuiet(exec.CommandContext(ctx, "tar", ex...)); err != nil {
 		return err
 	}
 
-	// replace the edited member
-	if _, err := writeMemberFile(tmp, member, data); err != nil {
+	if err := mutate(tmp); err != nil {
 		return err
 	}
 
-	// repack all top-level entries back to the original path
 	names, err := topLevel(tmp)
+	if err != nil {
+		return err
+	}
+	out, err := fsutil.TempBeside(archive)
 	if err != nil {
 		return err
 	}
@@ -228,9 +231,13 @@ func rewriteCompressedTarMember(f format, archive, member string, data []byte) e
 	if c := tarComp(f); c != "" {
 		create = append(create, c)
 	}
-	create = append(create, "-f", archive, "-C", tmp, "--")
+	create = append(create, "-f", out, "-C", tmp, "--")
 	create = append(create, names...)
-	return runQuiet(exec.Command("tar", create...))
+	if err := runQuiet(exec.CommandContext(ctx, "tar", create...)); err != nil {
+		_ = os.Remove(out)
+		return err
+	}
+	return fsutil.Commit(out, archive, info.Mode().Perm())
 }
 
 func topLevel(dir string) ([]string, error) {
@@ -293,39 +300,13 @@ func stageSources(ctx context.Context, root, vdir string, srcs []string, r *repo
 	return rels, nil
 }
 
-// addToTar rewrites the tar with the new files spliced in at vdir. Rewriting
+// addToTar repacks the tar with the new files spliced in at vdir. Repacking
 // (rather than -r append) keeps one code path for both plain and compressed tar.
 func addToTar(ctx context.Context, f format, archive, vdir string, srcs []string, r *reporter, rv *resolver) error {
-	tmp, err := os.MkdirTemp("", "tyr-add-")
-	if err != nil {
+	return repackTar(ctx, f, archive, func(dir string) error {
+		_, err := stageSources(ctx, dir, vdir, srcs, r, rv)
 		return err
-	}
-	defer os.RemoveAll(tmp)
-
-	ex := []string{"-x"}
-	if c := tarComp(f); c != "" {
-		ex = append(ex, c)
-	}
-	ex = append(ex, "-f", archive, "-C", tmp)
-	if err := runQuiet(exec.CommandContext(ctx, "tar", ex...)); err != nil {
-		return err
-	}
-
-	if _, err := stageSources(ctx, tmp, vdir, srcs, r, rv); err != nil {
-		return err
-	}
-
-	names, err := topLevel(tmp)
-	if err != nil {
-		return err
-	}
-	create := []string{"-c"}
-	if c := tarComp(f); c != "" {
-		create = append(create, c)
-	}
-	create = append(create, "-f", archive, "-C", tmp, "--")
-	create = append(create, names...)
-	return runQuiet(exec.CommandContext(ctx, "tar", create...))
+	})
 }
 
 // addToZip stages the sources and lets `zip` splice them in (updates existing

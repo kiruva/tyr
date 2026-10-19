@@ -210,3 +210,33 @@ func TestRestoreKeepsGoingPastAFailure(t *testing.T) {
 		}
 	}
 }
+
+// A .trashinfo already there reserves its name, as the freedesktop spec has
+// it: another program may be half-way through trashing a file under it. The
+// record is never overwritten; the file goes in under the next free name.
+func TestMoveDoesNotTakeAReservedName(t *testing.T) {
+	isolate(t)
+	keeps := withInfo
+	withInfo = func() bool { return true }
+	t.Cleanup(func() { withInfo = keeps })
+
+	info, err := infoDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved := filepath.Join(info, "notes.txt.trashinfo")
+	write(t, reserved, "[Trash Info]\nPath=/elsewhere/notes.txt\n")
+
+	file := filepath.Join(t.TempDir(), "notes.txt")
+	write(t, file, "x")
+	item, err := Move(file)
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if filepath.Base(item.Path) == "notes.txt" {
+		t.Error("the file went in under the reserved name")
+	}
+	if body, _ := os.ReadFile(reserved); !strings.Contains(string(body), "/elsewhere/") {
+		t.Errorf("the reserved record was overwritten: %q", body)
+	}
+}

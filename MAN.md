@@ -1023,7 +1023,9 @@ it, and the `.7z` row turns green without restarting tyr.
 ## View & edit
 
 `v` opens a file in the pager, `e` opens it in a nano-style editor — `Ctrl+S` saves, `Ctrl+Q`
-quits, and `Esc` guards unsaved changes.
+quits, and `Esc` guards unsaved changes. A save replaces the file whole, so a full disk leaves
+the old contents rather than half of the new. If something else changed the file after it was
+opened, the first `Ctrl+S` says so instead of saving; a second one overwrites it.
 
 The pager has the four switches a pager is asked for:
 

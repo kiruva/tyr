@@ -604,8 +604,13 @@ func (rn *runner) copyEntry(src, dst string, track bool) (string, error) {
 			}
 			dst, fresh = free, true
 		case ConflictOverwrite:
-			if err := os.RemoveAll(dst); err != nil {
-				return "", err
+			// A file over a file is replaced by the rename that finishes the
+			// copy, so a failure or a cancellation part-way keeps the old one.
+			// Anything else has to be cleared out of the way first.
+			if !info.Mode().IsRegular() || isDir(dst) {
+				if err := os.RemoveAll(dst); err != nil {
+					return "", err
+				}
 			}
 		}
 	}
@@ -701,6 +706,10 @@ func plural(n int, one, many string) string {
 // copyFile copies one file, in chunks so that a cancellation is noticed part-way
 // through a large one. A plain io.Copy would run to the end of a hundred-gigabyte
 // file before anything got to ask whether it should still be running.
+//
+// The copy is written beside dst and renamed onto it once whole, so a copy that
+// stops part-way leaves neither half a file nor — when it was overwriting — a
+// missing one.
 func copyFile(ctx context.Context, src, dst string, perm os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -708,15 +717,24 @@ func copyFile(ctx context.Context, src, dst string, perm os.FileMode) error {
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	tmp, err := fsutil.TempBeside(dst)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, &ctxReader{ctx: ctx, r: in}); err != nil {
-		out.Close()
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
-	return out.Close()
+	_, err = io.Copy(out, &ctxReader{ctx: ctx, r: in})
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return fsutil.Commit(tmp, dst, perm)
 }
 
 // ctxReader fails the read once ctx is done, which is what stops an io.Copy

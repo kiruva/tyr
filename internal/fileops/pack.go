@@ -171,17 +171,23 @@ func pack(ctx context.Context, job Job, r *reporter) error {
 		return fmt.Errorf("%s cannot be password protected", info.Label)
 	}
 
-	// A failed pack leaves a truncated archive behind, which is worse than no
-	// archive: drop it, unless we overwrote something that was already there.
-	existed := false
-	if _, err := os.Stat(job.Out); err == nil {
-		existed = true
+	// The archive is made in a folder of its own beside the output and moved
+	// into place once the tool is done. A failed pack then leaves nothing
+	// behind and an existing archive as it was; and "overwrite" means a new
+	// archive for every format — zip and 7z, handed an existing archive, add
+	// to it.
+	stage, err := os.MkdirTemp(filepath.Dir(job.Out), ".tyr-pack-")
+	if err != nil {
+		return err
 	}
-	err := runPack(ctx, job, opts, r)
-	if err != nil && !existed {
-		_ = os.Remove(job.Out)
+	defer os.RemoveAll(stage)
+
+	out := job.Out
+	job.Out = filepath.Join(stage, filepath.Base(out))
+	if err := runPack(ctx, job, opts, r); err != nil {
+		return err
 	}
-	return err
+	return os.Rename(job.Out, out)
 }
 
 func runPack(ctx context.Context, job Job, opts PackOpts, r *reporter) error {

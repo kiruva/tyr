@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kiruva/tyr/internal/fsutil"
 	"github.com/kiruva/tyr/internal/metastrip"
 )
 
@@ -543,7 +544,7 @@ func convertOne(ctx context.Context, it convertItem, job Job, r *reporter, rv *r
 	r.part(it.label, 0, "")
 	length := probeLength(ctx, it.src, r)
 
-	tmpName, err := tempBeside(dst, 0o644)
+	tmpName, err := fsutil.TempBeside(dst)
 	if err != nil {
 		return "", err
 	}
@@ -556,8 +557,7 @@ func convertOne(ctx context.Context, it convertItem, job Job, r *reporter, rv *r
 		}
 		return "", fmt.Errorf("%s: %w", it.label, err)
 	}
-	if err := os.Rename(tmpName, dst); err != nil {
-		_ = os.Remove(tmpName)
+	if err := fsutil.Commit(tmpName, dst, 0o644); err != nil {
 		return "", err
 	}
 	return dst, nil

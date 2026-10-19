@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // A theme is eight colours and a name, so a theme file is eight lines. They
@@ -178,5 +180,5 @@ cursorfg = %s
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(body), 0o644)
+	return fsutil.WriteFile(path, []byte(body), 0o644)
 }
