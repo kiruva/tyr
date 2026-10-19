@@ -26,22 +26,20 @@ const tempPrefix = ".tyr-rename-"
 // The returned slice is what actually happened, in the order it happened. Hand it
 // to PlanUndo to put it back — including after an error, where it is the part of
 // the batch that did land, and including after a cancellation, which stops the
-// batch between directories and is reported the same way.
+// batch before the next plain rename and is reported the same way.
 func Apply(ctx context.Context, root string, changes []Change, step func(string)) ([]Change, error) {
 	return applyGroups(ctx, root, byDir(Applicable(changes), true), step)
 }
 
 // applyGroups runs the groups in order, collecting what completed. A group is
-// one directory's worth of renames, some of them staged through temporary
-// names, so between groups is the only point at which stopping leaves no
-// staging name behind.
+// one directory's worth of renames.
 func applyGroups(ctx context.Context, root string, groups [][]Change, step func(string)) ([]Change, error) {
 	var done []Change
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
 			return done, err
 		}
-		applied, err := applyDir(root, group, step)
+		applied, err := applyDir(ctx, root, group, step)
 		done = append(done, applied...)
 		if err != nil {
 			return done, err
@@ -91,7 +89,12 @@ type staged struct {
 	change Change // what it is doing, for the progress callback and the undo record
 }
 
-func applyDir(root string, group []Change, step func(string)) ([]Change, error) {
+// applyDir renames one directory's worth. The colliding ones are parked under
+// temporary names first, then the plain ones run, then the parked ones land.
+// A cancellation is honoured during the plain renames — one directory can hold
+// thousands — and puts the parked ones back; once they start landing, they all
+// land, since stopping half-way through a swap is the state worth avoiding.
+func applyDir(ctx context.Context, root string, group []Change, step func(string)) ([]Change, error) {
 	// Names this group frees up. A target among them cannot simply be renamed
 	// onto, so the source goes to a temporary name first.
 	sources := make(map[string]bool, len(group))
@@ -109,12 +112,10 @@ func applyDir(root string, group []Change, step func(string)) ([]Change, error) 
 			from := filepath.Join(root, c.Rel)
 			tmp, err := tempName(from)
 			if err != nil {
-				unstage(pending)
-				return nil, err
+				return nil, unstage(pending, err)
 			}
 			if err := os.Rename(from, tmp); err != nil {
-				unstage(pending)
-				return nil, err
+				return nil, unstage(pending, err)
 			}
 			pending = append(pending, staged{tmp: tmp, to: filepath.Join(root, c.NewRel()), from: from, change: c})
 			continue
@@ -123,21 +124,22 @@ func applyDir(root string, group []Change, step func(string)) ([]Change, error) 
 	}
 
 	for _, c := range direct {
+		if err := ctx.Err(); err != nil {
+			return done, unstage(pending, err)
+		}
 		from, to := filepath.Join(root, c.Rel), filepath.Join(root, c.NewRel())
 		if err := renameNew(from, to); err != nil {
-			unstage(pending)
-			return done, err
+			return done, unstage(pending, err)
 		}
 		done = append(done, c)
 		step(c.Rel)
 	}
 
-	for _, p := range pending {
+	for i, p := range pending {
 		if err := renameNew(p.tmp, p.to); err != nil {
-			unstage(pending)
-			// The staged renames are back where they started, so none of this
-			// group's staged half happened.
-			return done, err
+			// What landed stays landed and is in done, for the undo. Only
+			// what is still parked goes back.
+			return done, unstage(pending[i:], err)
 		}
 		done = append(done, p.change)
 		step(p.change.Rel)
@@ -170,13 +172,22 @@ func tempName(path string) (string, error) {
 	return "", fmt.Errorf("no free temporary name for %s", base)
 }
 
-// unstage puts staged entries back where they came from, so a failure part-way
-// through a group does not leave anything under a temporary name. It is
-// best-effort: the error that got us here is the one worth reporting.
-func unstage(pending []staged) {
+// unstage puts parked entries back where they came from, so a failure part-way
+// through a group does not leave anything under a temporary name. It never
+// puts one back over something: in a swap the old name may already hold the
+// other file. What cannot go back stays parked, and the returned error — err,
+// which is what got us here — names where, so it can be found.
+func unstage(pending []staged, err error) error {
+	var stuck []string
 	for _, p := range pending {
-		_ = os.Rename(p.tmp, p.from)
+		if renameNew(p.tmp, p.from) != nil {
+			stuck = append(stuck, filepath.Base(p.from)+" is at "+filepath.Base(p.tmp))
+		}
 	}
+	if len(stuck) > 0 {
+		return fmt.Errorf("%w (%s)", err, strings.Join(stuck, ", "))
+	}
+	return err
 }
 
 // IsStagingName reports whether a name is a leftover from an interrupted batch,

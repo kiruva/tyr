@@ -394,10 +394,12 @@ A directory has no extension to protect: its whole name is `[N]`, and `ext` is i
 | --------- | --------------------------------------------- | ------------------------- |
 | `regex`   | a Go regular expression, matched anywhere      | text with `$1` backrefs   |
 | `literal` | plain text — `.` and `*` mean themselves       | plain text                |
-| `glob`    | `*`, `?` and `[abc]`, matched against the whole name | text with `$1` per wildcard |
+| `glob`    | `*`, `?`, `[abc]` and `[!abc]`, matched against the whole name | text with `$1` per wildcard |
 
 An empty `find` matches every name, which is what you want when the masks are doing the work.
-A regex that does not compile is reported under the form and cannot be applied.
+A regex that does not compile is reported under the form and cannot be applied. On Windows a
+name it would not accept — `<>:"|?*`, a trailing dot or space, `CON`, `NUL`, `COM1` and the
+other device names — is held back in the preview like a name that is already taken.
 
 #### Tokens
 

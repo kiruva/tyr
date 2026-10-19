@@ -15,9 +15,9 @@ type Options struct {
 	Limit     int  // stop after this many candidates (0 = DefaultLimit)
 }
 
-// DefaultLimit caps a recursive sweep. A batch rename is not undoable, so an
-// accidental "recursive, from /" should stop and say so rather than build a
-// hundred-thousand-row preview.
+// DefaultLimit caps a recursive sweep. An accidental "recursive, from /"
+// should stop and say so rather than build a hundred-thousand-row preview —
+// and an undo of a hundred thousand renames is no way to take it back.
 const DefaultLimit = 20000
 
 // Collect walks the selected names under root and returns what a rename could
