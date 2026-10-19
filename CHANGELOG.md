@@ -11,6 +11,23 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **Batch rename no longer crashes on some names.** Find and replace with *ignore case* on
+  a name holding a letter whose lower case is longer in bytes — `Ⱥ`, `İ` — closed tyr with a
+  panic, on the keystroke that typed the pattern.
+- **A failed batch rename no longer loses a file.** When a swap went wrong half-way, putting
+  the rest back could move a file over the one that had just been renamed into its place. What
+  already landed now stays, what is put back never replaces anything, and a file that cannot go
+  back keeps its temporary name, which the error gives.
+- **The preview shows a blocked chain as blocked.** Numbering `1.txt` and `2.txt` from 2 needs
+  `2.txt → 3.txt`, which an unselected `3.txt` stops; `1.txt → 2.txt` showed as fine and then
+  stopped the whole batch when applied.
+- On Windows, names Windows refuses (`a:b`, `CON.txt`, a trailing dot) are held back in the
+  preview instead of failing part-way through.
+- The glob `[!abc]` means "not a, b or c", as in a shell, instead of also matching `!`.
+- `Esc` stops a batch rename inside a big folder, rather than only between folders.
+
+### Fixed
+
 - **Synchronize no longer replaces a folder with a file.** A file `foo` on one side and a
   folder `foo/` on the other were listed as two one-sided rows, and running the sync deleted
   the folder and everything in it to copy the file across. A row that cannot be copied either

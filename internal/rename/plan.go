@@ -2,8 +2,10 @@ package rename
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -186,31 +188,75 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// validate rejects a name that cannot be a single directory entry.
-func validate(name string) string {
+// validate rejects a name that cannot be a single directory entry here.
+func validate(name string) string { return validateFor(name, runtime.GOOS) }
+
+// validateFor is validate for a given GOOS, so the Windows rules can be
+// tested anywhere. Windows refuses far more than a separator: the characters
+// below, control characters, a trailing dot or space (it drops them, so the
+// file ends up under another name), and the device names of DOS — with any
+// extension, since "con.txt" is still the console.
+func validateFor(name, goos string) string {
 	switch {
 	case name == "":
 		return "empty name"
 	case name == "." || name == "..":
 		return "reserved name"
-	case strings.ContainsRune(name, '/'), strings.ContainsRune(name, filepath.Separator):
+	case strings.ContainsRune(name, '/'), goos == "windows" && strings.ContainsRune(name, '\\'):
 		return "name contains a separator"
 	case strings.ContainsRune(name, 0):
 		return "name contains a NUL"
 	}
+	if goos != "windows" {
+		return ""
+	}
+	if i := strings.IndexFunc(name, func(r rune) bool { return r < 0x20 || strings.ContainsRune(`<>:"|?*`, r) }); i >= 0 {
+		return fmt.Sprintf("Windows does not allow %q in a name", name[i:i+1])
+	}
+	if strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") {
+		return "Windows does not allow a name to end in a dot or space"
+	}
+	stem, _, _ := strings.Cut(name, ".")
+	if windowsDevice(strings.ToUpper(strings.TrimRight(stem, " "))) {
+		return "reserved name on Windows"
+	}
 	return ""
+}
+
+func windowsDevice(stem string) bool {
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		return stem[3] >= '1' && stem[3] <= '9'
+	}
+	return false
 }
 
 // markConflicts flags the changes that would collide: two candidates aiming at
 // the same name, or a name already taken by something the batch does not move
 // out of the way. Comparison is case-insensitive because the filesystems this
 // runs on often are, and "already there" is the safer answer to be wrong about.
+//
+// It repeats until nothing new is held back. A change may count on another
+// moving its target out of the way — 1→2 needs 2→3 — and once 2→3 is found
+// blocked, 1→2 is blocked too, and so on down the chain.
 func markConflicts(root string, changes []Change) {
+	for markConflictsOnce(root, changes) {
+	}
+}
+
+// markConflictsOnce is one pass of markConflicts, reporting whether it held
+// back anything new.
+func markConflictsOnce(root string, changes []Change) bool {
 	// Every source, and whether the batch frees that name up.
 	sources := make(map[string]bool, len(changes))
 	for _, c := range changes {
 		sources[fold(c.Rel)] = c.Changed && c.Problem == ""
 	}
+
+	held := false
 
 	seen := make(map[string]int, len(changes))
 	for i := range changes {
@@ -222,6 +268,7 @@ func markConflicts(root string, changes []Change) {
 
 		if j, dup := seen[key]; dup {
 			c.Problem = "same name as " + filepath.Base(changes[j].Rel)
+			held = true
 			continue
 		}
 		seen[key] = i
@@ -236,7 +283,9 @@ func markConflicts(root string, changes []Change) {
 			continue // another change moves that name away first
 		}
 		c.Problem = "exists"
+		held = true
 	}
+	return held
 }
 
 func fold(s string) string { return strings.ToLower(s) }

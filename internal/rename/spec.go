@@ -90,10 +90,10 @@ func DefaultSpec() Spec {
 // matcher applies the Find pattern to one name. The replacement is not part of
 // it: tokens make it per-candidate, so sub takes it as an argument.
 type matcher struct {
-	re     *regexp.Regexp // regex and glob modes
-	find   string         // literal mode
-	ignore bool
-	all    bool // no pattern at all: every name "matches", nothing is replaced
+	re      *regexp.Regexp // regex and glob modes, and literal mode ignoring case
+	literal bool           // the replacement is plain text, $1 and all
+	find    string         // literal mode, matching case
+	all     bool           // no pattern at all: every name "matches", nothing is replaced
 }
 
 // newMatcher compiles the spec's pattern, reporting a bad regex as an error so
@@ -105,7 +105,14 @@ func newMatcher(s Spec) (*matcher, error) {
 
 	switch s.Mode {
 	case ModeLiteral:
-		return &matcher{find: s.Find, ignore: s.Ignore}, nil
+		// Ignoring case is left to regexp, which folds rune by rune. Doing it
+		// by hand over strings.ToLower gets the offsets wrong wherever a
+		// letter changes byte length with its case (Ⱥ, İ).
+		if s.Ignore {
+			re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(s.Find))
+			return &matcher{re: re, literal: true}, nil
+		}
+		return &matcher{find: s.Find}, nil
 
 	case ModeGlob:
 		re, err := regexp.Compile(prefix(s.Ignore) + globToRegex(s.Find))
@@ -137,8 +144,6 @@ func (mt *matcher) matches(name string) bool {
 		return true
 	case mt.re != nil:
 		return mt.re.MatchString(name)
-	case mt.ignore:
-		return strings.Contains(strings.ToLower(name), strings.ToLower(mt.find))
 	default:
 		return strings.Contains(name, mt.find)
 	}
@@ -150,31 +155,12 @@ func (mt *matcher) sub(name, repl string) string {
 	switch {
 	case mt.all:
 		return name
+	case mt.literal:
+		return mt.re.ReplaceAllLiteralString(name, repl)
 	case mt.re != nil:
 		return mt.re.ReplaceAllString(name, repl)
-	case mt.ignore:
-		return replaceFold(name, mt.find, repl)
 	default:
 		return strings.ReplaceAll(name, mt.find, repl)
-	}
-}
-
-// replaceFold is strings.ReplaceAll with a case-insensitive needle.
-func replaceFold(s, old, new string) string {
-	if old == "" {
-		return s
-	}
-	lowerS, lowerOld := strings.ToLower(s), strings.ToLower(old)
-	var b strings.Builder
-	for {
-		i := strings.Index(lowerS, lowerOld)
-		if i < 0 {
-			b.WriteString(s)
-			return b.String()
-		}
-		b.WriteString(s[:i])
-		b.WriteString(new)
-		s, lowerS = s[i+len(old):], lowerS[i+len(old):]
 	}
 }
 
@@ -191,7 +177,7 @@ func globToRegex(glob string) string {
 			b.WriteString("(.)")
 		case '[':
 			if end := strings.IndexByte(glob[i:], ']'); end > 1 {
-				b.WriteString(glob[i : i+end+1])
+				b.WriteString(globClass(glob[i+1 : i+end]))
 				i += end
 				continue
 			}
@@ -201,6 +187,27 @@ func globToRegex(glob string) string {
 		}
 	}
 	b.WriteByte('$')
+	return b.String()
+}
+
+// globClass translates the inside of a [...] class. A leading ! negates it, as
+// in a shell (and ^, as bash also allows); a range like a-z stays a range; any
+// other character that means something inside a regex class is escaped, so it
+// is only itself.
+func globClass(class string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	if strings.HasPrefix(class, "!") || strings.HasPrefix(class, "^") {
+		b.WriteByte('^')
+		class = class[1:]
+	}
+	for _, r := range class {
+		if strings.ContainsRune(`\[]^&~:`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte(']')
 	return b.String()
 }
 
