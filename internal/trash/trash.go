@@ -19,6 +19,7 @@ package trash
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -83,23 +84,12 @@ func Move(path string) (Item, error) {
 		return Item{}, err
 	}
 
-	target, err := freeName(filepath.Join(files, filepath.Base(abs)))
+	item, err := reserve(filepath.Join(files, filepath.Base(abs)), abs)
 	if err != nil {
 		return Item{}, err
 	}
-	item := Item{Original: abs, Path: target}
 
-	// The record goes first: a file in the trash with no record is a file whose
-	// origin is lost, while a record with no file is ignored by everyone.
-	if withInfo() {
-		info, err := writeInfo(filepath.Base(target), abs)
-		if err != nil {
-			return Item{}, err
-		}
-		item.Info = info
-	}
-
-	if err := os.Rename(abs, target); err != nil {
+	if err := os.Rename(abs, item.Path); err != nil {
 		if item.Info != "" {
 			_ = os.Remove(item.Info)
 		}
@@ -198,8 +188,9 @@ func dataDir() (string, error) {
 	return dataBase()
 }
 
-// withInfo reports whether this platform's trash keeps origin records.
-func withInfo() bool { return runtime.GOOS != "darwin" }
+// withInfo reports whether this platform's trash keeps origin records. A
+// variable so the record-keeping can be tested on a Mac too.
+var withInfo = func() bool { return runtime.GOOS != "darwin" }
 
 // writeInfo records where a trashed file came from, in the format the
 // freedesktop trash specification defines.
@@ -217,15 +208,70 @@ func writeInfo(name, original string) (string, error) {
 		(&url.URL{Path: original}).EscapedPath(),
 		time.Now().Format("2006-01-02T15:04:05"))
 
-	return path, os.WriteFile(path, []byte(body), 0o600)
+	// O_EXCL: the record is the reservation (see reserve), so one already
+	// there is an error to step past, never something to write over.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(body); err != nil {
+		f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+// reserve picks the name original goes into the trash under: path itself, or
+// the first free "name (2)"-style variant of it. Where the trash keeps records,
+// the record goes first and is what claims the name — created only if no
+// record by that name exists, so two programs trashing a notes.txt at once
+// cannot both take it, and a record nobody cleaned up is never overwritten. A
+// file in the trash with no record is a file whose origin is lost, while a
+// record with no file is ignored by everyone.
+func reserve(path, original string) (Item, error) {
+	for n := 1; n < 100000; n++ {
+		candidate := nthName(path, n)
+		if exists(candidate) {
+			continue
+		}
+		item := Item{Original: original, Path: candidate}
+		if !withInfo() {
+			return item, nil
+		}
+		info, err := writeInfo(filepath.Base(candidate), original)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return Item{}, err
+		}
+		item.Info = info
+		return item, nil
+	}
+	return Item{}, fmt.Errorf("no free name left beside %s", filepath.Base(path))
 }
 
 // freeName returns path itself when nothing is there, or the first free
 // "name (2)"-style variant beside it — or an error when every one is taken:
 // handing back the occupied path would have the rename land on what is there.
 func freeName(path string) (string, error) {
-	if !exists(path) {
-		return path, nil
+	for n := 1; n < 100000; n++ {
+		if candidate := nthName(path, n); !exists(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("no free name left beside %s", filepath.Base(path))
+}
+
+// nthName is path for n = 1 and "name (n).ext" beside it after that.
+func nthName(path string, n int) string {
+	if n == 1 {
+		return path
 	}
 	dir, base := filepath.Dir(path), filepath.Base(path)
 	ext := filepath.Ext(base)
@@ -233,14 +279,7 @@ func freeName(path string) (string, error) {
 		ext = ""
 	}
 	stem := strings.TrimSuffix(base, ext)
-
-	for n := 2; n < 100000; n++ {
-		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
-		if !exists(candidate) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("no free name left beside %s", base)
+	return filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
 }
 
 func exists(path string) bool {

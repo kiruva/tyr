@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,7 @@ import (
 	"github.com/kiruva/tyr/internal/app/keymap"
 	"github.com/kiruva/tyr/internal/app/theme"
 	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/fsutil"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/trash"
@@ -456,6 +458,7 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.editStatus = ""
+	m.edit.overwrite = false // the warning was about the last Ctrl+S, not a later one
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(msg)
 	return m, cmd
@@ -519,6 +522,7 @@ func (m *Model) openEditor() tea.Cmd {
 	} else {
 		cur, _ := p.Current()
 		m.edit.realPath = filepath.Join(p.Path, cur.Name)
+		m.edit.stamp = stampOf(m.edit.realPath)
 	}
 
 	m.editOrig = string(data)
@@ -528,7 +532,28 @@ func (m *Model) openEditor() tea.Cmd {
 	return m.editor.Focus()
 }
 
+// fileStamp is enough of a file's state to notice that something else wrote
+// to it.
+type fileStamp struct {
+	size int64
+	mod  time.Time
+}
+
+func stampOf(path string) fileStamp {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileStamp{}
+	}
+	return fileStamp{size: info.Size(), mod: info.ModTime()}
+}
+
 // saveEditor writes the buffer back to its origin (file or archive member).
+//
+// A file is replaced whole, by way of a temporary file beside it, so a full
+// disk or a crash mid-save leaves the old contents rather than half the new
+// ones. A file that changed on disk since it was opened — another editor, a
+// git checkout — is not overwritten on the first Ctrl+S: the editor says so,
+// and a second Ctrl+S overwrites it knowingly.
 func (m *Model) saveEditor() {
 	data := []byte(m.editor.Value())
 
@@ -536,11 +561,16 @@ func (m *Model) saveEditor() {
 	if m.edit.archive != "" {
 		err = fileops.WriteMember(m.edit.archive, m.edit.member, data)
 	} else {
+		if !m.edit.overwrite && stampOf(m.edit.realPath) != m.edit.stamp {
+			m.edit.overwrite = true
+			m.editStatus = "changed on disk since it was opened — Ctrl+S again to overwrite"
+			return
+		}
 		perm := os.FileMode(0o644)
 		if fi, e := os.Stat(m.edit.realPath); e == nil {
 			perm = fi.Mode().Perm()
 		}
-		err = os.WriteFile(m.edit.realPath, data, perm)
+		err = fsutil.WriteFile(m.edit.realPath, data, perm)
 	}
 	if err != nil {
 		m.errText = "save failed: " + err.Error()
@@ -548,6 +578,9 @@ func (m *Model) saveEditor() {
 		return
 	}
 
+	if m.edit.archive == "" {
+		m.edit.stamp, m.edit.overwrite = stampOf(m.edit.realPath), false
+	}
 	m.editOrig = string(data) // buffer is now clean
 	m.editStatus = "saved"
 	m.panes[m.active].Refresh()

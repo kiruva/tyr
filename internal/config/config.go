@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // Config holds the persisted scalar settings.
@@ -205,7 +207,7 @@ func rewrite(mutate func(map[string]string)) error {
 	for _, k := range keys {
 		fmt.Fprintf(&b, "%s = %s\n", k, pairs[k])
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o600)
+	return fsutil.WriteFile(path, []byte(b.String()), 0o600)
 }
 
 // storable reports whether s fits on one line of the file.

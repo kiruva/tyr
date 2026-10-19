@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kiruva/tyr/internal/fsutil"
 	"github.com/kiruva/tyr/internal/metastrip"
 )
 
@@ -96,7 +97,7 @@ func stripOne(it convertItem, job Job, rv *resolver, tally *stripTally) (string,
 		if real, err := filepath.EvalSymlinks(it.src); err == nil {
 			dst = real
 		}
-		if err := writeReplace(dst, res.Data, mode); err != nil {
+		if err := fsutil.WriteFile(dst, res.Data, mode); err != nil {
 			return "", err
 		}
 		tally.inPlace++
@@ -122,44 +123,8 @@ func stripOne(it convertItem, job Job, rv *resolver, tally *stripTally) (string,
 	}
 	// A copy with nothing to remove is still a copy: the other pane asked for
 	// the image, and gets it.
-	if err := writeReplace(dst, res.Data, mode); err != nil {
+	if err := fsutil.WriteFile(dst, res.Data, mode); err != nil {
 		return "", err
 	}
 	return dst, nil
-}
-
-// tempBeside makes an empty file next to dst to write into before renaming it
-// over dst, so a failure never leaves half a file where dst should be. The
-// fresh file carries no extended attributes, which is how a macOS "where from"
-// download URL goes too.
-func tempBeside(dst string, mode os.FileMode) (string, error) {
-	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tyr-*")
-	if err != nil {
-		return "", err
-	}
-	name := tmp.Name()
-	tmp.Close()
-	// CreateTemp makes the file private; the result is an ordinary file.
-	if err := os.Chmod(name, mode); err != nil {
-		_ = os.Remove(name)
-		return "", err
-	}
-	return name, nil
-}
-
-// writeReplace puts data at dst by way of a temporary file beside it.
-func writeReplace(dst string, data []byte, mode os.FileMode) error {
-	tmp, err := tempBeside(dst, mode)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
 }

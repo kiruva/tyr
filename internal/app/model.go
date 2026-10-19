@@ -57,6 +57,11 @@ type editTarget struct {
 	archive  string // set for an archive member
 	member   string // in-archive path (with archive)
 	title    string // display name
+
+	// stamp is the file's size and time when it was opened or last saved;
+	// a save finding it different stops once to say so (see saveEditor).
+	stamp     fileStamp
+	overwrite bool // the next save goes through regardless: it was warned about
 }
 
 // Model is the top-level application state.
