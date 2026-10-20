@@ -86,3 +86,88 @@ func TestForgetClosesTheJumpHost(t *testing.T) {
 		}
 	}
 }
+
+// A jump host given as an IPv6 literal keeps its port: "[::1]:2222" was cut
+// at the first colon.
+func TestParseProxyJumpIPv6(t *testing.T) {
+	hops, err := parseProxyJump("tester@[::1]:2222, ssh://[fe80::2]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Host{{User: "tester", Name: "::1", Port: "2222"}, {Name: "fe80::2"}}
+	if len(hops) != len(want) || hops[0] != want[0] || hops[1] != want[1] {
+		t.Fatalf("hops = %+v, want %+v", hops, want)
+	}
+}
+
+// nestedJumpSetup starts the target and two jump hosts, B and C, all taking
+// one key, and returns the home and the servers. The config is the caller's.
+func nestedJumpSetup(t *testing.T) (home string, target, b, c *testServer) {
+	t.Helper()
+	home = testHome(t)
+	key := newClientKey(t, home, "id_ed25519")
+	start := func() *testServer {
+		s := newTestServer(t)
+		s.keys = append(s.keys, key.PublicKey())
+		s.start().trust(home)
+		return s
+	}
+	return home, start(), start(), start()
+}
+
+func hostBlock(alias string, s *testServer, extra string) string {
+	return "Host " + alias + "\n  HostName 127.0.0.1\n  Port " + s.port + "\n  User tester\n" + extra
+}
+
+// A jump host that is itself behind a jump host: the target names B, and B's
+// own entry names C. B's ProxyJump was ignored, so B was dialled directly.
+func TestProxyJumpOfAJumpHostIsFollowed(t *testing.T) {
+	home, target, b, c := nestedJumpSetup(t)
+	appendFile(t, filepath.Join(home, ".ssh", "config"),
+		hostBlock("target", target, "  ProxyJump hopB\n")+
+			hostBlock("hopB", b, "  ProxyJump hopC\n")+
+			hostBlock("hopC", c, ""))
+
+	if _, err := Connect(context.Background(), Host{Name: "target"}, Options{}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if n := c.tunnels.Load(); n != 1 {
+		t.Errorf("tunnels through C = %d, want 1 (to B)", n)
+	}
+	if n := b.tunnels.Load(); n != 1 {
+		t.Errorf("tunnels through B = %d, want 1 (to the target)", n)
+	}
+}
+
+// In a chain "a,b" only a is reached on its own terms; b is reached through a,
+// as the chain says, whatever b's own entry would have it go through. That is
+// how ssh reads it.
+func TestProxyJumpChainIgnoresALaterHopsOwnJump(t *testing.T) {
+	home, target, b, c := nestedJumpSetup(t)
+	appendFile(t, filepath.Join(home, ".ssh", "config"),
+		hostBlock("target", target, "  ProxyJump hopC,hopB\n")+
+			hostBlock("hopB", b, "  ProxyJump nowhere.invalid\n")+
+			hostBlock("hopC", c, ""))
+
+	if _, err := Connect(context.Background(), Host{Name: "target"}, Options{}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+}
+
+// Jump hosts that send each other round in a circle are refused by name,
+// rather than dialled until something runs out.
+func TestProxyJumpLoopIsRefused(t *testing.T) {
+	home, target, b, c := nestedJumpSetup(t)
+	appendFile(t, filepath.Join(home, ".ssh", "config"),
+		hostBlock("target", target, "  ProxyJump hopB\n")+
+			hostBlock("hopB", b, "  ProxyJump hopC\n")+
+			hostBlock("hopC", c, "  ProxyJump hopB\n"))
+
+	_, err := Connect(context.Background(), Host{Name: "target"}, Options{})
+	if err == nil || !strings.Contains(err.Error(), "loop") || !strings.Contains(err.Error(), "hopB") {
+		t.Fatalf("err = %v, want a loop naming hopB", err)
+	}
+	if n := b.conns.Load() + c.conns.Load(); n != 0 {
+		t.Errorf("%d connections made before the loop was seen", n)
+	}
+}

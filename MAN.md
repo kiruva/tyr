@@ -1201,10 +1201,22 @@ authentication exchange.
 
 The trade-off is that a native client does not read `~/.ssh/config` for you, so
 tyr parses the part that decides where a connection goes: `HostName`, `User`,
-`Port`, `IdentityFile`, `ProxyJump`, plus `Include` and `Host` pattern matching. An
-alias that depends on anything else — `ProxyCommand`, for instance — will not resolve
-the way `ssh` would. A jump host must accept key or agent authentication, since the
-modal only prompts for one password.
+`Port`, `IdentityFile`, `IdentitiesOnly`, `ProxyJump`, `ProxyCommand`, the known_hosts
+options (`UserKnownHostsFile`, `GlobalKnownHostsFile`, `HashKnownHosts`), plus `Include`
+and `Host` pattern matching. Options before the first `Host` line apply to every host,
+and `%` tokens are expanded where `ssh` expands them: `%h %p %r %u %d` in the key and
+known_hosts file names, `%h %p %r %n` in `ProxyCommand`.
+`Match` blocks are skipped. An alias that depends on anything else will not resolve the
+way `ssh` would.
+
+A jump host is configured from its own entry, and if that entry has a `ProxyJump` of its
+own it is followed too — up to eight hosts, and a loop is refused by name. As in `ssh`,
+only the first host of a `ProxyJump a,b` list is reached on its own terms; `b` is reached
+through `a`. A jump host must accept key or agent authentication, since the modal only
+prompts for one password, and its own `ProxyCommand` is not used. `ProxyCommand` runs
+through `/bin/sh` (`cmd.exe` on Windows); whichever of it and `ProxyJump` comes first in
+the file wins. An IPv6 address is written in brackets: `ssh://kim@[2001:db8::7]:2222/srv`,
+`kim@[::1]:/var/log`, and the same in a `ProxyJump`.
 
 Transfers stream a tar archive over one ssh session (`tar -cf -` on one end, `tar -xf -`
 on the other) rather than using scp or sftp. Every path is quoted by tyr and

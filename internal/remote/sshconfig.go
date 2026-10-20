@@ -9,16 +9,25 @@ import (
 
 // A native ssh client does not read ~/.ssh/config, so the keys that decide where
 // a connection actually goes are parsed here. This is deliberately a subset —
-// HostName, User, Port, IdentityFile, ProxyJump — which is what an alias needs to
-// resolve. Anything else in the file is ignored, so an alias that depends on, say,
-// a custom ProxyCommand will not resolve the way `ssh` would.
+// HostName, User, Port, IdentityFile, IdentitiesOnly, ProxyJump, ProxyCommand and
+// the known_hosts options — which is what an alias needs to resolve. Anything else
+// in the file is ignored.
 
 type sshHostConfig struct {
 	HostName      string
 	User          string
 	Port          string
 	IdentityFiles []string
-	ProxyJump     string
+
+	// ProxyJump and ProxyCommand are two ways to the host, and the first one
+	// the file gives is the one used: once either is set, the other is not.
+	ProxyJump    string
+	ProxyCommand string
+
+	// IdentitiesOnly offers only the IdentityFile keys, and the agent's
+	// copies of them, rather than everything the agent holds.
+	IdentitiesOnly bool
+	onlySet        bool // IdentitiesOnly was given, yes or no
 
 	UserKnownHostsFiles   []string
 	GlobalKnownHostsFiles []string
@@ -36,8 +45,8 @@ func lookupSSHConfig(alias string) sshHostConfig {
 	return cfg
 }
 
-// expandTokens replaces ssh's % tokens where ssh does: %h in HostName, and
-// %d %u %h %p %r %% in the file names. "IdentityFile ~/.ssh/%h" is a common way
+// expandTokens replaces ssh's % tokens where ssh does: %h in HostName,
+// %d %u %h %p %r %% in the file names, and %h %p %r %n %% in ProxyCommand. "IdentityFile ~/.ssh/%h" is a common way
 // to keep a key per host, and was read as a file literally named "%h".
 func expandTokens(cfg *sshHostConfig, alias string) {
 	home, _ := os.UserHomeDir()
@@ -51,6 +60,15 @@ func expandTokens(cfg *sshHostConfig, alias string) {
 		"%p", firstNonEmpty(cfg.Port, "22"),
 		"%r", firstNonEmpty(cfg.User, currentUser()),
 	)
+	if cfg.ProxyCommand != "" {
+		cfg.ProxyCommand = strings.NewReplacer(
+			"%%", "%",
+			"%h", host,
+			"%p", firstNonEmpty(cfg.Port, "22"),
+			"%r", firstNonEmpty(cfg.User, currentUser()),
+			"%n", alias,
+		).Replace(cfg.ProxyCommand)
+	}
 	for i, f := range cfg.IdentityFiles {
 		cfg.IdentityFiles[i] = filepath.Clean(expandHome(r.Replace(f))) // "%d/.ssh" mixes separators on Windows
 	}
@@ -131,11 +149,21 @@ func parseSSHConfigFrom(path, alias string, depth int, applies bool) sshHostConf
 		case "identityfile":
 			cfg.IdentityFiles = append(cfg.IdentityFiles, unquote(value)) // expanded in lookupSSHConfig
 		case "proxyjump":
-			setOnce(&cfg.ProxyJump, value)
+			if cfg.ProxyCommand == "" {
+				setOnce(&cfg.ProxyJump, value)
+			}
+		case "proxycommand":
+			if cfg.ProxyJump == "" {
+				setOnce(&cfg.ProxyCommand, value)
+			}
 		case "userknownhostsfile":
 			setListOnce(&cfg.UserKnownHostsFiles, value)
 		case "globalknownhostsfile":
 			setListOnce(&cfg.GlobalKnownHostsFiles, value)
+		case "identitiesonly":
+			if !cfg.onlySet {
+				cfg.IdentitiesOnly, cfg.onlySet = strings.EqualFold(unquote(value), "yes"), true
+			}
 		case "hashknownhosts":
 			if !cfg.hashSet {
 				cfg.HashKnownHosts, cfg.hashSet = strings.EqualFold(unquote(value), "yes"), true
@@ -247,7 +275,9 @@ func merge(dst *sshHostConfig, src sshHostConfig) {
 	setOnce(&dst.HostName, src.HostName)
 	setOnce(&dst.User, src.User)
 	setOnce(&dst.Port, src.Port)
-	setOnce(&dst.ProxyJump, src.ProxyJump)
+	if dst.ProxyJump == "" && dst.ProxyCommand == "" {
+		dst.ProxyJump, dst.ProxyCommand = src.ProxyJump, src.ProxyCommand
+	}
 	dst.IdentityFiles = append(dst.IdentityFiles, src.IdentityFiles...)
 	if len(dst.UserKnownHostsFiles) == 0 {
 		dst.UserKnownHostsFiles = src.UserKnownHostsFiles
@@ -257,6 +287,9 @@ func merge(dst *sshHostConfig, src sshHostConfig) {
 	}
 	if !dst.hashSet {
 		dst.HashKnownHosts, dst.hashSet = src.HashKnownHosts, src.hashSet
+	}
+	if !dst.onlySet {
+		dst.IdentitiesOnly, dst.onlySet = src.IdentitiesOnly, src.onlySet
 	}
 }
 
