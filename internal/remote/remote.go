@@ -34,9 +34,17 @@ func (h Host) Target() string {
 	return h.Name
 }
 
-// String renders the host for display, including a non-default port.
+// String renders the host for display, including a non-default port. An
+// IPv6 literal goes in brackets, so the port and a path after it can still be
+// told from the address.
 func (h Host) String() string {
-	s := h.Target()
+	s := h.Name
+	if strings.Contains(s, ":") {
+		s = "[" + s + "]"
+	}
+	if h.User != "" {
+		s = h.User + "@" + s
+	}
 	if h.Port != "" {
 		s += ":" + h.Port
 	}
@@ -83,10 +91,20 @@ func Parse(s string) (Host, string, bool) {
 	if looksLocal(s) {
 		return Host{}, "", false
 	}
-	hostPart, p, ok := strings.Cut(s, ":")
-	if !ok || strings.Contains(hostPart, "/") {
+	// The host ends at the first colon — unless it is an IPv6 literal in
+	// brackets, which has colons of its own: "user@[::1]:/var/log".
+	cut := strings.IndexByte(s, ':')
+	if open := strings.IndexByte(s, '['); open >= 0 && (cut < 0 || open < cut) {
+		end := strings.Index(s[open:], "]:")
+		if end < 0 {
+			return Host{}, "", false
+		}
+		cut = open + end + 1
+	}
+	if cut < 0 || strings.Contains(s[:cut], "/") {
 		return Host{}, "", false
 	}
+	hostPart, p := s[:cut], s[cut+1:]
 	h, ok := parseHostPart(hostPart, false)
 	if !ok {
 		return Host{}, "", false
@@ -104,9 +122,25 @@ func parseHostPart(s string, allowPort bool) (Host, bool) {
 		}
 		h.User, s = user, rest
 	}
+	if rest, ok := strings.CutPrefix(s, "["); ok {
+		// An IPv6 literal: [addr] or [addr]:port.
+		name, after, ok := strings.Cut(rest, "]")
+		if !ok || name == "" || strings.ContainsAny(name, " \t/@[") {
+			return Host{}, false
+		}
+		if after != "" {
+			port, ok := strings.CutPrefix(after, ":")
+			if !ok || !allowPort || !validPort(port) {
+				return Host{}, false
+			}
+			h.Port = port
+		}
+		h.Name = name
+		return h, true
+	}
 	if allowPort {
 		if name, port, ok := strings.Cut(s, ":"); ok {
-			if port == "" || strings.ContainsAny(port, "abcdefghijklmnopqrstuvwxyz") {
+			if !validPort(port) {
 				return Host{}, false
 			}
 			s, h.Port = name, port
@@ -117,6 +151,12 @@ func parseHostPart(s string, allowPort bool) (Host, bool) {
 	}
 	h.Name = s
 	return h, true
+}
+
+// validPort is as much checking as a port gets here; a wrong number fails at
+// the dial with a message that says so.
+func validPort(port string) bool {
+	return port != "" && !strings.ContainsAny(port, "abcdefghijklmnopqrstuvwxyz")
 }
 
 // Join resolves a path the user typed against the pane's current remote

@@ -24,6 +24,16 @@ func TestParse(t *testing.T) {
 		{"box:", Host{Name: "box"}, "", true},
 		{"box:relative/dir", Host{Name: "box"}, "relative/dir", true},
 
+		// IPv6 literals go in brackets, as in ssh and scp.
+		{"ssh://user@[::1]:2222/srv", Host{User: "user", Name: "::1", Port: "2222"}, "/srv", true},
+		{"ssh://[fe80::1%eth0]/x", Host{Name: "fe80::1%eth0"}, "/x", true},
+		{"ssh://[::1]", Host{Name: "::1"}, "", true},
+		{"user@[2001:db8::7]:/var/log", Host{User: "user", Name: "2001:db8::7"}, "/var/log", true},
+		{"[::1]:", Host{Name: "::1"}, "", true},
+		{"ssh://[::1/x", Host{}, "", false},
+		{"ssh://[::1]x/y", Host{}, "", false},
+		{"ssh://[]/x", Host{}, "", false},
+
 		// Local paths must never be mistaken for hosts.
 		{"/etc", Host{}, "", false},
 		{"./sub", Host{}, "", false},
@@ -58,6 +68,13 @@ func TestHostDisplay(t *testing.T) {
 	}
 	if got := h.Display("/srv"); got != "kim@box:2222:/srv" {
 		t.Fatalf("Display() = %q", got)
+	}
+	v6 := Host{User: "kim", Name: "::1", Port: "2222"}
+	if got := v6.String(); got != "kim@[::1]:2222" {
+		t.Fatalf("IPv6 String() = %q", got)
+	}
+	if got := (Host{Name: "::1"}).Display("/srv"); got != "[::1]:/srv" {
+		t.Fatalf("IPv6 Display() = %q", got)
 	}
 	if (Host{}).IsZero() != true {
 		t.Fatal("zero host should report IsZero")

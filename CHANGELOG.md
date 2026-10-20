@@ -79,8 +79,21 @@ from the commit history by GitVersion and tagged by CI; see
 - **Cleaning an image keeps its rotation when the camera stored it oddly.** Orientation is a
   short number by the EXIF spec, but some writers store it as a long one; in a big-endian file
   tyr read that as "no rotation", so a picture kept upright came out sideways.
+- **IPv6 addresses work.** `kim@[::1]:/srv` in the address bar, `[2001:db8::7]:2222` in a
+  `ProxyJump`: the address was cut at its first colon. An address typed in brackets in the
+  connection form is taken without them, and the picker shows it bracketed.
+- **A jump host behind a jump host is reached through it.** A `ProxyJump` in the jump host's
+  own ssh_config entry was ignored, so it was dialled directly. Nested jumps are now followed,
+  as `ssh` follows them, up to eight hosts; a loop is refused, naming the host.
 
 ### Added
+
+- **`ProxyCommand` from `~/.ssh/config`.** A host reached through a command — `ssh -W`, a
+  corporate connector — now connects the same way `ssh` would, with `%h`, `%p`, `%r`, `%n`
+  filled in. A command that fails says why in its own words, and one that hangs is stopped
+  with the connect.
+- **`IdentitiesOnly yes` is honoured**: only the configured keys, and the agent's copies of
+  them, are offered, instead of everything in the agent.
 
 - **The pack dialog asks for an archive password twice**, so a typing mistake does not lock
   the files away.

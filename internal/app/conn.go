@@ -178,8 +178,10 @@ func (m *Model) connBeginForm(c config.Connection) tea.Cmd {
 func (s *connState) connFormValues() config.Connection {
 	value := func(f connField) string { return strings.TrimSpace(s.fields[f].Value()) }
 	return config.Connection{
-		Name:     value(fieldName),
-		Host:     value(fieldHost),
+		Name: value(fieldName),
+		// An IPv6 address may be typed in brackets, as ssh and the
+		// address bar write it; the brackets are not part of the address.
+		Host:     strings.TrimSuffix(strings.TrimPrefix(value(fieldHost), "["), "]"),
 		User:     value(fieldUser),
 		Port:     value(fieldPort),
 		Path:     value(fieldPath),

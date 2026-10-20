@@ -225,6 +225,7 @@ func TestConnectionLabel(t *testing.T) {
 		{"kim@example.com:2222", Connection{Host: "example.com", User: "kim", Port: "2222"}},
 		{"kim@example.com /srv", Connection{Host: "example.com", User: "kim", Path: "/srv"}},
 		{"example.com", Connection{Host: "example.com", Port: "22"}}, // the default port is not noise worth showing
+		{"kim@[::1]:2222", Connection{Host: "::1", User: "kim", Port: "2222"}},
 	}
 	for _, c := range cases {
 		if got := c.conn.Label(); got != c.want {

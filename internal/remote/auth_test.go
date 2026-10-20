@@ -129,3 +129,63 @@ func TestEncryptedKeyIsNamed(t *testing.T) {
 		t.Errorf("Encrypted = %v, want [%s]", auth.Encrypted, keyPath)
 	}
 }
+
+// IdentitiesOnly keeps the agent's keys to itself: only the key files the
+// config names are offered, so a host that would take an agent key is not
+// logged in to with one the config never chose for it.
+func TestIdentitiesOnlyLeavesTheAgentOut(t *testing.T) {
+	for _, only := range []bool{false, true} {
+		home := testHome(t)
+		newClientKey(t, home, "id_other") // a key the server does not know
+		agentKey := newAgentKey(t)
+		startAgent(t, agentKey)
+		s := newTestServer(t)
+		s.keys = append(s.keys, agentKey.PublicKey())
+		s.start().trust(home)
+
+		cfg := "Host target\n  HostName 127.0.0.1\n  Port " + s.port + "\n  User tester\n  IdentityFile ~/.ssh/id_other\n"
+		if only {
+			cfg += "  IdentitiesOnly yes\n"
+		}
+		appendFile(t, filepath.Join(home, ".ssh", "config"), cfg)
+
+		_, err := Connect(context.Background(), Host{Name: "target"}, Options{})
+		switch {
+		case only && !errors.Is(err, ErrAuthRequired):
+			t.Errorf("IdentitiesOnly yes: %v, want ErrAuthRequired (the agent key offered anyway)", err)
+		case !only && err != nil:
+			t.Errorf("without IdentitiesOnly: %v", err)
+		}
+		ForgetAll()
+	}
+}
+
+// The agent's copy of a configured key still counts under IdentitiesOnly: a
+// key with a passphrase is loaded into the agent so that it can be used, and
+// its file's .pub says which agent key it is.
+func TestIdentitiesOnlyUsesTheAgentsCopyOfAConfiguredKey(t *testing.T) {
+	home := testHome(t)
+	key := newAgentKey(t)
+	startAgent(t, newAgentKey(t), key)
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(agentKeys[key], "", []byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(home, ".ssh", "id_locked")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath+".pub", ssh.MarshalAuthorizedKey(key.PublicKey()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestServer(t)
+	s.keys = append(s.keys, key.PublicKey())
+	s.maxTries = 1 // the other agent key, offered first, would use the one try up
+	s.start().trust(home)
+	appendFile(t, filepath.Join(home, ".ssh", "config"),
+		"Host target\n  HostName 127.0.0.1\n  Port "+s.port+"\n  User tester\n  IdentityFile ~/.ssh/id_locked\n  IdentitiesOnly yes\n")
+
+	if _, err := Connect(context.Background(), Host{Name: "target"}, Options{}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+}

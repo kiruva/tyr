@@ -316,7 +316,7 @@ func dial(ctx context.Context, h Host, opts Options) (*conn, string, error) {
 	if opts.IdentityFile != "" {
 		identities = []string{opts.IdentityFile}
 	}
-	keys := openKeyring(identities)
+	keys := openKeyring(identities, cfg.IdentitiesOnly)
 	defer keys.close() // the agent is needed for the handshake only
 
 	clientCfg := &ssh.ClientConfig{
@@ -326,7 +326,18 @@ func dial(ctx context.Context, h Host, opts Options) (*conn, string, error) {
 		HostKeyAlgorithms: known.algorithms(addr),
 	}
 
-	c, warning, err := dialChain(ctx, cfg.ProxyJump, addr, clientCfg, opts.TrustedKeys)
+	var c *conn
+	var warning string
+	if cfg.ProxyCommand != "" && !strings.EqualFold(cfg.ProxyCommand, "none") {
+		c = &conn{}
+		c.Client, err = handshake(ctx, proxyDialer(cfg.ProxyCommand), addr, clientCfg)
+	} else {
+		var hops []Host
+		if hops, err = jumpChain(h, cfg.ProxyJump); err != nil {
+			return nil, "", err
+		}
+		c, warning, err = dialChain(ctx, hops, addr, clientCfg, opts.TrustedKeys)
+	}
 	if err != nil {
 		err = translateAuthError(h, opts, err)
 		if errors.Is(err, ErrAuthRequired) && len(keys.encrypted) > 0 {
@@ -337,15 +348,48 @@ func dial(ctx context.Context, h Host, opts Options) (*conn, string, error) {
 	return c, firstNonEmpty(known.warning, warning), nil
 }
 
-// dialChain connects to addr through the ProxyJump hosts, if there are any.
+// maxJumps bounds a chain of jump hosts, nested ones included.
+const maxJumps = 8
+
+// jumpChain lists the jump hosts between here and target, in the order they
+// are dialled, from target's ProxyJump. The first host of a ProxyJump list is
+// reached on its own terms, so its own ProxyJump goes in front of it, and so
+// on down; the later ones are reached through the ones before them, as the
+// list says, whatever their own entries would have — which is how ssh reads
+// it. A host met twice is a loop, refused before anything is dialled.
+func jumpChain(target Host, proxyJump string) ([]Host, error) {
+	seen := map[string]bool{target.String(): true}
+	var expand func(value string) ([]Host, error)
+	expand = func(value string) ([]Host, error) {
+		hops, err := parseProxyJump(value)
+		if err != nil || len(hops) == 0 {
+			return hops, err
+		}
+		for _, h := range hops {
+			if seen[h.String()] {
+				return nil, fmt.Errorf("ProxyJump loop in ssh config: %s is reached through itself", h.String())
+			}
+			seen[h.String()] = true
+		}
+		before, err := expand(lookupSSHConfig(hops[0].Name).ProxyJump)
+		if err != nil {
+			return nil, err
+		}
+		chain := append(before, hops...)
+		if len(chain) > maxJumps {
+			return nil, fmt.Errorf("ProxyJump in ssh config goes through more than %d jump hosts", maxJumps)
+		}
+		return chain, nil
+	}
+	return expand(proxyJump)
+}
+
+// dialChain connects to addr through the jump hosts, if there are any.
 // The jump hosts are reached with the non-interactive methods only —
 // prompting for a password per hop is not something the modal models.
-func dialChain(ctx context.Context, proxyJump, addr string, clientCfg *ssh.ClientConfig, trusted []HostKey) (*conn, string, error) {
-	hops, err := parseProxyJump(proxyJump)
-	if err != nil {
-		return nil, "", err
-	}
+func dialChain(ctx context.Context, hops []Host, addr string, clientCfg *ssh.ClientConfig, trusted []HostKey) (*conn, string, error) {
 	warning := ""
+	var err error
 
 	c := &conn{}
 	next := func(ctx context.Context, addr string) (net.Conn, error) {
@@ -373,7 +417,9 @@ func dialChain(ctx context.Context, proxyJump, addr string, clientCfg *ssh.Clien
 	return c, warning, nil
 }
 
-// dialHop connects to one jump host, configured from its own ssh_config entry.
+// dialHop connects to one jump host, configured from its own ssh_config entry
+// — all of it but its ProxyJump, which jumpChain has already taken into the
+// chain.
 // Its key is checked like the target's: an unknown one comes back as a
 // HostKeyError naming the jump host, for the modal to ask about.
 func dialHop(ctx context.Context, hop Host, next func(context.Context, string) (net.Conn, error), trusted []HostKey) (*ssh.Client, string, error) {
@@ -384,7 +430,7 @@ func dialHop(ctx context.Context, hop Host, next func(context.Context, string) (
 		return nil, "", err
 	}
 	addr := net.JoinHostPort(firstNonEmpty(hopCfg.HostName, hop.Name), portOf(hop, hopCfg))
-	keys := openKeyring(hopCfg.IdentityFiles)
+	keys := openKeyring(hopCfg.IdentityFiles, hopCfg.IdentitiesOnly)
 	defer keys.close()
 
 	c, err := handshake(ctx, next, addr, &ssh.ClientConfig{
@@ -494,18 +540,26 @@ func passwordOnly(password string) ssh.KeyboardInteractiveChallenge {
 
 // keyring is the public keys one dial offers: the key files first, in the
 // order configured — they are what ssh_config named for this host — then
-// whatever the agent holds that is not one of them.
+// whatever the agent holds that is not one of them. Under IdentitiesOnly the
+// agent's keys are offered only when they are one of those files: a key with
+// a passphrase is put in the agent precisely so it can be used.
 type keyring struct {
 	files     []ssh.Signer
 	encrypted []string // key files skipped for want of a passphrase
 	agentConn net.Conn
+
+	only    bool
+	allowed map[string]bool // marshalled public keys of the configured files, for only
 }
 
 // openKeyring reads the key files. The agent is not asked until the handshake
 // gets to public keys.
-func openKeyring(identities []string) *keyring {
-	k := &keyring{}
+func openKeyring(identities []string, only bool) *keyring {
+	k := &keyring{only: only}
 	k.files, k.encrypted = loadKeys(identities)
+	if only {
+		k.allowed = configuredKeys(identities, k.files)
+	}
 	return k
 }
 
@@ -516,11 +570,33 @@ func (k *keyring) signers() ([]ssh.Signer, error) {
 		seen[string(s.PublicKey().Marshal())] = true
 	}
 	for _, s := range k.agentSigners() {
-		if !seen[string(s.PublicKey().Marshal())] {
+		pub := s.PublicKey().Marshal()
+		if !seen[string(pub)] && (!k.only || k.allowed[string(pub)]) {
 			out = append(out, s)
 		}
 	}
 	return out, nil
+}
+
+// configuredKeys is the public half of every configured key file: from the
+// key itself where it could be read, and from the .pub beside it where it
+// could not — an encrypted key does not give up its public half without the
+// passphrase, which is the case the .pub file is there for, as in ssh.
+func configuredKeys(identities []string, loaded []ssh.Signer) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range loaded {
+		out[string(s.PublicKey().Marshal())] = true
+	}
+	for _, path := range identities {
+		data, err := os.ReadFile(expandHome(path) + ".pub")
+		if err != nil {
+			continue
+		}
+		if pub, _, _, _, err := ssh.ParseAuthorizedKey(data); err == nil {
+			out[string(pub.Marshal())] = true
+		}
+	}
+	return out
 }
 
 // agentSigners asks the running ssh-agent, if there is one, for its keys. The

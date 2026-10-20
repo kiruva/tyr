@@ -35,8 +35,11 @@ type Connection struct {
 // Label renders the connection the way the picker lists it.
 func (c Connection) Label() string {
 	target := c.Host
+	if strings.Contains(target, ":") {
+		target = "[" + target + "]" // IPv6: keep the address apart from the port
+	}
 	if c.User != "" {
-		target = c.User + "@" + c.Host
+		target = c.User + "@" + target
 	}
 	if c.Port != "" && c.Port != "22" {
 		target += ":" + c.Port
