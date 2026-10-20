@@ -155,22 +155,24 @@ func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, 
 	// The filter runs beside the session. When it refuses an entry it closes
 	// the session too: nothing is reading the host's output any more, and a
 	// remote tar blocked on a full channel would keep Run from returning.
-	filterErr := make(chan error, 1)
+	// refused is the filter's verdict, to be read once filterDone is closed.
+	var refused error
+	filterDone := make(chan struct{})
 	go func() {
-		err := allowOnly(data, pw, names)
-		if err == nil {
-			_, err = io.Copy(io.Discard, data) // the zero padding after the end
+		defer close(filterDone)
+		refused = allowOnly(data, pw, names)
+		if refused == nil {
+			_, refused = io.Copy(io.Discard, data) // the zero padding after the end
 		}
-		_ = pw.CloseWithError(err)
-		if err != nil {
+		_ = pw.CloseWithError(refused)
+		if refused != nil {
 			_ = sess.Close()
 		}
-		filterErr <- err
 	}()
 
 	if err := sess.Start(script); err != nil {
 		_ = pw.CloseWithError(err)
-		<-filterErr
+		<-filterDone // the start failure is the error worth reporting
 		_ = wait()
 		return remoteError(h, remoteErr.String(), err)
 	}
@@ -197,7 +199,7 @@ func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, 
 		}
 		runErr = <-runDone
 	}
-	refused := <-filterErr
+	<-filterDone
 
 	// A refusal is the reason for everything else that failed after it. Any
 	// other filter error is a symptom: the local tar gave up and stopped
