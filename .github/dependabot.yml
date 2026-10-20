@@ -1,0 +1,36 @@
+version: 2
+
+# Keeps the pins honest. The workflows pin every third-party action to a commit
+# (see the note in ci.yml), and a pin nobody bumps goes stale without a word;
+# Dependabot rewrites the commit and its "# vX.Y.Z" comment together. Go modules
+# are watched too, so a fixed dependency arrives as a pull request rather than
+# as a govulncheck failure.
+#
+# Not covered: the tool versions passed as inputs (golangci-lint, GoReleaser)
+# and govulncheck's @version in ci.yml. Those are bumped by hand.
+#
+# Commit subjects follow the conventional-commit prefixes GitVersion reads
+# (GitVersion.yml): both land as patch bumps.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One pull request a week for all the actions, not one per action.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+    commit-message:
+      prefix: fix
+      include: scope

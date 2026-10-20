@@ -31,19 +31,19 @@ jobs:
       tag: v${{ steps.gitversion.outputs.majorMinorPatch }}
       exists: ${{ steps.existing.outputs.exists }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # GitVersion reads the whole history and every tag
 
       # Pinned exactly: GitTools publishes no floating major tag, and v4 is the
       # first line of these actions to run on Node 24.
-      - uses: gittools/actions/gitversion/setup@v4.7.0
+      - uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
         with:
           versionSpec: "6.8.x"
 
       # GitVersion.yml at the repo root is picked up automatically.
       - id: gitversion
-        uses: gittools/actions/gitversion/execute@v4.7.0
+        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
 
       - id: existing
         name: Check whether the tag is already out
@@ -86,8 +86,10 @@ jobs:
     steps:
       - name: Refuse to move an existing tag
         if: needs.version.outputs.exists == 'true'
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          echo "::error::${{ needs.version.outputs.tag }} already exists. Land a change, or bump explicitly with a +semver: marker."
+          echo "::error::$TAG already exists. Land a change, or bump explicitly with a +semver: marker."
           exit 1
 
       - name: Check the deploy key is there
@@ -104,7 +106,7 @@ jobs:
       # a user-owned repo — the Actions app is not an installed integration
       # there. A write deploy key can be exempted, so the changelog commit and
       # the tag are pushed over SSH with one. See CONTRIBUTING.md#releasing.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ssh-key: ${{ secrets.CHANGELOG_DEPLOY_KEY }}
           fetch-depth: 0

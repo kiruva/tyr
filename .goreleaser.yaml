@@ -1,8 +1,7 @@
 version: 2
 
-before:
-  hooks:
-    - go mod tidy
+# No `go mod tidy` hook: a release builds the module exactly as it was
+# committed. CI checks it is tidy (`go mod tidy -diff`).
 
 builds:
   - id: tyr
