@@ -90,6 +90,14 @@ from the commit history by GitVersion and tagged by CI; see
   through the system clipboard, `Tab`/`Shift+Tab` to indent a selection, `Enter` keeping the
   indentation, and the cursor's line and column in the footer.
 
+### Security
+
+- **Releases are built from pinned parts.** The GitHub Actions the build runs are pinned to
+  commits rather than tags that can be moved, golangci-lint, GoReleaser and govulncheck to exact
+  versions, and a release no longer runs `go mod tidy` on the module before building it — CI
+  checks it is tidy instead. Dependabot opens a weekly pull request to move the action pins and
+  the Go modules forward. CI also runs the tests under the race detector on Linux.
+
 ### Fixed
 
 - **`v` on a named pipe no longer freezes tyr.** Opening it waited for a writer on the UI
