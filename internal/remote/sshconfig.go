@@ -52,7 +52,7 @@ func expandTokens(cfg *sshHostConfig, alias string) {
 		"%r", firstNonEmpty(cfg.User, currentUser()),
 	)
 	for i, f := range cfg.IdentityFiles {
-		cfg.IdentityFiles[i] = expandHome(r.Replace(f))
+		cfg.IdentityFiles[i] = filepath.Clean(expandHome(r.Replace(f))) // "%d/.ssh" mixes separators on Windows
 	}
 	for i, f := range cfg.UserKnownHostsFiles {
 		cfg.UserKnownHostsFiles[i] = r.Replace(f)
