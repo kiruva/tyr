@@ -234,19 +234,12 @@ func (m Model) renderRenameOne() string {
 	if m.renOne.isDir {
 		what = "Rename folder"
 	}
-
-	lines := []string{
-		ui.DialogTitle.Render(what),
-		"",
-		ui.Faint.Render(ui.TruncTail(m.renOne.orig, contentWidth)),
-		ui.AddrEdit.Width(contentWidth).Render(m.renOne.input.View()),
-	}
-	if m.renOne.status != "" {
-		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.renOne.status, contentWidth)))
-	}
-	lines = append(lines, "",
-		ui.DialogHint.Render("enter")+" rename    "+ui.DialogHint.Render("esc")+" cancel"+
-			ui.Faint.Render("    M for a batch"))
-
-	return ui.Dialog.Width(dialogWidth).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return prompt{
+		title:  what,
+		about:  ui.TruncTail(m.renOne.orig, contentWidth),
+		field:  m.renOne.input,
+		status: m.renOne.status,
+		action: "rename",
+		more:   "M for a batch",
+	}.render()
 }

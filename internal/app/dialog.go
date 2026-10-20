@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/ui"
@@ -57,4 +58,56 @@ func moveCursor(cursor *int, key string, last, page int) bool {
 	}
 	*cursor = max(min(c, last), 0)
 	return true
+}
+
+// newInput is a text field as the dialogs use it: no prompt of its own, no
+// length limit, a placeholder saying what goes in it.
+func newInput(placeholder string, password bool, width int) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.Placeholder = placeholder
+	ti.CharLimit = 0
+	ti.Width = width
+	if password {
+		ti.EchoMode = textinput.EchoPassword
+	}
+	return ti
+}
+
+// prompt is a one-field dialog: a title, a faint line saying what it is
+// about, the field, and what enter does.
+type prompt struct {
+	title  string
+	alarm  bool   // the title is a warning ("Wrong password")
+	about  string // shown faint above the field, already cut to fit
+	field  textinput.Model
+	note   string // shown faint under the field, "" for none
+	status string // why the last enter was refused, "" for nothing
+	action string // what enter does: "create", "rename", …
+	more   string // shown faint after the key hints, "" for none
+}
+
+func (p prompt) render() string {
+	title := ui.DialogTitle.Render(p.title)
+	if p.alarm {
+		title = ui.Danger.Render(p.title)
+	}
+	lines := []string{
+		title,
+		"",
+		ui.Faint.Render(p.about),
+		ui.AddrEdit.Width(contentWidth).Render(p.field.View()),
+	}
+	if p.note != "" {
+		lines = append(lines, "", ui.Faint.Render(p.note))
+	}
+	if p.status != "" {
+		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(p.status, contentWidth)))
+	}
+	hints := ui.DialogHint.Render("enter") + " " + p.action + "    " + ui.DialogHint.Render("esc") + " cancel"
+	if p.more != "" {
+		hints += ui.Faint.Render("    " + p.more)
+	}
+	lines = append(lines, "", hints)
+	return ui.Dialog.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

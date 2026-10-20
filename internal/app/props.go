@@ -77,7 +77,7 @@ func (m *Model) openProps() tea.Cmd {
 	s.owner, s.group, s.links = ownership(info)
 
 	s.orig = fmt.Sprintf("%04o", info.Mode().Perm())
-	s.mode = newConnInput("644", false, 8)
+	s.mode = newInput("644", false, 8)
 	s.mode.SetValue(s.orig)
 	s.mode.CursorEnd()
 

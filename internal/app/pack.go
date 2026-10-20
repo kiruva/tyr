@@ -86,9 +86,9 @@ func (m *Model) openPack(srcs, names []string, dest string) {
 		srcs:    srcs,
 		dest:    dest,
 		base:    packBase(names),
-		pw:      newConnInput("none", true, packValueW-1),
-		repeat:  newConnInput("", true, packValueW-1),
-		name:    newConnInput("name", false, contentWidth-packLabelW),
+		pw:      newInput("none", true, packValueW-1),
+		repeat:  newInput("", true, packValueW-1),
+		name:    newInput("name", false, contentWidth-packLabelW),
 	}
 	s.level = s.info().DefLevel
 	s.name.SetValue(s.base + s.info().Ext)
@@ -296,7 +296,7 @@ func (m *Model) askUnpackPassword(job fileops.Job) tea.Cmd {
 	again := job.Password != ""
 	job.Password = ""
 	m.unpackPw = unpackPwState{
-		input: newConnInput("", true, contentWidth-2),
+		input: newInput("", true, contentWidth-2),
 		job:   job,
 		again: again,
 	}
@@ -429,19 +429,16 @@ func (m Model) renderUnpackPw() string {
 		arc = fmt.Sprintf("%d archives", n)
 	}
 
-	title := ui.DialogTitle.Render("Password needed")
+	p := prompt{
+		title:  "Password needed",
+		about:  "for " + ui.TruncTail(arc, contentWidth-4),
+		field:  m.unpackPw.input,
+		action: "unpack",
+	}
 	if m.unpackPw.again {
-		title = ui.Danger.Render("Wrong password")
+		p.title, p.alarm = "Wrong password", true
 	}
-	lines := []string{
-		title,
-		"",
-		ui.Faint.Render("for " + ui.TruncTail(arc, contentWidth-4)),
-		ui.AddrEdit.Width(contentWidth).Render(m.unpackPw.input.View()),
-		"",
-		ui.DialogHint.Render("enter") + " unpack    " + ui.DialogHint.Render("esc") + " cancel",
-	}
-	return ui.Dialog.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return p.render()
 }
 
 // packSummary is the one-line description of a pack job's settings, shown on
@@ -456,4 +453,16 @@ func packSummary(o fileops.PackOpts) string {
 		s += " · " + label
 	}
 	return s
+}
+
+// packFocused is the pack dialog's text field under the cursor, if the
+// focused field is one.
+func (m *Model) packFocused() *textinput.Model {
+	switch m.pack.focus {
+	case packFieldPassword:
+		return &m.pack.pw
+	case packFieldName:
+		return &m.pack.name
+	}
+	return nil
 }

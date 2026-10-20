@@ -107,22 +107,10 @@ type connResultMsg struct {
 	err      error
 }
 
-func newConnInput(placeholder string, password bool, width int) textinput.Model {
-	ti := textinput.New()
-	ti.Prompt = ""
-	ti.Placeholder = placeholder
-	ti.CharLimit = 0
-	ti.Width = width
-	if password {
-		ti.EchoMode = textinput.EchoPassword
-	}
-	return ti
-}
-
 func newConnState() connState {
-	s := connState{password: newConnInput("", true, contentWidth-2)}
+	s := connState{password: newInput("", true, contentWidth-2)}
 	for i := range s.fields {
-		s.fields[i] = newConnInput(connFieldHints[i], false, contentWidth-10)
+		s.fields[i] = newInput(connFieldHints[i], false, contentWidth-10)
 	}
 	return s
 }

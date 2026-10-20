@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/remote"
@@ -46,7 +45,7 @@ func (m *Model) openCreate(dir bool) tea.Cmd {
 		return nil
 	}
 
-	ti := newConnInput("name", false, contentWidth-2)
+	ti := newInput("name", false, contentWidth-2)
 	m.create = createState{input: ti, dir: dir, paneIdx: m.active}
 	m.mode = modeCreate
 	return m.create.input.Focus()
@@ -189,18 +188,11 @@ func (m Model) renderCreate() string {
 	if p.IsRemote() {
 		where = p.Host().Display(p.Path)
 	}
-
-	lines := []string{
-		ui.DialogTitle.Render(createVerb(m.create.dir)),
-		"",
-		ui.Faint.Render("in " + ui.TruncTail(where, contentWidth)),
-		ui.AddrEdit.Width(contentWidth).Render(m.create.input.View()),
-	}
-	if m.create.status != "" {
-		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.create.status, contentWidth)))
-	}
-	lines = append(lines, "",
-		ui.DialogHint.Render("enter")+" create    "+ui.DialogHint.Render("esc")+" cancel")
-
-	return ui.Dialog.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return prompt{
+		title:  createVerb(m.create.dir),
+		about:  "in " + ui.TruncTail(where, contentWidth),
+		field:  m.create.input,
+		status: m.create.status,
+		action: "create",
+	}.render()
 }

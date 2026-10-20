@@ -28,7 +28,7 @@ type filterState struct {
 func (m *Model) openFilter() tea.Cmd {
 	p := &m.panes[m.active]
 
-	ti := newConnInput("name or *.glob", false, filterWidth)
+	ti := newInput("name or *.glob", false, filterWidth)
 	ti.SetValue(p.Filter())
 	ti.CursorEnd()
 

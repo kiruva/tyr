@@ -88,8 +88,8 @@ func (m *Model) openFind() tea.Cmd {
 	s := findState{
 		root:    p.Path,
 		paneIdx: m.active,
-		name:    newConnInput("*.go, notes, …", false, contentWidth-findLabelW),
-		content: newConnInput("text inside the file", false, contentWidth-findLabelW),
+		name:    newInput("*.go, notes, …", false, contentWidth-findLabelW),
+		content: newInput("text inside the file", false, contentWidth-findLabelW),
 		hidden:  p.HiddenShown(),
 	}
 	// A filter typed a moment ago is usually what the search is about too.
@@ -298,4 +298,16 @@ func (m Model) findSummary() string {
 		s = fmt.Sprintf("first %d %s — narrow the query for the rest", n, items(n))
 	}
 	return s
+}
+
+// findFocused is the find form's text field under the cursor, if the focused
+// field is one.
+func (m *Model) findFocused() *textinput.Model {
+	switch m.find.focus {
+	case findFieldName:
+		return &m.find.name
+	case findFieldContent:
+		return &m.find.content
+	}
+	return nil
 }

@@ -5,9 +5,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/kiruva/tyr/internal/ui"
 )
 
 // Marking a long list one Space at a time is the slow way. Ctrl+A takes
@@ -24,7 +21,7 @@ type selectMaskState struct {
 
 // openSelectMask opens the prompt in select (on) or deselect mode.
 func (m *Model) openSelectMask(on bool) tea.Cmd {
-	ti := newConnInput("*.txt;notes", false, contentWidth-2)
+	ti := newInput("*.txt;notes", false, contentWidth-2)
 	ti.SetValue("*")
 	ti.CursorEnd()
 
@@ -84,14 +81,10 @@ func (m Model) renderSelectMask() string {
 	if !m.selMask.on {
 		title = "Deselect by mask"
 	}
-
-	lines := []string{
-		ui.DialogTitle.Render(title),
-		"",
-		ui.Faint.Render("* ? [] globs · plain text matches anywhere · ; separates"),
-		ui.AddrEdit.Width(contentWidth).Render(m.selMask.input.View()),
-		"",
-		ui.DialogHint.Render("enter") + " apply    " + ui.DialogHint.Render("esc") + " cancel",
-	}
-	return ui.Dialog.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return prompt{
+		title:  title,
+		about:  "* ? [] globs · plain text matches anywhere · ; separates",
+		field:  m.selMask.input,
+		action: "apply",
+	}.render()
 }
