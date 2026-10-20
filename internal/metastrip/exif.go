@@ -7,23 +7,28 @@ import (
 
 var exifHeader = []byte("Exif\x00\x00")
 
-// exifOrientation reads tag 0x0112 from IFD0 of a TIFF-structured EXIF blob.
-// A leading "Exif\0\0" header is tolerated. Returns 0 if absent or invalid.
-func exifOrientation(tiff []byte) int {
-	tiff = bytes.TrimPrefix(tiff, exifHeader)
+// tiffHeader drops a leading "Exif\0\0" from a TIFF-structured EXIF blob and
+// reads the byte order its header declares. bo is nil when the blob is too
+// short to hold a header or names a byte order that is neither.
+func tiffHeader(b []byte) (tiff []byte, bo binary.ByteOrder) {
+	tiff = bytes.TrimPrefix(b, exifHeader)
 	if len(tiff) < 8 {
-		return 0
+		return tiff, nil
 	}
-	var bo binary.ByteOrder
 	switch string(tiff[:2]) {
 	case "II":
-		bo = binary.LittleEndian
+		return tiff, binary.LittleEndian
 	case "MM":
-		bo = binary.BigEndian
-	default:
-		return 0
+		return tiff, binary.BigEndian
 	}
-	if bo.Uint16(tiff[2:]) != 42 {
+	return tiff, nil
+}
+
+// exifOrientation reads tag 0x0112 from IFD0 of a TIFF-structured EXIF blob.
+// A leading "Exif\0\0" header is tolerated. Returns 0 if absent or invalid.
+func exifOrientation(b []byte) int {
+	tiff, bo := tiffHeader(b)
+	if bo == nil || bo.Uint16(tiff[2:]) != 42 {
 		return 0
 	}
 	off := int(bo.Uint32(tiff[4:]))
@@ -37,7 +42,13 @@ func exifOrientation(tiff []byte) int {
 			break
 		}
 		if bo.Uint16(tiff[e:]) == 0x0112 {
-			if v := int(bo.Uint16(tiff[e+8:])); v >= 1 && v <= 8 {
+			// A SHORT by the spec, but a LONG turns up too, and in a
+			// big-endian file its value is not in the first two bytes.
+			v := int(bo.Uint16(tiff[e+8:]))
+			if bo.Uint16(tiff[e+2:]) == 4 {
+				v = int(bo.Uint32(tiff[e+8:]))
+			}
+			if v >= 1 && v <= 8 {
 				return v
 			}
 			return 0

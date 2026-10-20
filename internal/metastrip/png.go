@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"slices"
 )
 
 // Ancillary chunks needed to render the image correctly. Everything else
@@ -66,7 +67,7 @@ func stripPNG(b []byte, o Options) (*Result, error) {
 
 	if o.KeepOrientation && r.Orientation > 1 && ihdrEnd > 0 {
 		c := pngChunk("eXIf", orientationTIFF(r.Orientation))
-		out = append(out[:ihdrEnd], append(c, out[ihdrEnd:]...)...)
+		out = slices.Insert(out, ihdrEnd, c...)
 	}
 	r.Data = out
 	return r, nil

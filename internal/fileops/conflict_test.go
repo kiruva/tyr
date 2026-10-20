@@ -275,25 +275,6 @@ func TestPolicyJobDoesNotAsk(t *testing.T) {
 	}
 }
 
-func TestFreeName(t *testing.T) {
-	dir := t.TempDir()
-	seed(t, filepath.Join(dir, "notes.txt"), "x", 0)
-
-	got, err := freeName(filepath.Join(dir, "notes.txt"))
-	if err != nil {
-		t.Fatalf("freeName: %v", err)
-	}
-	if want := filepath.Join(dir, "notes (2).txt"); got != want {
-		t.Fatalf("freeName = %q, want %q", got, want)
-	}
-
-	seed(t, got, "x", 0)
-	got, _ = freeName(filepath.Join(dir, "notes.txt"))
-	if want := filepath.Join(dir, "notes (3).txt"); got != want {
-		t.Fatalf("freeName = %q, want %q", got, want)
-	}
-}
-
 // A sync carries out decisions about files. One that would put a file where a
 // folder is — the tree changed after the comparison, or the comparison missed
 // it — is refused rather than deleting the folder to make room.

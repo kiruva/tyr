@@ -107,19 +107,9 @@ func stripOne(it convertItem, job Job, rv *resolver, tally *stripTally) (string,
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
-	if exists(dst) {
-		action, err := rv.resolve(it.src, dst)
-		if err != nil {
-			return "", err
-		}
-		switch action {
-		case ConflictSkip:
-			return "", nil
-		case ConflictKeepBoth:
-			if dst, err = freeName(dst); err != nil {
-				return "", err
-			}
-		}
+	dst, _, err = rv.claim(it.src, dst)
+	if err != nil || dst == "" {
+		return "", err
 	}
 	// A copy with nothing to remove is still a copy: the other pane asked for
 	// the image, and gets it.

@@ -10,26 +10,10 @@ import (
 	"github.com/kiruva/tyr/internal/termsafe"
 )
 
-// ErrUnsupported is returned by Strip for anything that is not one of the four
-// formats it handles. A format it recognises but does not handle (HEIC, TIFF)
-// is named in the wrapping error.
-var ErrUnsupported = errUnsupported
-
-// Detect names the image format of b — "jpeg", "png", "gif" or "webp" — or
-// returns "" when b is none of them.
-func Detect(b []byte) string { return detect(b) }
-
-// Unsupported names a common image format Strip recognises but cannot handle,
-// such as "HEIC/AVIF", or returns "".
-func Unsupported(b []byte) string { return describeUnsupported(b) }
-
-// Strip removes every piece of metadata from b that o does not keep. The input
-// is not modified; Result.Data is the cleaned image.
-func Strip(b []byte, o Options) (*Result, error) { return strip(b, o) }
-
-// Field is one decoded value: a key such as "GPSPosition" and its value. Both
-// are already made safe to print — control characters and terminal escapes in
-// metadata are shown escaped rather than passed through.
+// Field is one decoded value: a key such as "GPSPosition" and its value. An
+// empty Key marks a free-form note. In a Report both are already made safe to
+// print — control characters and terminal escapes in metadata are shown
+// escaped rather than passed through; the parsers that fill them in do not.
 type Field struct{ Key, Value string }
 
 // Section is one removed item and what it decodes to.
@@ -72,7 +56,7 @@ func Inspect(res *Result) Report {
 
 		fields := describe(it, bud)
 		if len(fields) > maxItemFields {
-			fields = append(fields[:maxItemFields], field{"", fmt.Sprintf("… %d more values not shown", len(fields)-maxItemFields)})
+			fields = append(fields[:maxItemFields], Field{"", fmt.Sprintf("… %d more values not shown", len(fields)-maxItemFields)})
 		}
 		decoded = append(decoded, itemFields{it, fields})
 		for _, f := range fields {

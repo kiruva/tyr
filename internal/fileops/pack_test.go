@@ -43,7 +43,7 @@ func packTree(t *testing.T) (dir string, srcs []string) {
 func needTools(t *testing.T, bins ...string) {
 	t.Helper()
 	for _, b := range bins {
-		if !onPath(b) {
+		if resolveTool(b, installed) == "" {
 			t.Skipf("%s is not installed", b)
 		}
 	}

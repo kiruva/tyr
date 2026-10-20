@@ -467,7 +467,7 @@ func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string,
 	// files, and nothing inside it is recorded twice.
 	var created, newRoots []string
 	for _, src := range job.Srcs {
-		if root := filepath.Join(job.Dest, filepath.Base(src)); isDir(src) && !exists(root) {
+		if root := filepath.Join(job.Dest, filepath.Base(src)); isDir(src) && !fsutil.Exists(root) {
 			newRoots = append(newRoots, root)
 		}
 	}
@@ -483,7 +483,7 @@ func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string,
 	// finish adds the new folders that did get made, however far the job got.
 	finish := func(err error) ([]string, []string, error) {
 		for _, root := range newRoots {
-			if exists(root) {
+			if fsutil.Exists(root) {
 				created = append(created, root)
 			}
 		}
@@ -494,7 +494,7 @@ func convert(ctx context.Context, job Job, r *reporter, rv *resolver) ([]string,
 		if err := ctx.Err(); err != nil {
 			return finish(err)
 		}
-		existed := exists(it.dst)
+		existed := fsutil.Exists(it.dst)
 		var out string
 		if it.image {
 			out, err = stripOne(it, job, rv, &tally)
@@ -526,19 +526,9 @@ func convertOne(ctx context.Context, it convertItem, job Job, r *reporter, rv *r
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
-	if exists(dst) {
-		action, err := rv.resolve(it.src, dst)
-		if err != nil {
-			return "", err
-		}
-		switch action {
-		case ConflictSkip:
-			return "", nil
-		case ConflictKeepBoth:
-			if dst, err = freeName(dst); err != nil {
-				return "", err
-			}
-		}
+	dst, _, err := rv.claim(it.src, dst)
+	if err != nil || dst == "" {
+		return "", err
 	}
 
 	r.part(it.label, 0, "")

@@ -135,17 +135,17 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "w":
 		m.viewer.wrap = !m.viewer.wrap
-		m.viewer.status = "wrap " + onOff2(m.viewer.wrap)
+		m.viewer.status = "wrap " + onOffWord(m.viewer.wrap)
 		m.refreshViewer()
 		return m, nil
 	case "#":
 		m.viewer.numbers = !m.viewer.numbers
-		m.viewer.status = "line numbers " + onOff2(m.viewer.numbers)
+		m.viewer.status = "line numbers " + onOffWord(m.viewer.numbers)
 		m.refreshViewer()
 		return m, nil
 	case "x":
 		m.viewer.hex = !m.viewer.hex
-		m.viewer.status = "hex " + onOff2(m.viewer.hex)
+		m.viewer.status = "hex " + onOffWord(m.viewer.hex)
 		if m.viewer.meta && !m.viewer.hex {
 			m.viewer.status = "metadata"
 		}
@@ -153,7 +153,7 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s":
 		m.viewer.colour = !m.viewer.colour
-		m.viewer.status = "highlighting " + onOff2(m.viewer.colour)
+		m.viewer.status = "highlighting " + onOffWord(m.viewer.colour)
 		m.refreshViewer()
 		return m, nil
 	}
@@ -475,7 +475,8 @@ func printable(b byte) byte {
 	return '.'
 }
 
-func onOff2(on bool) string {
+// onOffWord says which way a toggle went, for the status line.
+func onOffWord(on bool) string {
 	if on {
 		return "on"
 	}

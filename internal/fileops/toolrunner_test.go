@@ -294,3 +294,25 @@ func TestToolProgressReachesTheChannel(t *testing.T) {
 // execTools is what production uses; the interface must not drift from it.
 var _ toolRunner = execTools{}
 var _ toolRunner = (*fakeTools)(nil)
+
+// A tool's failure is reported in its own last words, but the exit error has
+// to stay underneath them: replacing it would hide what the process did.
+func TestToolFailureKeepsTheExitError(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw.Close()
+	tail := make(chan []string, 1)
+	tail <- []string{"tar: broken.tar: Cannot open: No such file or directory"}
+	p := &progressPipe{w: pw, r: pr, tail: tail}
+
+	exit := errors.New("exit status 2")
+	got := p.finish("tar", exit)
+	if !errors.Is(got, exit) {
+		t.Errorf("finish dropped the exit error: %v", got)
+	}
+	if want := "tar failed: tar: broken.tar: Cannot open: No such file or directory"; got.Error() != want {
+		t.Errorf("message = %q, want %q", got.Error(), want)
+	}
+}

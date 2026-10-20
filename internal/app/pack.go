@@ -344,14 +344,17 @@ const (
 
 func (m Model) renderPack() string {
 	i := m.pack.info()
+	row := func(f packField, label, value, note string) string {
+		return formRow(m.pack.focus == f, label, value, note)
+	}
 	n := len(m.pack.srcs)
 
 	rows := []string{
-		packRow(m, packFieldFormat, "Format", packChoice(i.Label), strings.Join(i.Tools, ", ")),
-		packRow(m, packFieldLevel, "Level", packLevelValue(m.pack), packLevelHint(i)),
-		packRow(m, packFieldPassword, "Password", m.packPasswordValue(m.pack.pw), m.packPasswordHint()),
-		packRow(m, packFieldRepeat, "Repeat", m.packPasswordValue(m.pack.repeat), ""),
-		packRow(m, packFieldName, "Name", m.pack.name.View(), ""),
+		row(packFieldFormat, "Format", packChoice(i.Label), strings.Join(i.Tools, ", ")),
+		row(packFieldLevel, "Level", packLevelValue(m.pack), packLevelHint(i)),
+		row(packFieldPassword, "Password", m.packPasswordValue(m.pack.pw), m.packPasswordHint()),
+		row(packFieldRepeat, "Repeat", m.packPasswordValue(m.pack.repeat), ""),
+		row(packFieldName, "Name", m.pack.name.View(), ""),
 	}
 
 	lines := []string{
@@ -370,23 +373,6 @@ func (m Model) renderPack() string {
 	lines = append(lines, "", ui.Faint.Render("↑↓ field · ←→ change · enter pack · esc cancel"))
 
 	return ui.Dialog.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-}
-
-// packRow lays out one field: label, value, and a faint note about it.
-func packRow(m Model, f packField, label, value, note string) string {
-	name := "  " + ui.PadRight(label, packLabelW-2)
-	if m.pack.focus == f {
-		name = ui.Cursor.Render(ui.PadRight("▸ "+label, packLabelW))
-	}
-	row := name + value
-	if note == "" {
-		return row
-	}
-	gap := contentWidth - lipgloss.Width(row) - lipgloss.Width(note)
-	if gap < 1 {
-		gap = 1
-	}
-	return row + strings.Repeat(" ", gap) + ui.Faint.Render(note)
 }
 
 // packChoice renders a ←/→ field's current value.

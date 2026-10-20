@@ -56,9 +56,8 @@ func stripGIF(b []byte, o Options) (*Result, error) {
 			if err != nil {
 				return nil, err
 			}
-			if name, drop := gifClassify(b[i+1], b[i+2:end], o); drop {
-				kind, data := gifPayload(b[i+1], b[i+2:end])
-				r.add(name, end-i, kind, data)
+			if it, drop := gifClassify(b[i+1], b[i+2:end], o); drop {
+				r.add(it.Name, end-i, it.Kind, it.Data)
 			} else {
 				out = append(out, b[i:end]...)
 			}
@@ -83,62 +82,44 @@ func skipSubBlocks(b []byte, i int) (int, error) {
 	}
 }
 
-// gifClassify decides whether an extension block is metadata to drop.
-// blocks holds the extension's sub-blocks, starting with the first size byte.
-func gifClassify(label byte, blocks []byte, o Options) (name string, drop bool) {
+// gifClassify decides whether an extension block is metadata to drop and, if
+// it is, what it is called and what of it -i can decode (Size is left to the
+// caller). blocks holds the extension's sub-blocks, starting with the first
+// size byte.
+func gifClassify(label byte, blocks []byte, o Options) (it Item, drop bool) {
 	switch label {
 	case 0xF9, 0x01: // graphic control, plain text (rendered content)
-		return "", false
+		return Item{}, false
 	case 0xFE:
-		return "comment extension", true
+		return Item{Name: "comment extension", Kind: "comment", Data: flattenSubBlocks(blocks)}, true
 	case 0xFF:
 		if len(blocks) < 12 || blocks[0] != 11 {
-			return "application extension", true
+			return Item{Name: "application extension"}, true
 		}
 		id := string(blocks[1:12])
 		if strings.HasPrefix(id, "C2PA") {
-			return "C2PA application extension", true
+			return Item{Name: "C2PA application extension", Kind: "jumbf", Data: flattenSubBlocks(blocks[12:])}, true
 		}
 		switch id {
 		case "NETSCAPE2.0", "ANIMEXTS1.0": // loop count
-			return "", false
+			return Item{}, false
 		case "XMP DataXMP":
-			return "XMP application extension", true
-		case "ICCRGBG1012":
-			return "ICC profile application extension", !o.KeepICC
-		default:
-			return fmt.Sprintf("application extension %q", id), true
-		}
-	}
-	return fmt.Sprintf("extension 0x%02x", label), true
-}
-
-// gifPayload extracts decodable metadata from an extension block for -i.
-func gifPayload(label byte, blocks []byte) (kind string, data []byte) {
-	switch {
-	case label == 0xFE:
-		return "comment", flattenSubBlocks(blocks)
-	case label != 0xFF || len(blocks) < 12:
-		return "", nil
-	}
-	switch string(blocks[1:12]) {
-	case "XMP DataXMP":
-		// XMP is stored raw (its bytes double as sub-block sizes), followed by
-		// a "magic trailer"; cut at the end of the XMP packet.
-		x := blocks[12:]
-		if k := bytes.Index(x, []byte("<?xpacket end")); k >= 0 {
-			if e := bytes.Index(x[k:], []byte("?>")); e >= 0 {
-				x = x[:k+e+2]
+			// XMP is stored raw (its bytes double as sub-block sizes), followed
+			// by a "magic trailer"; cut at the end of the XMP packet.
+			x := blocks[12:]
+			if k := bytes.Index(x, []byte("<?xpacket end")); k >= 0 {
+				if e := bytes.Index(x[k:], []byte("?>")); e >= 0 {
+					x = x[:k+e+2]
+				}
 			}
+			return Item{Name: "XMP application extension", Kind: "xmp", Data: x}, true
+		case "ICCRGBG1012":
+			return Item{Name: "ICC profile application extension", Kind: "icc", Data: flattenSubBlocks(blocks[12:])}, !o.KeepICC
+		default:
+			return Item{Name: fmt.Sprintf("application extension %q", id)}, true
 		}
-		return "xmp", x
-	case "ICCRGBG1012":
-		return "icc", flattenSubBlocks(blocks[12:])
 	}
-	if bytes.HasPrefix(blocks[1:12], []byte("C2PA")) {
-		return "jumbf", flattenSubBlocks(blocks[12:])
-	}
-	return "", nil
+	return Item{Name: fmt.Sprintf("extension 0x%02x", label)}, true
 }
 
 func flattenSubBlocks(b []byte) []byte {

@@ -22,7 +22,7 @@ import (
 // the keys, this lists what those keys can reach.
 //
 // The scroll offset is a parameter rather than state here, because it is shared
-// with the help overlay: the two swap into each other with C and ?, and a
+// with the help overlay: the two swap into each other on tab, and a
 // scroll position that survived the swap would be confusing. The root model
 // owns it for exactly that reason.
 func View(width, rows, scroll int) string {

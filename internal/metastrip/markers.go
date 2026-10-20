@@ -63,7 +63,7 @@ func toolField(key string) bool {
 
 type itemFields struct {
 	item   Item
-	fields []field
+	fields []Field
 }
 
 func findMarkers(items []itemFields) []string {
@@ -127,7 +127,7 @@ func findMarkers(items []itemFields) []string {
 	return out
 }
 
-func fieldLabel(it Item, f field) string {
+func fieldLabel(it Item, f Field) string {
 	if f.Key == "" {
 		return it.Name
 	}
