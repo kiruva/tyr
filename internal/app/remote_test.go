@@ -204,6 +204,30 @@ func TestRemoteJobAssembly(t *testing.T) {
 		if len(m.pending.Srcs) != 1 || filepath.Base(m.pending.Srcs[0]) != "notes.txt" {
 			t.Fatalf("srcs = %v", m.pending.Srcs)
 		}
+		if m.willOverwrite {
+			t.Error("warned of an overwrite; the host's listing has no notes.txt")
+		}
+	})
+
+	// The destination's listing says what an upload would replace — without a
+	// round trip, and whether or not the view is showing it.
+	t.Run("upload over a name the host has", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "app.log"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		m := New()
+		remotePane(t, &m, 1, box, "/srv")
+		m.panes[1].SetFilter("www") // app.log is out of view, not out of the way
+		m.active = 0
+		m.panes[0] = pane.New(dir)
+		cursorTo(t, &m, 0, "app.log")
+
+		m.beginOp(fileops.OpCopy)
+		if !m.willOverwrite {
+			t.Error("no overwrite warning for a name the host already has")
+		}
 	})
 
 	t.Run("delete on the host", func(t *testing.T) {

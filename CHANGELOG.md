@@ -54,6 +54,28 @@ from the commit history by GitVersion and tagged by CI; see
   far past its end; PageDown in an empty folder left the cursor nowhere; members of an archive
   listed by an external tool showed as 0 B (their size is now left blank); a session path ending
   in a space came back without it.
+- **Key files are tried even when an agent is running.** Once the agent's keys had failed, the
+  keys in `~/.ssh` were never offered at all. They now go first, then the agent's; with a
+  password the password goes first. An agent holding many keys no longer uses up the host's
+  attempts and ends in "too many authentication failures".
+- **ProxyJump works as ssh reads it:** a jump host's port is kept (it was dialled on 22),
+  `a,b` chains through both, and `none` means no jump. Jump connections are closed with the
+  session they carry, and the agent socket after each connect, instead of piling up.
+- **A host that stops answering no longer hangs tyr.** The handshake gives up after 15 seconds,
+  a session that stops answering keepalives is redialled, a listing or mkdir gives up after a
+  minute, and `Esc` in the connection dialog cancels the connect.
+- **A download stops when the local side fails** — a full disk, say — instead of waiting for
+  ever on the host.
+- **known_hosts follows ssh_config:** `UserKnownHostsFile`, `GlobalKnownHostsFile` and
+  `HashKnownHosts yes` are honoured, and a known_hosts that cannot be written no longer stops a
+  connect you just confirmed; tyr says the key was not saved.
+- **More of ssh_config is read right:** options before the first `Host` line apply to every
+  host, an `Include` inside a `Host` block only to that host, and `%h`, `%d`, `%u`, `%p`, `%r`
+  are expanded in `IdentityFile` and the known_hosts files.
+- **A key with a passphrase is named** when the password prompt appears, with a hint to load it
+  into ssh-agent, instead of being skipped without a word.
+- **Uploading over a file the host already has warns** like a local copy does, from the
+  destination pane's listing.
 
 ### Added
 

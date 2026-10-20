@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"context"
 	"os"
 	"slices"
 	"strconv"
@@ -27,8 +26,9 @@ type Listing struct {
 }
 
 // These run one short round trip for the UI to draw with, and there is no
-// affordance to cancel one: the pane is simply waiting for its listing.
-// A long-running transfer takes a real context; see transfer.go.
+// affordance to cancel one: the pane is simply waiting for its listing, for
+// at most roundTripTimeout. A long-running transfer takes a real context; see
+// transfer.go.
 //
 // List reads a remote directory in a single round trip: cd, report where that
 // landed, then list. The GNU --time-style flag gives epoch timestamps; when the
@@ -49,7 +49,7 @@ func List(h Host, dir string) (Listing, error) {
 	}
 	script := listScript(cd)
 
-	out, err := output(context.Background(), h, script)
+	out, err := quickOutput(h, script)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -110,38 +110,6 @@ func parseListing(out string) (Listing, error) {
 		l.Entries = append(l.Entries, Entry{Name: n})
 	}
 	return l, nil
-}
-
-// Stat reports whether a remote path exists and whether it is a directory.
-func Stat(h Host, p string) (exists, isDir bool, err error) {
-	script := "if [ -d " + shQuote(p) + " ]; then echo dir; elif [ -e " + shQuote(p) +
-		" ]; then echo file; else echo none; fi"
-	out, err := output(context.Background(), h, script)
-	if err != nil {
-		return false, false, err
-	}
-	switch strings.TrimSpace(out) {
-	case "dir":
-		return true, true, nil
-	case "file":
-		return true, false, nil
-	default:
-		return false, false, nil
-	}
-}
-
-// AnyExist reports whether any of names already exists under dir — the remote
-// half of the overwrite warning.
-func AnyExist(h Host, dir string, names []string) (bool, error) {
-	var b strings.Builder
-	b.WriteString("cd -- " + shQuote(dir) + " && for n in " + quoteAll(names) + "; do ")
-	b.WriteString(`[ -e "$n" ] && { echo yes; break; }; done; :`)
-
-	out, err := output(context.Background(), h, b.String())
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) == "yes", nil
 }
 
 var errEmptyListing = errorString("no output from ls")

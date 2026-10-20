@@ -19,6 +19,11 @@ type sshHostConfig struct {
 	Port          string
 	IdentityFiles []string
 	ProxyJump     string
+
+	UserKnownHostsFiles   []string
+	GlobalKnownHostsFiles []string
+	HashKnownHosts        bool
+	hashSet               bool // HashKnownHosts was given, yes or no
 }
 
 // lookupSSHConfig resolves alias through ~/.ssh/config. First match wins per key,
@@ -26,8 +31,35 @@ type sshHostConfig struct {
 // standard key names so an entry without IdentityFile still authenticates.
 func lookupSSHConfig(alias string) sshHostConfig {
 	cfg := parseSSHConfig(sshConfigPath(), alias, 0)
+	expandTokens(&cfg, alias)
 	cfg.IdentityFiles = append(cfg.IdentityFiles, defaultIdentities()...)
 	return cfg
+}
+
+// expandTokens replaces ssh's % tokens where ssh does: %h in HostName, and
+// %d %u %h %p %r %% in the file names. "IdentityFile ~/.ssh/%h" is a common way
+// to keep a key per host, and was read as a file literally named "%h".
+func expandTokens(cfg *sshHostConfig, alias string) {
+	home, _ := os.UserHomeDir()
+	cfg.HostName = strings.ReplaceAll(cfg.HostName, "%h", alias)
+	host := firstNonEmpty(cfg.HostName, alias)
+	r := strings.NewReplacer(
+		"%%", "%",
+		"%d", home,
+		"%u", currentUser(),
+		"%h", host,
+		"%p", firstNonEmpty(cfg.Port, "22"),
+		"%r", firstNonEmpty(cfg.User, currentUser()),
+	)
+	for i, f := range cfg.IdentityFiles {
+		cfg.IdentityFiles[i] = filepath.Clean(expandHome(r.Replace(f))) // "%d/.ssh" mixes separators on Windows
+	}
+	for i, f := range cfg.UserKnownHostsFiles {
+		cfg.UserKnownHostsFiles[i] = r.Replace(f)
+	}
+	for i, f := range cfg.GlobalKnownHostsFiles {
+		cfg.GlobalKnownHostsFiles[i] = r.Replace(f)
+	}
 }
 
 func sshConfigPath() string {
@@ -41,6 +73,14 @@ func sshConfigPath() string {
 // parseSSHConfig walks the file, collecting values from every Host block whose
 // pattern matches alias. depth bounds Include recursion.
 func parseSSHConfig(path, alias string, depth int) sshHostConfig {
+	return parseSSHConfigFrom(path, alias, depth, true)
+}
+
+// parseSSHConfigFrom is parseSSHConfig with the state the file starts in. The
+// top of the main file applies to every host — options before the first Host
+// line are defaults, as in ssh — and so does the top of an included file,
+// within the block that included it.
+func parseSSHConfigFrom(path, alias string, depth int, applies bool) sshHostConfig {
 	var cfg sshHostConfig
 	if path == "" || depth > 8 {
 		return cfg
@@ -51,8 +91,7 @@ func parseSSHConfig(path, alias string, depth int) sshHostConfig {
 	}
 	defer f.Close()
 
-	applies := false // are we inside a block that matches alias?
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(f) // applies: are we inside a block that matches alias?
 	for sc.Scan() {
 		key, value, ok := configLine(sc.Text())
 		if !ok {
@@ -69,8 +108,12 @@ func parseSSHConfig(path, alias string, depth int) sshHostConfig {
 			applies = false
 			continue
 		case "include":
-			for _, inc := range expandInclude(value) {
-				merge(&cfg, parseSSHConfig(inc, alias, depth+1))
+			// Inside a Host block an Include is conditional, like everything
+			// else there: another host's include is not this host's settings.
+			if applies {
+				for _, inc := range expandInclude(value) {
+					merge(&cfg, parseSSHConfigFrom(inc, alias, depth+1, true))
+				}
 			}
 			continue
 		}
@@ -86,9 +129,17 @@ func parseSSHConfig(path, alias string, depth int) sshHostConfig {
 		case "port":
 			setOnce(&cfg.Port, value)
 		case "identityfile":
-			cfg.IdentityFiles = append(cfg.IdentityFiles, expandHome(unquote(value)))
+			cfg.IdentityFiles = append(cfg.IdentityFiles, unquote(value)) // expanded in lookupSSHConfig
 		case "proxyjump":
 			setOnce(&cfg.ProxyJump, value)
+		case "userknownhostsfile":
+			setListOnce(&cfg.UserKnownHostsFiles, value)
+		case "globalknownhostsfile":
+			setListOnce(&cfg.GlobalKnownHostsFiles, value)
+		case "hashknownhosts":
+			if !cfg.hashSet {
+				cfg.HashKnownHosts, cfg.hashSet = strings.EqualFold(unquote(value), "yes"), true
+			}
 		}
 	}
 	return cfg
@@ -198,6 +249,25 @@ func merge(dst *sshHostConfig, src sshHostConfig) {
 	setOnce(&dst.Port, src.Port)
 	setOnce(&dst.ProxyJump, src.ProxyJump)
 	dst.IdentityFiles = append(dst.IdentityFiles, src.IdentityFiles...)
+	if len(dst.UserKnownHostsFiles) == 0 {
+		dst.UserKnownHostsFiles = src.UserKnownHostsFiles
+	}
+	if len(dst.GlobalKnownHostsFiles) == 0 {
+		dst.GlobalKnownHostsFiles = src.GlobalKnownHostsFiles
+	}
+	if !dst.hashSet {
+		dst.HashKnownHosts, dst.hashSet = src.HashKnownHosts, src.hashSet
+	}
+}
+
+// setListOnce stores a space-separated list of files, unless one was set.
+func setListOnce(dst *[]string, value string) {
+	if len(*dst) > 0 {
+		return
+	}
+	for _, f := range strings.Fields(value) {
+		*dst = append(*dst, unquote(f))
+	}
 }
 
 func unquote(s string) string {

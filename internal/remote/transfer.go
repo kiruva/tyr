@@ -155,24 +155,51 @@ func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, 
 	// The filter runs beside the session. When it refuses an entry it closes
 	// the session too: nothing is reading the host's output any more, and a
 	// remote tar blocked on a full channel would keep Run from returning.
-	filterErr := make(chan error, 1)
+	// refused is the filter's verdict, to be read once filterDone is closed.
+	var refused error
+	filterDone := make(chan struct{})
 	go func() {
-		err := allowOnly(data, pw, names)
-		if err == nil {
-			_, err = io.Copy(io.Discard, data) // the zero padding after the end
+		defer close(filterDone)
+		refused = allowOnly(data, pw, names)
+		if refused == nil {
+			_, refused = io.Copy(io.Discard, data) // the zero padding after the end
 		}
-		_ = pw.CloseWithError(err)
-		if err != nil {
+		_ = pw.CloseWithError(refused)
+		if refused != nil {
 			_ = sess.Close()
 		}
-		filterErr <- err
 	}()
 
-	runErr := sess.Run(script)
-	// The local end only sees EOF once the remote command has finished, so it is
-	// waited on after, not before.
-	refused := <-filterErr
-	localErr := wait()
+	if err := sess.Start(script); err != nil {
+		_ = pw.CloseWithError(err)
+		<-filterDone // the start failure is the error worth reporting
+		_ = wait()
+		return remoteError(h, remoteErr.String(), err)
+	}
+
+	// Both ends are waited on together. Normally the remote one finishes first
+	// and the local one follows on the EOF. But a local tar that gives up early
+	// — a full disk — stops reading: the filter blocks writing to it, the host's
+	// output backs up, and the remote tar waits on a full channel for ever. So
+	// when the local end fails first, the pipe to it and the session are closed
+	// under the other two.
+	localDone := make(chan error, 1)
+	go func() { localDone <- wait() }()
+	runDone := make(chan error, 1)
+	go func() { runDone <- sess.Wait() }()
+
+	var runErr, localErr error
+	select {
+	case runErr = <-runDone:
+		localErr = <-localDone
+	case localErr = <-localDone:
+		if localErr != nil {
+			_ = pr.CloseWithError(errLocalGaveUp)
+			_ = sess.Close()
+		}
+		runErr = <-runDone
+	}
+	<-filterDone
 
 	// A refusal is the reason for everything else that failed after it. Any
 	// other filter error is a symptom: the local tar gave up and stopped
@@ -188,6 +215,10 @@ func remoteToLocal(ctx context.Context, h Host, script string, local *exec.Cmd, 
 	}
 	return refused
 }
+
+// errLocalGaveUp is what the filter is told when the local end of a download
+// stopped reading.
+var errLocalGaveUp = errors.New("the local tar stopped reading")
 
 // localToRemote pipes a local command's stdout into a remote one's stdin.
 func localToRemote(ctx context.Context, h Host, script string, local *exec.Cmd, step func(string)) error {

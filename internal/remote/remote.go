@@ -11,10 +11,12 @@ package remote
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strings"
+	"time"
 )
 
 // Host identifies an ssh destination. The zero value is "not remote".
@@ -221,6 +223,23 @@ func output(ctx context.Context, h Host, script string) (string, error) {
 		return "", remoteError(h, stderr.String(), err)
 	}
 	return stdout.String(), nil
+}
+
+// roundTripTimeout bounds the short commands the UI waits on with no way to
+// cancel them — a listing, a mkdir. A variable, for the tests.
+var roundTripTimeout = time.Minute
+
+// quickOutput is output for one of those, with roundTripTimeout as its limit:
+// a host that went quiet without the connection noticing left the pane
+// "loading…" for good.
+func quickOutput(h Host, script string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), roundTripTimeout)
+	defer cancel()
+	out, err := output(ctx, h, script)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "", fmt.Errorf("%s: no answer within %s", h.String(), roundTripTimeout)
+	}
+	return out, err
 }
 
 // run executes a remote script, discarding stdout.

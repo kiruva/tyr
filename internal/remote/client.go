@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -28,6 +29,16 @@ import (
 // ErrAuthRequired means the non-interactive methods (agent, key files) did not
 // get us in and a password is needed.
 var ErrAuthRequired = errors.New("password required")
+
+// AuthRequiredError is ErrAuthRequired with the key files that could not be
+// tried because they have a passphrase: tyr does not ask for one, and a user
+// whose key "did not work" should hear that it is ssh-agent's to unlock.
+type AuthRequiredError struct {
+	Encrypted []string
+}
+
+func (e *AuthRequiredError) Error() string        { return ErrAuthRequired.Error() }
+func (e *AuthRequiredError) Is(target error) bool { return target == ErrAuthRequired }
 
 // HostKeyError reports a host key that cannot be verified from known_hosts.
 // Changed is the serious case: the host is known but presenting a different key.
@@ -71,8 +82,14 @@ type Options struct {
 	TrustedKeys []HostKey
 }
 
+// entry is one host in the registry. mu is held across everything that looks
+// at conn and may replace it — the liveness check, a redial, the store — so two
+// operations on one host never dial twice or race on the field. It is taken
+// after registryMu is released, never while holding it.
 type entry struct {
-	client   *ssh.Client
+	mu       sync.Mutex
+	conn     *conn // nil until connected, and after a drop until the redial
+	ready    bool  // Connect succeeded once; client may redial from opts
 	password string
 	opts     Options
 }
@@ -82,41 +99,61 @@ var (
 	registry   = map[Host]*entry{}
 )
 
+// errForgotten is what an operation gets when the host was forgotten — the app
+// quit, or the pane let go of it — while it was connecting.
+var errForgotten = errors.New("the connection was closed")
+
+// dialTimeout bounds a connect from the first packet to the end of the
+// handshake, and keepaliveTimeout how long a live-looking session has to answer
+// before it is taken for dead. Variables, for the tests.
+var (
+	dialTimeout      = 15 * time.Second
+	keepaliveTimeout = 10 * time.Second
+)
+
 // Connect establishes a session for h, or reports what is still needed:
 // ErrAuthRequired when a password must be collected, or *HostKeyError when the
 // host key needs confirming. Calling it again with those supplied completes the
-// connection. A host that is already connected is a no-op.
-func Connect(h Host, opts Options) error {
+// connection. A host that is already connected is a no-op. Cancelling ctx
+// abandons the attempt. The warning, when there is one, is about a connect
+// that worked and is for the user to read.
+func Connect(ctx context.Context, h Host, opts Options) (warning string, err error) {
 	registryMu.Lock()
-	if e, ok := registry[h]; ok && e.client != nil {
-		registryMu.Unlock()
-		return nil
+	e, ok := registry[h]
+	if !ok {
+		e = &entry{}
+		registry[h] = e
 	}
 	registryMu.Unlock()
 
-	client, err := dial(h, opts)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.conn != nil {
+		return "", nil
+	}
+	c, warning, err := dial(ctx, h, opts)
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	registryMu.Lock()
-	// Another goroutine may have connected while we were dialling.
-	if e, ok := registry[h]; ok && e.client != nil {
-		registryMu.Unlock()
-		_ = client.Close()
-		return nil
+	if !registered(h, e) {
+		_ = c.Close()
+		return "", errForgotten
 	}
-	registry[h] = &entry{client: client, password: opts.Password, opts: opts}
-	registryMu.Unlock()
-	return nil
+	e.conn, e.ready, e.password, e.opts = c, true, opts.Password, opts
+	return warning, nil
 }
 
-// Connected reports whether h has a live session.
+// Connected reports whether h has a session. One being set up or redialled
+// right now counts as not yet.
 func Connected(h Host) bool {
 	registryMu.Lock()
-	defer registryMu.Unlock()
 	e, ok := registry[h]
-	return ok && e.client != nil
+	registryMu.Unlock()
+	if !ok || !e.mu.TryLock() {
+		return false
+	}
+	defer e.mu.Unlock()
+	return e.conn != nil
 }
 
 // Forget closes the session for h and drops its stored password.
@@ -125,11 +162,8 @@ func Forget(h Host) {
 	e, ok := registry[h]
 	delete(registry, h)
 	registryMu.Unlock()
-	if !ok {
-		return
-	}
-	if e.client != nil {
-		_ = e.client.Close()
+	if ok {
+		e.shut()
 	}
 }
 
@@ -141,10 +175,41 @@ func ForgetAll() {
 	registryMu.Unlock()
 
 	for _, e := range all {
-		if e.client != nil {
-			_ = e.client.Close()
-		}
+		e.shut()
 	}
+}
+
+// shut closes a forgotten entry's session. One that is busy — dialling, or
+// checking it is alive — is closed once it is done, off the caller's thread:
+// quitting must not wait out somebody's dial timeout. Whatever the busy holder
+// makes in the meantime it closes itself, finding the entry no longer
+// registered.
+func (e *entry) shut() {
+	if e.mu.TryLock() {
+		e.closeLocked()
+		e.mu.Unlock()
+		return
+	}
+	go func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		e.closeLocked()
+	}()
+}
+
+func (e *entry) closeLocked() {
+	if e.conn != nil {
+		_ = e.conn.Close()
+		e.conn = nil
+	}
+	e.password, e.opts = "", Options{}
+}
+
+// registered reports whether e is still h's entry. Called with e.mu held.
+func registered(h Host, e *entry) bool {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	return registry[h] == e
 }
 
 // client returns the live session for h, reconnecting once with the remembered
@@ -156,12 +221,21 @@ func client(h Host) (*ssh.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("not connected to %s", h.String())
 	}
-	if e.client != nil {
-		if _, _, err := e.client.SendRequest("keepalive@openssh.com", true, nil); err == nil {
-			return e.client, nil
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.ready {
+		return nil, fmt.Errorf("not connected to %s", h.String())
+	}
+	if e.conn != nil {
+		if alive(e.conn.Client) {
+			if !registered(h, e) {
+				return nil, errForgotten
+			}
+			return e.conn.Client, nil
 		}
-		_ = e.client.Close()
-		e.client = nil
+		_ = e.conn.Close()
+		e.conn = nil
 	}
 
 	// The key accepted for this session is in known_hosts by now, so the
@@ -169,19 +243,59 @@ func client(h Host) (*ssh.Client, error) {
 	// again rather than taken on the strength of the earlier yes.
 	opts := e.opts
 	opts.Password = e.password
-	fresh, err := dial(h, opts)
+	fresh, _, err := dial(context.Background(), h, opts)
 	if err != nil {
 		return nil, err
 	}
+	if !registered(h, e) {
+		_ = fresh.Close()
+		return nil, errForgotten
+	}
+	e.conn = fresh
+	return fresh.Client, nil
+}
 
-	registryMu.Lock()
-	e.client = fresh
-	registryMu.Unlock()
-	return fresh, nil
+// alive asks the session for a keepalive reply. A host that has gone quiet
+// without the TCP connection noticing never answers, and the request would
+// wait for ever; past keepaliveTimeout it is taken for dead. The caller closes
+// it, which is what ends the request still waiting.
+func alive(c *ssh.Client) bool {
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := c.SendRequest("keepalive@openssh.com", true, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(keepaliveTimeout):
+		return false
+	}
+}
+
+// conn is a session and the jump hosts it runs through, which go when it goes.
+type conn struct {
+	*ssh.Client
+	hops []*ssh.Client // in the order they were dialled
+}
+
+// Close closes the session, then the hops from the innermost out. The jump
+// clients were never closed at all, one more for every connect and redial.
+func (c *conn) Close() error {
+	var err error
+	if c.Client != nil {
+		err = c.Client.Close()
+	}
+	for i := len(c.hops) - 1; i >= 0; i-- {
+		_ = c.hops[i].Close()
+	}
+	return err
 }
 
 // dial resolves h through ssh_config, assembles the auth chain and connects.
-func dial(h Host, opts Options) (*ssh.Client, error) {
+// The warning is something worth telling the user about a connect that
+// worked: a host key accepted that could not be saved.
+func dial(ctx context.Context, h Host, opts Options) (*conn, string, error) {
 	cfg := lookupSSHConfig(h.Name)
 	target := h
 	if target.User == "" {
@@ -192,95 +306,170 @@ func dial(h Host, opts Options) (*ssh.Client, error) {
 	}
 	addr := net.JoinHostPort(firstNonEmpty(cfg.HostName, h.Name), portOf(h, cfg))
 
-	hostKeys, err := hostKeyCallback(h, opts.TrustedKeys)
+	known := knownHostsFor(cfg)
+	hostKeys, err := known.callback(h, opts.TrustedKeys)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	identities := cfg.IdentityFiles
 	if opts.IdentityFile != "" {
 		identities = []string{opts.IdentityFile}
 	}
+	keys := openKeyring(identities)
+	defer keys.close() // the agent is needed for the handshake only
 
 	clientCfg := &ssh.ClientConfig{
 		User:              target.User,
-		Auth:              authMethods(opts.Password, identities),
+		Auth:              authMethods(opts.Password, keys),
 		HostKeyCallback:   hostKeys,
-		HostKeyAlgorithms: knownHostAlgorithms(addr),
-		Timeout:           15 * time.Second,
+		HostKeyAlgorithms: known.algorithms(addr),
 	}
 
-	conn, err := dialThroughJump(cfg, addr, clientCfg, opts.TrustedKeys)
+	c, warning, err := dialChain(ctx, cfg.ProxyJump, addr, clientCfg, opts.TrustedKeys)
 	if err != nil {
-		return nil, translateAuthError(h, opts, err)
+		err = translateAuthError(h, opts, err)
+		if errors.Is(err, ErrAuthRequired) && len(keys.encrypted) > 0 {
+			err = &AuthRequiredError{Encrypted: keys.encrypted}
+		}
+		return nil, "", err
 	}
-	return conn, nil
+	return c, firstNonEmpty(known.warning, warning), nil
 }
 
-// dialThroughJump honours a ProxyJump entry from ssh_config. The jump host is
-// reached with the non-interactive methods only — prompting for two passwords in
-// sequence is not something the modal models.
-func dialThroughJump(cfg sshHostConfig, addr string, clientCfg *ssh.ClientConfig, trusted []HostKey) (*ssh.Client, error) {
-	if cfg.ProxyJump == "" {
-		return ssh.Dial("tcp", addr, clientCfg)
+// dialChain connects to addr through the ProxyJump hosts, if there are any.
+// The jump hosts are reached with the non-interactive methods only —
+// prompting for a password per hop is not something the modal models.
+func dialChain(ctx context.Context, proxyJump, addr string, clientCfg *ssh.ClientConfig, trusted []HostKey) (*conn, string, error) {
+	hops, err := parseProxyJump(proxyJump)
+	if err != nil {
+		return nil, "", err
+	}
+	warning := ""
+
+	c := &conn{}
+	next := func(ctx context.Context, addr string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	for _, hop := range hops {
+		hc, hopWarning, err := dialHop(ctx, hop, next, trusted)
+		if err != nil {
+			_ = c.Close()
+			return nil, "", fmt.Errorf("jump host %s: %w — it must accept key or agent auth", hop.String(), err)
+		}
+		warning = firstNonEmpty(warning, hopWarning)
+		c.hops = append(c.hops, hc)
+		next = func(ctx context.Context, addr string) (net.Conn, error) {
+			return hc.DialContext(ctx, "tcp", addr)
+		}
 	}
 
-	jumpHost, _, ok := Parse(cfg.ProxyJump + ":")
-	if !ok {
-		return nil, fmt.Errorf("cannot parse ProxyJump %q from ssh config", cfg.ProxyJump)
-	}
-	jumpCfg := lookupSSHConfig(jumpHost.Name)
-	jumpUser := firstNonEmpty(jumpHost.User, jumpCfg.User, currentUser())
-	// The jump host's key is checked like the target's: an unknown one comes
-	// back as a HostKeyError naming the jump host, for the modal to ask about.
-	jumpKeys, err := hostKeyCallback(jumpHost, trusted)
+	c.Client, err = handshake(ctx, next, addr, clientCfg)
 	if err != nil {
-		return nil, err
+		_ = c.Close()
+		return nil, "", err
 	}
-
-	jumpAddr := net.JoinHostPort(firstNonEmpty(jumpCfg.HostName, jumpHost.Name), portOf(jumpHost, jumpCfg))
-	jump, err := ssh.Dial("tcp", jumpAddr,
-		&ssh.ClientConfig{
-			User:              jumpUser,
-			Auth:              authMethods("", jumpCfg.IdentityFiles),
-			HostKeyCallback:   jumpKeys,
-			HostKeyAlgorithms: knownHostAlgorithms(jumpAddr),
-			Timeout:           15 * time.Second,
-		})
-	if err != nil {
-		return nil, fmt.Errorf("jump host %s: %w — it must accept key or agent auth", cfg.ProxyJump, err)
-	}
-
-	tunnel, err := jump.Dial("tcp", addr)
-	if err != nil {
-		_ = jump.Close()
-		return nil, err
-	}
-	c, chans, reqs, err := ssh.NewClientConn(tunnel, addr, clientCfg)
-	if err != nil {
-		_ = jump.Close()
-		return nil, err
-	}
-	return ssh.NewClient(c, chans, reqs), nil
+	return c, warning, nil
 }
 
-// authMethods builds the chain: agent first, then explicit keys, then the
-// password (which also answers keyboard-interactive, as that is how many servers
-// ask for one).
-func authMethods(password string, identities []string) []ssh.AuthMethod {
+// dialHop connects to one jump host, configured from its own ssh_config entry.
+// Its key is checked like the target's: an unknown one comes back as a
+// HostKeyError naming the jump host, for the modal to ask about.
+func dialHop(ctx context.Context, hop Host, next func(context.Context, string) (net.Conn, error), trusted []HostKey) (*ssh.Client, string, error) {
+	hopCfg := lookupSSHConfig(hop.Name)
+	known := knownHostsFor(hopCfg)
+	hostKeys, err := known.callback(hop, trusted)
+	if err != nil {
+		return nil, "", err
+	}
+	addr := net.JoinHostPort(firstNonEmpty(hopCfg.HostName, hop.Name), portOf(hop, hopCfg))
+	keys := openKeyring(hopCfg.IdentityFiles)
+	defer keys.close()
+
+	c, err := handshake(ctx, next, addr, &ssh.ClientConfig{
+		User:              firstNonEmpty(hop.User, hopCfg.User, currentUser()),
+		Auth:              authMethods("", keys),
+		HostKeyCallback:   hostKeys,
+		HostKeyAlgorithms: known.algorithms(addr),
+	})
+	return c, known.warning, err
+}
+
+// parseProxyJump reads a ProxyJump value: "none", or hops separated by commas,
+// each [ssh://][user@]host[:port].
+func parseProxyJump(value string) ([]Host, error) {
+	if value == "" || strings.EqualFold(value, "none") {
+		return nil, nil
+	}
+	var hops []Host
+	for _, raw := range strings.Split(value, ",") {
+		hop, ok := parseHostPart(strings.TrimPrefix(strings.TrimSpace(raw), "ssh://"), true)
+		if !ok {
+			return nil, fmt.Errorf("cannot parse ProxyJump %q from ssh config", value)
+		}
+		hops = append(hops, hop)
+	}
+	return hops, nil
+}
+
+// handshake opens a connection to addr with dialNext and runs the ssh
+// handshake over it, all within dialTimeout. ssh.ClientConfig.Timeout covers
+// the TCP connect only: a host that accepts the connection and then says
+// nothing kept the connect — and the modal — waiting for ever. Cancelling ctx
+// gives up the same way.
+func handshake(ctx context.Context, dialNext func(context.Context, string) (net.Conn, error), addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+
+	nc, err := dialNext(ctx, addr)
+	if err != nil {
+		return nil, gaveUp(ctx, addr, err)
+	}
+	// Nothing in the handshake watches ctx; closing the connection under it is
+	// what makes it return.
+	stop := context.AfterFunc(ctx, func() { _ = nc.Close() })
+	sc, chans, reqs, err := ssh.NewClientConn(nc, addr, cfg)
+	if !stop() {
+		if err == nil {
+			_ = sc.Close()
+		}
+		return nil, gaveUp(ctx, addr, ctx.Err())
+	}
+	if err != nil {
+		_ = nc.Close()
+		return nil, err
+	}
+	return ssh.NewClient(sc, chans, reqs), nil
+}
+
+// gaveUp names why a dial stopped when it was the clock or a cancel; any other
+// error is passed on as it is.
+func gaveUp(ctx context.Context, addr string, err error) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return fmt.Errorf("%s: no answer within %s", addr, dialTimeout)
+	case errors.Is(ctx.Err(), context.Canceled):
+		return ctx.Err()
+	}
+	return err
+}
+
+// authMethods builds the chain. The public keys go in as one method: the ssh
+// library tries a method name once, so the agent's keys and the key files as
+// two "publickey" methods meant the files were never offered once the agent's
+// had failed. With a password in hand the password goes first — it is only
+// asked for once the keys have failed, and a host allows a handful of attempts
+// in all, which an agent with many keys would otherwise use up before it.
+// (The password also answers keyboard-interactive, as that is how many servers
+// ask for one.)
+func authMethods(password string, keys *keyring) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
-
-	if a := agentSigners(); a != nil {
-		methods = append(methods, a)
-	}
-	if signers := loadKeys(identities); len(signers) > 0 {
-		methods = append(methods, ssh.PublicKeys(signers...))
-	}
 	if password != "" {
 		methods = append(methods, ssh.Password(password))
 		methods = append(methods, ssh.KeyboardInteractive(passwordOnly(password)))
 	}
-	return methods
+	return append(methods, ssh.PublicKeysCallback(keys.signers))
 }
 
 // passwordOnly answers a keyboard-interactive exchange with the password —
@@ -303,40 +492,86 @@ func passwordOnly(password string) ssh.KeyboardInteractiveChallenge {
 	}
 }
 
-// agentSigners exposes the running ssh-agent, if there is one.
-func agentSigners() ssh.AuthMethod {
+// keyring is the public keys one dial offers: the key files first, in the
+// order configured — they are what ssh_config named for this host — then
+// whatever the agent holds that is not one of them.
+type keyring struct {
+	files     []ssh.Signer
+	encrypted []string // key files skipped for want of a passphrase
+	agentConn net.Conn
+}
+
+// openKeyring reads the key files. The agent is not asked until the handshake
+// gets to public keys.
+func openKeyring(identities []string) *keyring {
+	k := &keyring{}
+	k.files, k.encrypted = loadKeys(identities)
+	return k
+}
+
+func (k *keyring) signers() ([]ssh.Signer, error) {
+	out := slices.Clone(k.files)
+	seen := map[string]bool{}
+	for _, s := range out {
+		seen[string(s.PublicKey().Marshal())] = true
+	}
+	for _, s := range k.agentSigners() {
+		if !seen[string(s.PublicKey().Marshal())] {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// agentSigners asks the running ssh-agent, if there is one, for its keys. The
+// connection stays open for the signing that follows, until close.
+func (k *keyring) agentSigners() []ssh.Signer {
 	sock := os.Getenv("SSH_AUTH_SOCK")
-	if sock == "" {
+	if sock == "" || k.agentConn != nil {
 		return nil
 	}
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
 		return nil
 	}
-	ag := agent.NewClient(conn)
-	if keys, err := ag.List(); err != nil || len(keys) == 0 {
-		_ = conn.Close()
+	k.agentConn = conn
+	signers, err := agent.NewClient(conn).Signers()
+	if err != nil {
 		return nil
 	}
-	return ssh.PublicKeysCallback(ag.Signers)
+	return signers
+}
+
+// close hangs up on the agent. Every dial opened a socket to it and none was
+// ever closed, one more per connect and per reconnect.
+func (k *keyring) close() {
+	if k.agentConn != nil {
+		_ = k.agentConn.Close()
+		k.agentConn = nil
+	}
 }
 
 // loadKeys reads the unencrypted private keys among identities. An encrypted key
-// is skipped rather than fatal: the agent or a password can still get us in.
-func loadKeys(identities []string) []ssh.Signer {
-	var signers []ssh.Signer
+// is skipped rather than fatal — the agent or a password can still get us in —
+// but named, so a refusal can say why the key did not help.
+func loadKeys(identities []string) (signers []ssh.Signer, encrypted []string) {
 	for _, path := range identities {
 		data, err := os.ReadFile(expandHome(path))
 		if err != nil {
 			continue
 		}
 		signer, err := ssh.ParsePrivateKey(data)
+		var missing *ssh.PassphraseMissingError
+		if errors.As(err, &missing) {
+			encrypted = append(encrypted, path)
+			continue
+		}
 		if err != nil {
 			continue
 		}
 		signers = append(signers, signer)
 	}
-	return signers
+	return signers, encrypted
 }
 
 // defaultIdentities are the key files ssh itself would try.
@@ -363,7 +598,10 @@ func translateAuthError(h Host, opts Options, err error) error {
 		return err
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "unable to authenticate") && !strings.Contains(msg, "no supported methods") {
+	// A host that counts attempts hangs up with "too many authentication
+	// failures" once they are spent: the same verdict, said another way.
+	if !strings.Contains(msg, "unable to authenticate") && !strings.Contains(msg, "no supported methods") &&
+		!strings.Contains(msg, "too many authentication failures") {
 		return fmt.Errorf("%s: %w", h.String(), err)
 	}
 	if opts.Password == "" {
@@ -403,36 +641,60 @@ func expandHome(p string) string {
 	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
 
-// knownHostsPath is where accepted keys are recorded.
-func knownHostsPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".ssh")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "known_hosts"), nil
+// knownHosts is where one host's keys are looked up and recorded, as its
+// ssh_config says: UserKnownHostsFile (the first is written to) and
+// GlobalKnownHostsFile, with HashKnownHosts deciding how a new line is written.
+// Left alone, that is ~/.ssh/known_hosts, plus /etc/ssh/ssh_known_hosts to read.
+type knownHosts struct {
+	read  []string // the files that exist, user files first
+	write string   // where an accepted key goes; "" when nowhere
+	hash  bool
+
+	// warning is set when an accepted key could not be recorded. The connect
+	// goes ahead — the user has just confirmed the key — but the next one
+	// will ask again, and the user should know why.
+	warning string
 }
 
-// hostKeyCallback verifies against known_hosts. An unknown key becomes a
-// HostKeyError carrying the fingerprint for the modal to show; when the user has
-// confirmed that very key for this host (it is in trusted), it is appended to
-// known_hosts so ssh itself trusts it too.
-func hostKeyCallback(h Host, trusted []HostKey) (ssh.HostKeyCallback, error) {
-	path, err := knownHostsPath()
-	if err != nil {
-		return nil, err
-	}
-	// knownhosts.New fails on a missing file; an empty one behaves as "nothing
-	// is trusted yet", which is what we want on a fresh machine.
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			_ = f.Close()
+// knownHostsFor resolves cfg's known_hosts settings.
+func knownHostsFor(cfg sshHostConfig) *knownHosts {
+	user := cfg.UserKnownHostsFiles
+	if len(user) == 0 {
+		if home, err := os.UserHomeDir(); err == nil {
+			user = []string{filepath.Join(home, ".ssh", "known_hosts")}
 		}
 	}
-	verify, err := knownhosts.New(path)
+	global := cfg.GlobalKnownHostsFiles
+	if len(global) == 0 {
+		global = []string{"/etc/ssh/ssh_known_hosts"}
+	}
+	if len(user) == 1 && strings.EqualFold(user[0], "none") {
+		user = nil
+	}
+	if len(global) == 1 && strings.EqualFold(global[0], "none") {
+		global = nil
+	}
+
+	k := &knownHosts{hash: cfg.HashKnownHosts}
+	if len(user) > 0 {
+		k.write = expandHome(user[0])
+	}
+	for _, f := range append(user, global...) {
+		f = expandHome(f)
+		if info, err := os.Stat(f); err == nil && info.Mode().IsRegular() {
+			k.read = append(k.read, f)
+		}
+	}
+	return k
+}
+
+// callback verifies against known_hosts. An unknown key becomes a
+// HostKeyError carrying the fingerprint for the modal to show; when the user has
+// confirmed that very key for this host (it is in trusted), it is recorded so
+// ssh itself trusts it too. A missing file is "nothing trusted yet", and
+// nothing is created just to read it: a read-only home must not stop a connect.
+func (k *knownHosts) callback(h Host, trusted []HostKey) (ssh.HostKeyCallback, error) {
+	verify, err := knownhosts.New(k.read...)
 	if err != nil {
 		return nil, fmt.Errorf("read known_hosts: %w", err)
 	}
@@ -462,7 +724,11 @@ func hostKeyCallback(h Host, trusted []HostKey) (ssh.HostKeyCallback, error) {
 		if offered.Changed || !slices.Contains(trusted, offered.Key()) {
 			return offered
 		}
-		return appendKnownHost(path, hostname, addr, key)
+		if err := k.record(hostname, addr, key); err != nil {
+			k.warning = "the host key was accepted but could not be saved (" + err.Error() +
+				") — it will be asked about again next time"
+		}
+		return nil
 	}, nil
 }
 
@@ -478,19 +744,15 @@ func sameTypeMismatch(want []knownhosts.KnownKey, offered ssh.PublicKey) bool {
 	return false
 }
 
-// knownHostAlgorithms lists the host key algorithms already recorded for addr,
+// algorithms lists the host key algorithms already recorded for addr,
 // so the server offers one we can verify instead of whichever it prefers.
 // Without this, a host with only an ed25519 line in known_hosts that answers
 // with its ecdsa key looks like a mismatch, and every such host would prompt.
 //
 // Returning nil leaves the default preference in place, which is right for a
 // host we have never seen.
-func knownHostAlgorithms(addr string) []string {
-	path, err := knownHostsPath()
-	if err != nil {
-		return nil
-	}
-	verify, err := knownhosts.New(path)
+func (k *knownHosts) algorithms(addr string) []string {
+	verify, err := knownhosts.New(k.read...)
 	if err != nil {
 		return nil
 	}
@@ -554,22 +816,39 @@ func probeKey() ssh.PublicKey {
 	return probeKeyValue
 }
 
-// appendKnownHost records a newly accepted key.
-func appendKnownHost(path, hostname string, addr net.Addr, key ssh.PublicKey) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+// record writes a newly accepted key to the user's known_hosts: both the name
+// we asked for and the address it resolved to, which is what ssh does. With
+// HashKnownHosts each name is hashed, on a line of its own as ssh writes them;
+// the user who turned that on did not want host names in the file in the clear.
+func (k *knownHosts) record(hostname string, addr net.Addr, key ssh.PublicKey) error {
+	if k.write == "" {
+		return errors.New("UserKnownHostsFile is none")
+	}
+	if err := os.MkdirAll(filepath.Dir(k.write), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(k.write, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	// Record both the name we asked for and the address it resolved to, which is
-	// what ssh does; knownhosts.Line handles the [host]:port form for us.
-	addrs := []string{knownhosts.Normalize(hostname)}
-	if a := knownhosts.Normalize(addr.String()); a != addrs[0] {
-		addrs = append(addrs, a)
+	names := []string{knownhosts.Normalize(hostname)}
+	if a := knownhosts.Normalize(addr.String()); a != names[0] {
+		names = append(names, a)
 	}
-	if _, err := fmt.Fprintln(f, knownhosts.Line(addrs, key)); err != nil {
-		return err
+	var lines []string
+	if k.hash {
+		for _, n := range names {
+			lines = append(lines, knownhosts.Line([]string{knownhosts.HashHostname(n)}, key))
+		}
+	} else {
+		lines = []string{knownhosts.Line(names, key)}
+	}
+	for _, l := range lines {
+		if _, err := fmt.Fprintln(f, l); err != nil {
+			return err
+		}
 	}
 	return nil
 }

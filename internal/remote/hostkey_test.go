@@ -85,7 +85,7 @@ func writeKnownHosts(t *testing.T, entries map[string]ssh.PublicKey) string {
 func TestKnownHostAlgorithmsPrefersRecordedTypes(t *testing.T) {
 	writeKnownHosts(t, map[string]ssh.PublicKey{"cataclysmic": newEd25519Key(t)})
 
-	got := knownHostAlgorithms("cataclysmic:22")
+	got := knownHostsFor(sshHostConfig{}).algorithms("cataclysmic:22")
 	if !slices.Contains(got, ssh.KeyAlgoED25519) {
 		t.Fatalf("algorithms = %v, want the recorded ed25519", got)
 	}
@@ -99,7 +99,7 @@ func TestKnownHostAlgorithmsPrefersRecordedTypes(t *testing.T) {
 func TestKnownHostAlgorithmsExpandsRSA(t *testing.T) {
 	writeKnownHosts(t, map[string]ssh.PublicKey{"box": newRSAKey(t)})
 
-	got := knownHostAlgorithms("box:22")
+	got := knownHostsFor(sshHostConfig{}).algorithms("box:22")
 	for _, want := range []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("algorithms = %v, missing %s", got, want)
@@ -111,7 +111,7 @@ func TestKnownHostAlgorithmsExpandsRSA(t *testing.T) {
 func TestKnownHostAlgorithmsUnknownHost(t *testing.T) {
 	writeKnownHosts(t, map[string]ssh.PublicKey{"other": newEd25519Key(t)})
 
-	if got := knownHostAlgorithms("cataclysmic:22"); got != nil {
+	if got := knownHostsFor(sshHostConfig{}).algorithms("cataclysmic:22"); got != nil {
 		t.Fatalf("algorithms = %v, want nil for an unknown host", got)
 	}
 }
@@ -127,7 +127,7 @@ func TestKnownHostAlgorithmsMultipleTypes(t *testing.T) {
 	}
 	f.Close()
 
-	got := knownHostAlgorithms("box:22")
+	got := knownHostsFor(sshHostConfig{}).algorithms("box:22")
 	for _, want := range []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("algorithms = %v, missing %s", got, want)
@@ -165,7 +165,7 @@ func TestHostKeyCallbackClassification(t *testing.T) {
 	h := Host{Name: "box"}
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 
-	cb, err := hostKeyCallback(h, nil)
+	cb, err := knownHostsFor(sshHostConfig{}).callback(h, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestHostKeyAcceptRecords(t *testing.T) {
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 	key := newEd25519Key(t)
 
-	accept, err := hostKeyCallback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(key)}})
+	accept, err := knownHostsFor(sshHostConfig{}).callback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(key)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,14 +221,14 @@ func TestHostKeyAcceptRecords(t *testing.T) {
 		t.Fatal("nothing was recorded")
 	}
 
-	verify, err := hostKeyCallback(h, nil)
+	verify, err := knownHostsFor(sshHostConfig{}).callback(h, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := verify("box:22", remoteAddr, key); err != nil {
 		t.Fatalf("the recorded key should now verify: %v", err)
 	}
-	if got := knownHostAlgorithms("box:22"); !slices.Contains(got, ssh.KeyAlgoED25519) {
+	if got := knownHostsFor(sshHostConfig{}).algorithms("box:22"); !slices.Contains(got, ssh.KeyAlgoED25519) {
 		t.Fatalf("algorithms after accepting = %v", got)
 	}
 }
@@ -248,7 +248,7 @@ func TestHostKeyAcceptOnlyTrustsTheKeyShown(t *testing.T) {
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 	shown, swapped := newEd25519Key(t), newEd25519Key(t)
 
-	cb, err := hostKeyCallback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(shown)}})
+	cb, err := knownHostsFor(sshHostConfig{}).callback(h, []HostKey{{Host: h, Fingerprint: ssh.FingerprintSHA256(shown)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestHostKeyTrustIsPerHost(t *testing.T) {
 	key := newEd25519Key(t)
 	remoteAddr := &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 22}
 
-	cb, err := hostKeyCallback(Host{Name: "jump"}, []HostKey{{Host: Host{Name: "box"}, Fingerprint: ssh.FingerprintSHA256(key)}})
+	cb, err := knownHostsFor(sshHostConfig{}).callback(Host{Name: "jump"}, []HostKey{{Host: Host{Name: "box"}, Fingerprint: ssh.FingerprintSHA256(key)}})
 	if err != nil {
 		t.Fatal(err)
 	}
