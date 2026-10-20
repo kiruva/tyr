@@ -76,6 +76,9 @@ from the commit history by GitVersion and tagged by CI; see
   into ssh-agent, instead of being skipped without a word.
 - **Uploading over a file the host already has warns** like a local copy does, from the
   destination pane's listing.
+- **Cleaning an image keeps its rotation when the camera stored it oddly.** Orientation is a
+  short number by the EXIF spec, but some writers store it as a long one; in a big-endian file
+  tyr read that as "no rotation", so a picture kept upright came out sideways.
 
 ### Added
 

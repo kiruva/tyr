@@ -3,6 +3,7 @@ package metastrip
 import (
 	"bytes"
 	"fmt"
+	"slices"
 )
 
 func stripJPEG(b []byte, o Options) (*Result, error) {
@@ -51,13 +52,13 @@ func stripJPEG(b []byte, o Options) (*Result, error) {
 		payload := seg[2:]
 		i += n
 
-		if name, drop := jpegClassify(m, payload, o); drop {
+		if it, group, drop := jpegClassify(m, payload, o); drop {
 			if m == 0xE1 && bytes.HasPrefix(payload, exifHeader) {
 				if v := exifOrientation(payload); v != 0 {
 					r.Orientation = v
 				}
 			}
-			kind, group, data := jpegPayload(m, payload)
+			kind, data := it.Kind, it.Data
 			if group != "" {
 				// Large ICC profiles, extended XMP and C2PA manifests span several
 				// segments: reassemble them into the first one. The pieces are
@@ -74,7 +75,7 @@ func stripJPEG(b []byte, o Options) (*Result, error) {
 					pieces[len(r.Removed)] = [][]byte{data}
 				}
 			}
-			r.add(name, n+2, kind, data)
+			r.add(it.Name, n+2, kind, data)
 		} else {
 			out = append(out, 0xFF, m)
 			out = append(out, seg...)
@@ -104,28 +105,40 @@ func stripJPEG(b []byte, o Options) (*Result, error) {
 		app1 := []byte{0xFF, 0xE1, byte(n >> 8), byte(n)}
 		app1 = append(app1, exifHeader...)
 		app1 = append(app1, tiff...)
-		out = append(out[:2], append(app1, out[2:]...)...)
+		out = slices.Insert(out, 2, app1...)
 	}
 	r.Data = out
 	return r, nil
 }
 
-// jpegClassify decides whether a segment is metadata to drop.
-func jpegClassify(m byte, payload []byte, o Options) (name string, drop bool) {
+// jpegClassify decides whether a segment is metadata to drop and, if it is,
+// what it is called and what of it -i can decode (Size is left to the caller).
+// Segments sharing a non-empty group are parts of one payload.
+func jpegClassify(m byte, payload []byte, o Options) (it Item, group string, drop bool) {
 	switch {
 	case m == 0xFE:
-		return "COM comment", true
-	case m == 0xE2 && bytes.HasPrefix(payload, []byte("ICC_PROFILE\x00")):
-		return "APP2 ICC profile", !o.KeepICC
-	case m == 0xEB && bytes.HasPrefix(payload, []byte("JP")):
-		return "APP11 JUMBF (C2PA)", true
+		return Item{Name: "COM comment", Kind: "comment", Data: payload}, "", true
 	case m == 0xEE && bytes.HasPrefix(payload, []byte("Adobe")):
 		// Carries only the color transform flag, needed to decode CMYK/YCCK correctly.
-		return "", false
+		return Item{}, "", false
+	case m == 0xEB && bytes.HasPrefix(payload, []byte("JP")):
+		it := Item{Name: "APP11 JUMBF (C2PA)"}
+		if len(payload) >= 8 {
+			// "JP", box instance number, packet sequence number, then the JUMBF box.
+			it.Kind, it.Data = "jumbf", payload[8:]
+			group = "jumbf" + string(payload[2:4])
+		}
+		return it, group, true
 	case m >= 0xE0 && m <= 0xEF:
-		return fmt.Sprintf("APP%d %s", m-0xE0, appID(payload)), true
+		it := Item{Name: fmt.Sprintf("APP%d %s", m-0xE0, appID(payload))}
+		drop := true
+		if m == 0xE2 && bytes.HasPrefix(payload, []byte("ICC_PROFILE\x00")) {
+			it.Name, drop = "APP2 ICC profile", !o.KeepICC
+		}
+		it.Kind, group, it.Data = appPayload(payload)
+		return it, group, drop
 	}
-	return "", false
+	return Item{}, "", false
 }
 
 var knownAppIDs = []struct{ prefix, name, kind string }{
@@ -140,16 +153,9 @@ var knownAppIDs = []struct{ prefix, name, kind string }{
 	{"ICC_PROFILE\x00", "ICC profile", "icc"},
 }
 
-// jpegPayload extracts decodable metadata from a dropped segment for -i.
-// Segments sharing a non-empty group are parts of one payload.
-func jpegPayload(m byte, payload []byte) (kind, group string, data []byte) {
-	switch {
-	case m == 0xFE:
-		return "comment", "", payload
-	case m == 0xEB && bytes.HasPrefix(payload, []byte("JP")) && len(payload) >= 8:
-		// "JP", box instance number, packet sequence number, then the JUMBF box.
-		return "jumbf", "jumbf" + string(payload[2:4]), payload[8:]
-	}
+// appPayload picks the decodable part out of an APPn segment by the ID it
+// starts with.
+func appPayload(payload []byte) (kind, group string, data []byte) {
 	for _, k := range knownAppIDs {
 		if k.kind == "" || !bytes.HasPrefix(payload, []byte(k.prefix)) {
 			continue

@@ -10,17 +10,7 @@ import (
 	"github.com/kiruva/tyr/internal/ui"
 )
 
-// The connection modal keeps one size across every stage, so moving between them
-// does not make the box jump around. dialogWidth is the outer box; contentWidth
-// is what is left after the dialog style's horizontal padding, and is what the
-// rows inside must fit into.
-const (
-	dialogWidth  = 58
-	dialogPadX   = 3
-	contentWidth = dialogWidth - 2*dialogPadX
-
-	connNameCol = 12 // width of the name column in the list
-)
+const connNameCol = 12 // width of the name column in the list
 
 // renderConn draws whichever stage of the connection modal is current.
 func (m Model) renderConn() string {

@@ -63,11 +63,11 @@ func samePixels(t *testing.T, a, b []byte) {
 
 func mustStrip(t *testing.T, in []byte, o Options) *Result {
 	t.Helper()
-	r, err := strip(in, o)
+	r, err := Strip(in, o)
 	if err != nil {
 		t.Fatalf("strip: %v", err)
 	}
-	again, err := strip(r.Data, o)
+	again, err := Strip(r.Data, o)
 	if err != nil {
 		t.Fatalf("strip twice: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestJPEGKeep(t *testing.T) {
 	if bytes.Contains(r.Data, []byte(secret+"-GPS")) {
 		t.Error("EXIF payload survived KeepOrientation")
 	}
-	again, _ := strip(r.Data, Options{})
+	again, _ := Strip(r.Data, Options{})
 	if again.Orientation != 6 {
 		t.Errorf("rewritten orientation = %d, want 6", again.Orientation)
 	}
@@ -172,7 +172,7 @@ func TestPNGKeep(t *testing.T) {
 	if !bytes.Contains(r.Data, []byte(secret+"-ICC")) {
 		t.Error("ICC profile dropped despite KeepICC")
 	}
-	again, _ := strip(r.Data, Options{})
+	again, _ := Strip(r.Data, Options{})
 	if again.Orientation != 8 {
 		t.Errorf("rewritten orientation = %d, want 8", again.Orientation)
 	}
@@ -323,8 +323,8 @@ func fccsString(fccs []string) string {
 
 func TestUnsupported(t *testing.T) {
 	for _, in := range [][]byte{nil, []byte("hello"), []byte("II*\x00rest"), []byte("\x00\x00\x00\x18ftypheic")} {
-		if _, err := strip(in, Options{}); err == nil {
-			t.Errorf("strip(%q) succeeded, want error", in)
+		if _, err := Strip(in, Options{}); err == nil {
+			t.Errorf("Strip(%q) succeeded, want error", in)
 		}
 	}
 }
@@ -343,7 +343,7 @@ func FuzzStrip(f *testing.F) {
 	f.Add(append(append(append([]byte{}, c[:33]...), pngChunk("caBX", aiManifest())...), c[33:]...))
 	f.Fuzz(func(t *testing.T, in []byte) {
 		for _, o := range []Options{{}, {KeepICC: true, KeepOrientation: true}} {
-			r, err := strip(in, o)
+			r, err := Strip(in, o)
 			if err != nil {
 				continue
 			}
@@ -352,14 +352,14 @@ func FuzzStrip(f *testing.F) {
 					termsafe.Line(f.Value)
 				}
 			}
-			if detect(r.Data) != detect(in) {
-				t.Fatalf("format changed from %s to %s", detect(in), detect(r.Data))
+			if Detect(r.Data) != Detect(in) {
+				t.Fatalf("format changed from %s to %s", Detect(in), Detect(r.Data))
 			}
 		}
 	})
 }
 
-func fieldMap(fs []field) map[string]string {
+func fieldMap(fs []Field) map[string]string {
 	m := map[string]string{}
 	for _, f := range fs {
 		m[f.Key] = f.Value
@@ -565,4 +565,32 @@ func hexDecode(s string) ([]byte, error) {
 		b[i] = byte(v)
 	}
 	return b, nil
+}
+
+// Orientation is a SHORT by the spec, but writers do store it as a LONG. In a
+// big-endian file the value is then in the last two of the four bytes.
+func TestExifOrientationReadsEveryIntegerType(t *testing.T) {
+	entry := func(order string, typ byte, value []byte) []byte {
+		b := []byte(order)
+		if order == "MM" {
+			b = append(b, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, typ, 0, 0, 0, 1)
+		} else {
+			b = append(b, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, typ, 0, 1, 0, 0, 0)
+		}
+		return append(append(b, value...), 0, 0, 0, 0)
+	}
+	cases := []struct {
+		name string
+		tiff []byte
+	}{
+		{"big-endian SHORT", entry("MM", 3, []byte{0, 6, 0, 0})},
+		{"big-endian LONG", entry("MM", 4, []byte{0, 0, 0, 6})},
+		{"little-endian SHORT", entry("II", 3, []byte{6, 0, 0, 0})},
+		{"little-endian LONG", entry("II", 4, []byte{6, 0, 0, 0})},
+	}
+	for _, c := range cases {
+		if got := exifOrientation(c.tiff); got != 6 {
+			t.Errorf("%s: orientation = %d, want 6", c.name, got)
+		}
+	}
 }

@@ -73,6 +73,16 @@ func CanBeEncrypted(name string) bool {
 // asks for one rather than reporting the tool's own wording.
 var ErrNeedPassword = errors.New("archive is password protected")
 
+// tarArgs is the argument list for one tar run on a format: the verb ("-x",
+// "-t", "-c"), the compression flag the format needs, then the rest.
+func tarArgs(verb string, f format, rest ...string) []string {
+	a := []string{verb}
+	if c := tarComp(f); c != "" {
+		a = append(a, c)
+	}
+	return append(a, rest...)
+}
+
 // tarComp maps a tar format to its compression flag (empty for plain tar).
 func tarComp(f format) string {
 	switch f {
@@ -162,12 +172,7 @@ func extractCommand(f format, arc, dest, password string) (toolCmd, func(string)
 	arc = argPath(arc)
 	switch {
 	case isTar(f):
-		a := []string{"-x"}
-		if c := tarComp(f); c != "" {
-			a = append(a, c)
-		}
-		a = append(a, "-v", "-f", arc, "-C", dest)
-		return toolCmd{bin: "tar", args: a}, parseTarLine
+		return toolCmd{bin: "tar", args: tarArgs("-x", f, "-v", "-f", arc, "-C", dest)}, parseTarLine
 	case f == fmtZip:
 		// unzip reports progress per file, so it handles a plain zip; 7-Zip takes
 		// over for encrypted entries (unzip cannot read AES), wherever unzip is
@@ -242,12 +247,7 @@ func countArchiveEntries(ctx context.Context, arc string) int {
 	f := detectFormat(arc)
 	switch {
 	case isTar(f):
-		a := []string{"-t"}
-		if c := tarComp(f); c != "" {
-			a = append(a, c)
-		}
-		a = append(a, "-f", arc)
-		return countLines(exec.CommandContext(ctx, "tar", a...))
+		return countLines(exec.CommandContext(ctx, "tar", tarArgs("-t", f, "-f", arc)...))
 	case f == fmtZip:
 		// Entry names stay readable in an encrypted zip, so the bar is exact
 		// even when the contents need a password.
@@ -290,18 +290,6 @@ type toolRunner interface {
 
 // execTools is the real thing: it starts child processes.
 type execTools struct{}
-
-// runStreamingIn runs a command in dir, optionally feeding it stdin (a password
-// prompt, which is how 7z takes one without it landing in the process table).
-func runStreamingIn(ctx context.Context, dir, stdin, bin string, args []string, r *reporter, parse func(string) string) error {
-	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, dir: dir, stdin: stdin}, r, parse)
-}
-
-// runInto runs a command whose stdout is the archive itself, so only stderr
-// carries progress.
-func runInto(ctx context.Context, bin string, args []string, out io.Writer, r *reporter, parse func(string) string) error {
-	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, stdout: out}, r, parse)
-}
 
 // toolCmd is one child process in a pack/unpack pipeline.
 type toolCmd struct {
@@ -437,10 +425,20 @@ func (p *progressPipe) finish(bin string, waitErr error) error {
 		return ErrNeedPassword
 	}
 	if msg := lastMeaningful(lines); msg != "" {
-		return fmt.Errorf("%s failed: %s", bin, msg)
+		return &toolError{msg: fmt.Sprintf("%s failed: %s", bin, msg), err: waitErr}
 	}
 	return fmt.Errorf("%s failed: %w", bin, waitErr)
 }
+
+// toolError is a tool's failure told in its own last words, with the exit
+// error still underneath for errors.Is and errors.As.
+type toolError struct {
+	msg string
+	err error
+}
+
+func (e *toolError) Error() string { return e.msg }
+func (e *toolError) Unwrap() error { return e.err }
 
 // scan drains the pipe until every writer is gone, stepping the progress bar
 // and keeping the tail of what was not progress for finish. A progress line

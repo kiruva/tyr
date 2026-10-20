@@ -237,24 +237,13 @@ func (m Model) onFindDone(msg findDoneMsg) (tea.Model, tea.Cmd) {
 
 // onFindResultsKey drives the hit list.
 func (m Model) onFindResultsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	last := len(m.find.results) - 1
-
+	if moveCursor(&m.find.cursor, msg.String(), len(m.find.results)-1, findRows) {
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.closeFind()
 		return m, nil
-	case "up", "k":
-		m.find.cursor = max(m.find.cursor-1, 0)
-	case "down", "j":
-		m.find.cursor = min(m.find.cursor+1, last)
-	case "pgup", "ctrl+u":
-		m.find.cursor = max(m.find.cursor-findRows, 0)
-	case "pgdown", "ctrl+d":
-		m.find.cursor = min(m.find.cursor+findRows, last)
-	case "home", "g":
-		m.find.cursor = 0
-	case "end", "G":
-		m.find.cursor = last
 	case "/", "ctrl+f":
 		// Back to the form with the query intact, to narrow it.
 		m.find.stage = findStageForm

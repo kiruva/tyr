@@ -65,35 +65,35 @@ func jumb(data []byte) (label string, kids []box) {
 	return label, boxes[1:]
 }
 
-func describeJUMBF(b []byte) []field {
-	var out []field
+func describeJUMBF(b []byte) []Field {
+	var out []Field
 	for _, top := range readBoxes(b) {
 		if top.typ != "jumb" {
 			continue
 		}
 		label, kids := jumb(top.data)
 		if label != "c2pa" {
-			out = append(out, field{"JUMBFLabel", label})
+			out = append(out, Field{"JUMBFLabel", label})
 			continue
 		}
-		out = append(out, field{"", "C2PA Content Credentials manifest store (signature not verified)"})
+		out = append(out, Field{"", "C2PA Content Credentials manifest store (signature not verified)"})
 		for _, k := range kids {
 			if k.typ != "jumb" {
 				continue
 			}
 			ml, mkids := jumb(k.data)
-			out = append(out, field{"Manifest", ml})
+			out = append(out, Field{"Manifest", ml})
 			out = append(out, describeManifest(mkids)...)
 		}
 	}
 	if len(out) == 0 {
-		return []field{{"", fmt.Sprintf("<%d bytes, unreadable JUMBF>", len(b))}}
+		return []Field{{"", fmt.Sprintf("<%d bytes, unreadable JUMBF>", len(b))}}
 	}
 	return out
 }
 
-func describeManifest(kids []box) []field {
-	var out []field
+func describeManifest(kids []box) []Field {
+	var out []Field
 	for _, k := range kids {
 		if k.typ != "jumb" {
 			continue
@@ -112,7 +112,7 @@ func describeManifest(kids []box) []field {
 		case label == "c2pa.signature":
 			out = append(out, describeSignature(contentValue(content))...)
 		default:
-			out = append(out, field{"Box", label})
+			out = append(out, Field{"Box", label})
 		}
 	}
 	return out
@@ -136,7 +136,7 @@ func contentValue(boxes []box) any {
 	return nil
 }
 
-func describeAssertion(label string, content []box) []field {
+func describeAssertion(label string, content []box) []Field {
 	switch {
 	case strings.HasPrefix(label, "c2pa.thumbnail"):
 		size, format := 0, ""
@@ -151,45 +151,45 @@ func describeAssertion(label string, content []box) []field {
 				}
 			}
 		}
-		return []field{{"Thumbnail", fmt.Sprintf("<%d bytes, %s> (%s)", size, format, label)}}
+		return []Field{{"Thumbnail", fmt.Sprintf("<%d bytes, %s> (%s)", size, format, label)}}
 	case strings.HasPrefix(label, "c2pa.hash"):
-		return []field{{"Assertion", label + " (binds manifest to the file bytes)"}}
+		return []Field{{"Assertion", label + " (binds manifest to the file bytes)"}}
 	}
 
 	v := contentValue(content)
 	switch {
 	case strings.HasPrefix(label, "c2pa.actions"):
-		var out []field
+		var out []Field
 		acts, _ := get(v, "actions").([]any)
 		for _, a := range acts {
-			out = append(out, field{"Action", str(get(a, "action"))})
+			out = append(out, Field{"Action", str(get(a, "action"))})
 			if sa := get(a, "softwareAgent"); sa != nil {
 				if name := str(get(sa, "name")); name != "" {
 					sa = strings.TrimSpace(name + " " + str(get(sa, "version")))
 				}
-				out = append(out, field{"SoftwareAgent", render(sa)})
+				out = append(out, Field{"SoftwareAgent", render(sa)})
 			}
 			if dst := str(get(a, "digitalSourceType")); dst != "" {
-				out = append(out, field{"DigitalSourceType", dst})
+				out = append(out, Field{"DigitalSourceType", dst})
 			}
 			if when := str(get(a, "when")); when != "" {
-				out = append(out, field{"When", when})
+				out = append(out, Field{"When", when})
 			}
 		}
 		if len(out) > 0 {
 			return out
 		}
 	case strings.HasPrefix(label, "c2pa.soft-binding"):
-		return []field{{"SoftBinding", render(get(v, "alg"))}}
+		return []Field{{"SoftBinding", render(get(v, "alg"))}}
 	case strings.HasPrefix(label, "c2pa.ingredient"):
-		return []field{{"Ingredient", fmt.Sprintf("%s (%s, %s)",
+		return []Field{{"Ingredient", fmt.Sprintf("%s (%s, %s)",
 			str(get(v, "dc:title")), str(get(v, "dc:format")), str(get(v, "relationship")))}}
 	}
-	return []field{{label, render(v)}}
+	return []Field{{label, render(v)}}
 }
 
-func describeClaim(v any) []field {
-	var out []field
+func describeClaim(v any) []Field {
+	var out []Field
 	gen := str(get(v, "claim_generator"))
 	info := get(v, "claim_generator_info")
 	if arr, ok := info.([]any); ok && len(arr) > 0 {
@@ -198,7 +198,7 @@ func describeClaim(v any) []field {
 	if name := str(get(info, "name")); name != "" {
 		gen = strings.TrimSpace(name + " " + str(get(info, "version")))
 	}
-	for _, f := range []field{
+	for _, f := range []Field{
 		{"ClaimGenerator", gen},
 		{"Title", str(get(v, "dc:title"))},
 		{"Format", str(get(v, "dc:format"))},
@@ -212,13 +212,13 @@ func describeClaim(v any) []field {
 }
 
 // describeSignature reads the signer certificate from a COSE_Sign1 structure.
-func describeSignature(v any) []field {
+func describeSignature(v any) []Field {
 	if t, ok := v.(cborTag); ok {
 		v = t.Val
 	}
 	arr, ok := v.([]any)
 	if !ok || len(arr) < 2 {
-		return []field{{"Signature", "<unreadable>"}}
+		return []Field{{"Signature", "<unreadable>"}}
 	}
 	var headers []any
 	if p, ok := arr[0].([]byte); ok {
@@ -241,15 +241,15 @@ func describeSignature(v any) []field {
 		}
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
-			return []field{{"Signer", "<unparseable certificate>"}}
+			return []Field{{"Signer", "<unparseable certificate>"}}
 		}
-		return []field{
+		return []Field{
 			{"Signer", cert.Subject.String()},
 			{"SignerIssuer", cert.Issuer.String()},
 			{"SignerValidity", cert.NotBefore.Format("2006-01-02") + " to " + cert.NotAfter.Format("2006-01-02")},
 		}
 	}
-	return []field{{"Signature", "present, no certificate found"}}
+	return []Field{{"Signature", "present, no certificate found"}}
 }
 
 // get looks up a key in a decoded CBOR or JSON map.

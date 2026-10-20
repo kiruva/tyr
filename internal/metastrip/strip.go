@@ -31,11 +31,16 @@ func (r *Result) add(name string, size int, kind string, data []byte) {
 	r.Removed = append(r.Removed, Item{name, size, kind, data})
 }
 
-var errUnsupported = errors.New("unsupported format")
+// ErrUnsupported is returned by Strip for anything that is not one of the four
+// formats it handles. A format it recognises but does not handle (HEIC, TIFF)
+// is named in the wrapping error.
+var ErrUnsupported = errors.New("unsupported format")
 
 var pngSig = []byte("\x89PNG\r\n\x1a\n")
 
-func detect(b []byte) string {
+// Detect names the image format of b — "jpeg", "png", "gif" or "webp" — or
+// returns "" when b is none of them.
+func Detect(b []byte) string {
 	switch {
 	case bytes.HasPrefix(b, []byte{0xFF, 0xD8, 0xFF}):
 		return "jpeg"
@@ -49,8 +54,9 @@ func detect(b []byte) string {
 	return ""
 }
 
-// describeUnsupported names common formats we recognise but don't handle.
-func describeUnsupported(b []byte) string {
+// Unsupported names a common image format Strip recognises but cannot handle,
+// such as "HEIC/AVIF", or returns "".
+func Unsupported(b []byte) string {
 	switch {
 	case bytes.HasPrefix(b, []byte("II*\x00")), bytes.HasPrefix(b, []byte("MM\x00*")):
 		return "TIFF/RAW"
@@ -60,9 +66,11 @@ func describeUnsupported(b []byte) string {
 	return ""
 }
 
-// strip removes all metadata from b without re-encoding image data.
-func strip(b []byte, o Options) (*Result, error) {
-	switch detect(b) {
+// Strip removes every piece of metadata from b that o does not keep, without
+// re-encoding image data. The input is not modified; Result.Data is the
+// cleaned image.
+func Strip(b []byte, o Options) (*Result, error) {
+	switch Detect(b) {
 	case "jpeg":
 		return stripJPEG(b, o)
 	case "png":
@@ -72,8 +80,8 @@ func strip(b []byte, o Options) (*Result, error) {
 	case "webp":
 		return stripWebP(b, o)
 	}
-	if kind := describeUnsupported(b); kind != "" {
-		return nil, fmt.Errorf("%w (%s)", errUnsupported, kind)
+	if kind := Unsupported(b); kind != "" {
+		return nil, fmt.Errorf("%w (%s)", ErrUnsupported, kind)
 	}
-	return nil, errUnsupported
+	return nil, ErrUnsupported
 }

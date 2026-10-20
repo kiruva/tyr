@@ -3,11 +3,10 @@ package fileops
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // A copy or a move that lands on a name already in use is the one moment a
@@ -153,6 +152,33 @@ func (rv *resolver) resolveWith(src, dst string, dstInfo Meta) (ConflictAction, 
 	}
 }
 
+// claim settles what to write to when the job wants dst: dst itself when
+// nothing is there, a free name beside it for "keep both", dst again with
+// replacing set for "overwrite", and "" for a skip. Clearing whatever is in
+// the way of an overwrite is the caller's business — a copy, a move and a
+// rewrite of one file each need something different there.
+func (rv *resolver) claim(src, dst string) (target string, replacing bool, err error) {
+	if !fsutil.Exists(dst) {
+		return dst, false, nil
+	}
+	action, err := rv.resolve(src, dst)
+	if err != nil {
+		return "", false, err
+	}
+	switch action {
+	case ConflictSkip:
+		return "", false, nil
+	case ConflictKeepBoth:
+		free, err := fsutil.FreeName(dst)
+		if err != nil {
+			return "", false, err
+		}
+		return free, false, nil
+	default:
+		return dst, true, nil
+	}
+}
+
 // metaOf describes a path, reporting Missing rather than an error: a conflict
 // dialog that cannot stat one side still has something true to show.
 func metaOf(path string) Meta {
@@ -161,24 +187,4 @@ func metaOf(path string) Meta {
 		return Meta{Missing: true}
 	}
 	return Meta{Size: info.Size(), ModTime: info.ModTime(), IsDir: info.IsDir()}
-}
-
-// freeName finds an unused name beside path: "notes.txt" becomes "notes (2).txt",
-// then "notes (3).txt", and so on. The suffix goes before the extension so the
-// file still opens in the same program.
-func freeName(path string) (string, error) {
-	dir, base := filepath.Dir(path), filepath.Base(path)
-	ext := filepath.Ext(base)
-	if strings.HasPrefix(base, ".") && ext == base {
-		ext = "" // a dotfile is all "extension"; treat the whole thing as a stem
-	}
-	stem := strings.TrimSuffix(base, ext)
-
-	for n := 2; n < 10000; n++ {
-		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
-		if !exists(candidate) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("no free name beside %s", base)
 }

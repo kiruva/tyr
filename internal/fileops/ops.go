@@ -588,29 +588,19 @@ func (rn *runner) copyEntry(src, dst string, track bool) (string, error) {
 	}
 
 	merging := info.IsDir() && isDir(dst)
-	fresh := !exists(dst)
-	if !fresh && !merging {
-		action, err := rn.rv.resolve(src, dst)
-		if err != nil {
+	fresh := false
+	if !merging {
+		target, replacing, err := rn.rv.claim(src, dst)
+		if err != nil || target == "" {
 			return "", err
 		}
-		switch action {
-		case ConflictSkip:
-			return "", nil
-		case ConflictKeepBoth:
-			free, err := freeName(dst)
-			if err != nil {
+		dst, fresh = target, !replacing
+		// A file over a file is replaced by the rename that finishes the
+		// copy, so a failure or a cancellation part-way keeps the old one.
+		// Anything else has to be cleared out of the way first.
+		if replacing && (!info.Mode().IsRegular() || isDir(dst)) {
+			if err := os.RemoveAll(dst); err != nil {
 				return "", err
-			}
-			dst, fresh = free, true
-		case ConflictOverwrite:
-			// A file over a file is replaced by the rename that finishes the
-			// copy, so a failure or a cancellation part-way keeps the old one.
-			// Anything else has to be cleared out of the way first.
-			if !info.Mode().IsRegular() || isDir(dst) {
-				if err := os.RemoveAll(dst); err != nil {
-					return "", err
-				}
 			}
 		}
 	}
@@ -768,42 +758,31 @@ func (rn *runner) movePath(src, dst string) (string, error) {
 		return "", fmt.Errorf("%s: %w", filepath.Base(src), ErrSameFile)
 	}
 
-	if exists(dst) {
-		if info.IsDir() && isDir(dst) {
-			// Each entry records its own move: undoing this must take back
-			// what arrived in dst, not dst itself with what was already there.
-			entries, err := os.ReadDir(src)
-			if err != nil {
-				return "", err
-			}
-			for _, e := range entries {
-				if _, err := rn.movePath(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
-					return "", err
-				}
-			}
-			// Whatever was skipped is still in there, so this only succeeds when
-			// the source really is empty now.
-			_ = os.Remove(src)
-			return dst, nil
-		}
-
-		action, err := rn.rv.resolve(src, dst)
+	if info.IsDir() && isDir(dst) {
+		// Each entry records its own move: undoing this must take back
+		// what arrived in dst, not dst itself with what was already there.
+		entries, err := os.ReadDir(src)
 		if err != nil {
 			return "", err
 		}
-		switch action {
-		case ConflictSkip:
-			return "", nil
-		case ConflictKeepBoth:
-			free, err := freeName(dst)
-			if err != nil {
+		for _, e := range entries {
+			if _, err := rn.movePath(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
 				return "", err
 			}
-			dst = free
-		case ConflictOverwrite:
-			if err := os.RemoveAll(dst); err != nil {
-				return "", err
-			}
+		}
+		// Whatever was skipped is still in there, so this only succeeds when
+		// the source really is empty now.
+		_ = os.Remove(src)
+		return dst, nil
+	}
+
+	dst, replacing, err := rn.rv.claim(src, dst)
+	if err != nil || dst == "" {
+		return "", err
+	}
+	if replacing {
+		if err := os.RemoveAll(dst); err != nil {
+			return "", err
 		}
 	}
 

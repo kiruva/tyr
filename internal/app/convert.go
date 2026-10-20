@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -296,6 +295,9 @@ func (m *Model) closeConvert() {
 // renderConvert lays the dialog out on the same grid as the pack dialog.
 func (m Model) renderConvert() string {
 	s := m.convert
+	row := func(f convertField, label, value, note string) string {
+		return formRow(s.focus == f, label, value, note)
+	}
 	n := len(s.srcs)
 	lines := []string{ui.DialogTitle.Render(fmt.Sprintf("Convert %d %s", n, items(n)))}
 
@@ -309,8 +311,8 @@ func (m Model) renderConvert() string {
 			quality = "  " + ui.PadRight(i.Qualities[0].Label, packValueW-2)
 		}
 		lines = append(lines, "", ui.Faint.Render("Audio"),
-			m.convertRow(convertFieldFormat, "Format", packChoice(i.Label), i.Encoder),
-			m.convertRow(convertFieldQuality, "Quality", quality, ""),
+			row(convertFieldFormat, "Format", packChoice(i.Label), i.Encoder),
+			row(convertFieldQuality, "Quality", quality, ""),
 		)
 		if i.Experimental {
 			lines = append(lines, ui.Danger.Render(ui.TruncTail(
@@ -322,8 +324,8 @@ func (m Model) renderConvert() string {
 	}
 	if s.images {
 		lines = append(lines, "", ui.Faint.Render("Images · clean copy, metadata removed"),
-			m.convertRow(convertFieldOrient, "Rotation", packChoice(keepLabel(s.keepOrient)), "EXIF orientation"),
-			m.convertRow(convertFieldICC, "Colour", packChoice(keepLabel(s.keepICC)), "ICC profile"),
+			row(convertFieldOrient, "Rotation", packChoice(keepLabel(s.keepOrient)), "EXIF orientation"),
+			row(convertFieldICC, "Colour", packChoice(keepLabel(s.keepICC)), "ICC profile"),
 		)
 	}
 
@@ -347,19 +349,6 @@ func keepLabel(keep bool) string {
 		return "keep"
 	}
 	return "remove"
-}
-
-func (m Model) convertRow(f convertField, label, value, note string) string {
-	name := "  " + ui.PadRight(label, packLabelW-2)
-	if m.convert.focus == f {
-		name = ui.Cursor.Render(ui.PadRight("▸ "+label, packLabelW))
-	}
-	row := name + value
-	if note == "" {
-		return row
-	}
-	gap := max(contentWidth-lipgloss.Width(row)-lipgloss.Width(note), 1)
-	return row + strings.Repeat(" ", gap) + ui.Faint.Render(note)
 }
 
 // convertExample shows what the first file will be called, which is the whole

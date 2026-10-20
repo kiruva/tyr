@@ -368,7 +368,7 @@ func (m *Model) SetView(sort SortMode, showHidden bool) {
 	m.reload()
 }
 
-// SortMode returns the active sort mode (for display).
+// SortModeLabel names the active sort mode (for display).
 func (m *Model) SortModeLabel() string { return m.sort.String() }
 
 // HiddenShown reports whether dotfiles are visible.

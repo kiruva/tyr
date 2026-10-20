@@ -15,12 +15,9 @@ import (
 	"unicode/utf8"
 )
 
-// field is one decoded metadata value. An empty Key marks a free-form note.
-type field struct{ Key, Value string }
-
 // describe decodes an item's payload into human-readable fields for -i,
 // spending from bud what decompression it needs.
-func describe(it Item, bud *budget) []field {
+func describe(it Item, bud *budget) []Field {
 	switch it.Kind {
 	case "exif":
 		return parseEXIF(it.Data)
@@ -33,34 +30,34 @@ func describe(it Item, bud *budget) []field {
 	case "icc":
 		return parseICC(it.Data)
 	case "comment":
-		return []field{{"Comment", clip(it.Data, latin1OrUTF8)}}
+		return []Field{{"Comment", clip(it.Data, latin1OrUTF8)}}
 	case "jfif":
 		return parseJFIF(it.Data)
 	case "trailer":
-		return []field{{"", describeTrailer(it.Data)}}
+		return []Field{{"", describeTrailer(it.Data)}}
 	case "cont":
-		return []field{{"", "continuation, decoded with the first part above"}}
+		return []Field{{"", "continuation, decoded with the first part above"}}
 	case "png:tEXt", "png:zTXt", "png:iTXt":
 		return parsePNGText(it.Kind[4:], it.Data, bud)
 	case "png:tIME":
 		if d := it.Data; len(d) == 7 {
-			return []field{{"ModifyDate", fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d UTC",
+			return []Field{{"ModifyDate", fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d UTC",
 				binary.BigEndian.Uint16(d), d[2], d[3], d[4], d[5], d[6])}}
 		}
 	case "png:pHYs":
 		if d := it.Data; len(d) == 9 {
 			x, y := binary.BigEndian.Uint32(d), binary.BigEndian.Uint32(d[4:])
 			if d[8] == 1 {
-				return []field{{"Resolution", fmt.Sprintf("%.0f x %.0f dpi", float64(x)*0.0254, float64(y)*0.0254)}}
+				return []Field{{"Resolution", fmt.Sprintf("%.0f x %.0f dpi", float64(x)*0.0254, float64(y)*0.0254)}}
 			}
-			return []field{{"PixelAspect", fmt.Sprintf("%d:%d", x, y)}}
+			return []Field{{"PixelAspect", fmt.Sprintf("%d:%d", x, y)}}
 		}
 	case "png:iCCP":
 		name, rest, ok := bytes.Cut(it.Data, []byte{0})
 		if !ok || len(rest) < 1 {
 			break
 		}
-		f := []field{{"ProfileName", clip(name, latin1)}}
+		f := []Field{{"ProfileName", clip(name, latin1)}}
 		if prof, err := inflate(rest[1:], bud); err == nil {
 			f = append(f, parseICC(prof)...)
 		}
@@ -114,22 +111,16 @@ var interopTags = map[uint16]string{1: "InteropIndex", 2: "InteropVersion"}
 var orientationNames = [...]string{"", "normal", "mirror horizontal", "rotate 180", "mirror vertical",
 	"mirror horizontal, rotate 270 CW", "rotate 90 CW", "mirror horizontal, rotate 90 CW", "rotate 270 CW"}
 
-func parseEXIF(b []byte) []field {
-	b = bytes.TrimPrefix(b, exifHeader)
-	if len(b) < 8 {
-		return []field{{"", "invalid EXIF"}}
-	}
-	var bo binary.ByteOrder
-	switch string(b[:2]) {
-	case "II":
-		bo = binary.LittleEndian
-	case "MM":
-		bo = binary.BigEndian
-	default:
-		return []field{{"", "invalid EXIF byte order"}}
+func parseEXIF(b []byte) []Field {
+	b, bo := tiffHeader(b)
+	switch {
+	case len(b) < 8:
+		return []Field{{"", "invalid EXIF"}}
+	case bo == nil:
+		return []Field{{"", "invalid EXIF byte order"}}
 	}
 
-	var out []field
+	var out []Field
 	seen := map[int]bool{}
 	var lat, lon float64
 	var latRef, lonRef string
@@ -164,7 +155,7 @@ func parseEXIF(b []byte) []field {
 			} else {
 				v, ok := span(b, uint64(bo.Uint32(b[e+8:])), size)
 				if !ok {
-					out = append(out, field{name, "<invalid offset>"})
+					out = append(out, Field{name, "<invalid offset>"})
 					continue
 				}
 				val = v
@@ -198,7 +189,7 @@ func parseEXIF(b []byte) []field {
 					lon, haveLon = dms(bo, typ, val)
 				}
 			}
-			out = append(out, field{name, v})
+			out = append(out, Field{name, v})
 		}
 		if ifd == "IFD0" {
 			if e := off + 2 + 12*n; e+4 <= len(b) {
@@ -215,7 +206,7 @@ func parseEXIF(b []byte) []field {
 		if lonRef == "W" {
 			lon = -lon
 		}
-		out = append(out, field{"GPSPosition", fmt.Sprintf("%.6f, %.6f", lat, lon)})
+		out = append(out, Field{"GPSPosition", fmt.Sprintf("%.6f, %.6f", lat, lon)})
 	}
 	return out
 }
@@ -360,7 +351,7 @@ func decodeUTF16(b []byte, bo binary.ByteOrder) string {
 
 const rdfNS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
-func parseXMP(b []byte) []field {
+func parseXMP(b []byte) []Field {
 	d := xml.NewDecoder(bytes.NewReader(b))
 	d.Strict = false
 	prefixes := map[string]string{"http://www.w3.org/XML/1998/namespace": "xml"}
@@ -370,7 +361,7 @@ func parseXMP(b []byte) []field {
 		}
 		return n.Local
 	}
-	var out []field
+	var out []Field
 	var path []string // property path, "" for rdf and wrapper elements
 	// Below maxXMPDepth an element still counts towards the nesting, so its
 	// end tag is matched, but nothing inside it is reported: real XMP is a
@@ -403,7 +394,7 @@ func parseXMP(b []byte) []field {
 					a.Name.Space == "http://www.w3.org/XML/1998/namespace" {
 					continue
 				}
-				out = append(out, field{joinPath(path, qname(a.Name)), clipString(a.Value, maxValueBytes)})
+				out = append(out, Field{joinPath(path, qname(a.Name)), clipString(a.Value, maxValueBytes)})
 			}
 		case xml.EndElement:
 			if len(path) > 0 {
@@ -412,13 +403,13 @@ func parseXMP(b []byte) []field {
 		case xml.CharData:
 			if len(path) > 0 && shallow() {
 				if s := strings.TrimSpace(clip(t, func(v []byte) string { return string(v) })); s != "" {
-					out = append(out, field{joinPath(path, ""), s})
+					out = append(out, Field{joinPath(path, ""), s})
 				}
 			}
 		}
 	}
 	if len(out) == 0 && len(b) > 0 {
-		return []field{{"", fmt.Sprintf("<%d bytes, no readable properties>", len(b))}}
+		return []Field{{"", fmt.Sprintf("<%d bytes, no readable properties>", len(b))}}
 	}
 	return out
 }
@@ -449,8 +440,8 @@ var iptcNames = map[int]string{
 	0x0274: "CopyrightNotice", 0x0276: "Contact", 0x0278: "Caption-Abstract", 0x027A: "Writer-Editor",
 }
 
-func parsePhotoshop(b []byte) []field {
-	var out []field
+func parsePhotoshop(b []byte) []Field {
+	var out []Field
 	for i := 0; i+12 <= len(b) && string(b[i:i+4]) == "8BIM" && len(out) < maxItemFields; {
 		id := binary.BigEndian.Uint16(b[i+4:])
 		nl := int(b[i+6])
@@ -468,18 +459,18 @@ func parsePhotoshop(b []byte) []field {
 		case 0x0404:
 			out = append(out, parseIPTC(data)...)
 		case 0x0409, 0x040C:
-			out = append(out, field{"PhotoshopThumbnail", fmt.Sprintf("<%d bytes, embedded JPEG>", sz)})
+			out = append(out, Field{"PhotoshopThumbnail", fmt.Sprintf("<%d bytes, embedded JPEG>", sz)})
 		case 0x0425:
 			// MD5 of the IPTC block, carries no information of its own.
 		default:
-			out = append(out, field{fmt.Sprintf("PhotoshopResource:0x%04X", id), bytesValue(data)})
+			out = append(out, Field{fmt.Sprintf("PhotoshopResource:0x%04X", id), bytesValue(data)})
 		}
 	}
 	return out
 }
 
-func parseIPTC(b []byte) []field {
-	var out []field
+func parseIPTC(b []byte) []Field {
+	var out []Field
 	for i := 0; i+5 <= len(b) && b[i] == 0x1C && len(out) < maxItemFields; {
 		rec, ds := int(b[i+1]), int(b[i+2])
 		n := int(binary.BigEndian.Uint16(b[i+3:]))
@@ -500,25 +491,25 @@ func parseIPTC(b []byte) []field {
 		case rec == 1 && ds == 90:
 			v = fmt.Sprintf("% x", data)
 		}
-		out = append(out, field{name, v})
+		out = append(out, Field{name, v})
 	}
 	return out
 }
 
 // ---- ICC ----
 
-func parseICC(b []byte) []field {
+func parseICC(b []byte) []Field {
 	if len(b) < 132 {
-		return []field{{"", fmt.Sprintf("truncated ICC profile (%d bytes)", len(b))}}
+		return []Field{{"", fmt.Sprintf("truncated ICC profile (%d bytes)", len(b))}}
 	}
 	be := binary.BigEndian
-	out := []field{
+	out := []Field{
 		{"ProfileClass", sig(b[12:16])},
 		{"ColorSpace", sig(b[16:20])},
 		{"ProfileVersion", fmt.Sprintf("%d.%d", b[8], b[9]>>4)},
 	}
 	if y := be.Uint16(b[24:]); y != 0 {
-		out = append(out, field{"ProfileDate", fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+		out = append(out, Field{"ProfileDate", fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d",
 			y, be.Uint16(b[26:]), be.Uint16(b[28:]), be.Uint16(b[30:]), be.Uint16(b[32:]), be.Uint16(b[34:]))})
 	}
 	for _, h := range []struct {
@@ -526,7 +517,7 @@ func parseICC(b []byte) []field {
 		off  int
 	}{{"ProfileCMM", 4}, {"DeviceManufacturer", 48}, {"DeviceModel", 52}, {"ProfileCreator", 80}} {
 		if s := sig(b[h.off : h.off+4]); s != "" {
-			out = append(out, field{h.name, s})
+			out = append(out, Field{h.name, s})
 		}
 	}
 	tagNames := map[string]string{"desc": "ProfileDescription", "cprt": "ProfileCopyright",
@@ -543,7 +534,7 @@ func parseICC(b []byte) []field {
 			continue
 		}
 		if s := iccText(tag); s != "" {
-			out = append(out, field{name, s})
+			out = append(out, Field{name, s})
 		}
 	}
 	return out
@@ -585,23 +576,23 @@ func sig(b []byte) string {
 
 // ---- JFIF, PNG text, trailers ----
 
-func parseJFIF(d []byte) []field {
+func parseJFIF(d []byte) []Field {
 	if len(d) < 9 {
 		return nil
 	}
 	x, y := binary.BigEndian.Uint16(d[3:]), binary.BigEndian.Uint16(d[5:])
 	units := [...]string{" (aspect ratio)", " dpi", " dots/cm"}[min(int(d[2]), 2)]
-	out := []field{
+	out := []Field{
 		{"JFIFVersion", fmt.Sprintf("%d.%02d", d[0], d[1])},
 		{"Resolution", fmt.Sprintf("%d x %d%s", x, y, units)},
 	}
 	if d[7] > 0 && d[8] > 0 {
-		out = append(out, field{"Thumbnail", fmt.Sprintf("%dx%d", d[7], d[8])})
+		out = append(out, Field{"Thumbnail", fmt.Sprintf("%dx%d", d[7], d[8])})
 	}
 	return out
 }
 
-func parsePNGText(typ string, d []byte, bud *budget) []field {
+func parsePNGText(typ string, d []byte, bud *budget) []Field {
 	key, rest, ok := bytes.Cut(d, []byte{0})
 	if !ok {
 		return nil
@@ -618,7 +609,7 @@ func parsePNGText(typ string, d []byte, bud *budget) []field {
 		}
 		t, err := inflate(rest[1:], bud)
 		if err != nil {
-			return []field{{k, inflateNote(err)}}
+			return []Field{{k, inflateNote(err)}}
 		}
 		text = t
 	case "iTXt":
@@ -634,16 +625,16 @@ func parsePNGText(typ string, d []byte, bud *budget) []field {
 		if compressed {
 			t, err := inflate(text, bud)
 			if err != nil {
-				return []field{{k, inflateNote(err)}}
+				return []Field{{k, inflateNote(err)}}
 			}
 			text = t
 		}
 		if k == "XML:com.adobe.xmp" {
 			return parseXMP(text)
 		}
-		return []field{{k, clip(text, func(v []byte) string { return string(v) })}}
+		return []Field{{k, clip(text, func(v []byte) string { return string(v) })}}
 	}
-	return []field{{k, clip(text, latin1)}}
+	return []Field{{k, clip(text, latin1)}}
 }
 
 func inflateNote(err error) string {

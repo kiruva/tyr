@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/kiruva/tyr/internal/fsutil"
 )
 
 // Creating a name is not a Job: it touches one inode, finishes instantly, and
@@ -12,7 +14,7 @@ import (
 
 // CreateDir makes a directory, including any missing parents.
 func CreateDir(path string) error {
-	if exists(path) {
+	if fsutil.Exists(path) {
 		return alreadyExists(path)
 	}
 	return os.MkdirAll(path, 0o755)
@@ -20,7 +22,7 @@ func CreateDir(path string) error {
 
 // CreateFile makes an empty file, creating any missing parent directories.
 func CreateFile(path string) error {
-	if exists(path) {
+	if fsutil.Exists(path) {
 		return alreadyExists(path)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -31,12 +33,6 @@ func CreateFile(path string) error {
 		return err
 	}
 	return f.Close()
-}
-
-// exists reports whether anything (file, dir, or dangling symlink) is at path.
-func exists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
 }
 
 func alreadyExists(path string) error {

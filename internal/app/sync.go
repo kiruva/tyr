@@ -212,22 +212,13 @@ func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	last := len(visible) - 1
 	m.sync.status = "" // said once; the next key brings the legend back
 
+	if moveCursor(&m.sync.cursor, msg.String(), last, syncRowsPerPage) {
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.closeSync()
 		return m, nil
-	case "up", "k":
-		m.sync.cursor = max(m.sync.cursor-1, 0)
-	case "down", "j":
-		m.sync.cursor = min(m.sync.cursor+1, last)
-	case "pgup", "ctrl+u":
-		m.sync.cursor = max(m.sync.cursor-syncRowsPerPage, 0)
-	case "pgdown", "ctrl+d":
-		m.sync.cursor = min(m.sync.cursor+syncRowsPerPage, last)
-	case "home", "g":
-		m.sync.cursor = 0
-	case "end", "G":
-		m.sync.cursor = max(last, 0)
 	case "right", "l":
 		m.setSyncAction(syncToRight)
 	case "left", "h":

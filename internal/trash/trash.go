@@ -24,7 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/kiruva/tyr/internal/fsutil"
@@ -129,7 +128,7 @@ func restoreOne(it Item) error {
 	if err := os.MkdirAll(filepath.Dir(it.Original), 0o755); err != nil {
 		return err
 	}
-	target, err := freeName(it.Original)
+	target, err := fsutil.FreeName(it.Original)
 	if err != nil {
 		return err
 	}
@@ -235,8 +234,8 @@ func writeInfo(name, original string) (string, error) {
 // record with no file is ignored by everyone.
 func reserve(path, original string) (Item, error) {
 	for n := 1; n < 100000; n++ {
-		candidate := nthName(path, n)
-		if exists(candidate) {
+		candidate := fsutil.NthName(path, n)
+		if fsutil.Exists(candidate) {
 			continue
 		}
 		item := Item{Original: original, Path: candidate}
@@ -254,35 +253,4 @@ func reserve(path, original string) (Item, error) {
 		return item, nil
 	}
 	return Item{}, fmt.Errorf("no free name left beside %s", filepath.Base(path))
-}
-
-// freeName returns path itself when nothing is there, or the first free
-// "name (2)"-style variant beside it — or an error when every one is taken:
-// handing back the occupied path would have the rename land on what is there.
-func freeName(path string) (string, error) {
-	for n := 1; n < 100000; n++ {
-		if candidate := nthName(path, n); !exists(candidate) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("no free name left beside %s", filepath.Base(path))
-}
-
-// nthName is path for n = 1 and "name (n).ext" beside it after that.
-func nthName(path string, n int) string {
-	if n == 1 {
-		return path
-	}
-	dir, base := filepath.Dir(path), filepath.Base(path)
-	ext := filepath.Ext(base)
-	if strings.HasPrefix(base, ".") && ext == base {
-		ext = ""
-	}
-	stem := strings.TrimSuffix(base, ext)
-	return filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
-}
-
-func exists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
 }

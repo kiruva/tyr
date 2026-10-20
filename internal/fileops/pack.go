@@ -76,8 +76,8 @@ func (f PackFormat) Info() PackFormatInfo {
 // each with its Encrypt tool resolved: 7z where p7zip is installed, `zip` for
 // a .zip without it, and "" where nothing here can encrypt the format.
 func AvailablePackFormats() []PackFormatInfo {
-	// installed, not onPath: the lookup handed in here must answer for one exact
-	// command name, so resolveTool can report which variant it found.
+	// installed, not tool(): the lookup handed in here must answer for one
+	// exact command name, so resolveTool can report which variant it found.
 	return availablePackFormats(installed)
 }
 
@@ -224,7 +224,8 @@ func packTar(ctx context.Context, job Job, opts PackOpts, r *reporter) error {
 
 	comp, compArgs := tarCompressor(opts.Format, opts.Level)
 	if comp == "" {
-		return runInto(ctx, "tar", args, out, r, parseTarLine)
+		// tar's stdout is the archive itself, so only stderr carries progress.
+		return r.tools.runTool(ctx, toolCmd{bin: "tar", args: args, stdout: out}, r, parseTarLine)
 	}
 	return r.tools.runPiped(ctx,
 		toolCmd{bin: "tar", args: args},
@@ -261,7 +262,7 @@ func packWithZip(ctx context.Context, job Job, opts PackOpts, r *reporter) error
 	for _, s := range job.Srcs {
 		args = append(args, filepath.Base(s))
 	}
-	return runStreamingIn(ctx, filepath.Dir(job.Srcs[0]), "", "zip", args, r, parseZipAddLine)
+	return r.tools.runTool(ctx, toolCmd{bin: "zip", args: args, dir: filepath.Dir(job.Srcs[0])}, r, parseZipAddLine)
 }
 
 // packWith7z runs 7-Zip, which also writes .zip with AES-256. The password goes
@@ -291,7 +292,7 @@ func packWith7z(ctx context.Context, job Job, opts PackOpts, r *reporter) error 
 	if bin == "" {
 		return fmt.Errorf("7-Zip is not installed (7z, 7zz or 7za)")
 	}
-	return runStreamingIn(ctx, filepath.Dir(job.Srcs[0]), stdin, bin, args, r, parse7zLine)
+	return r.tools.runTool(ctx, toolCmd{bin: bin, args: args, dir: filepath.Dir(job.Srcs[0]), stdin: stdin}, r, parse7zLine)
 }
 
 // parseZipAddLine: `zip` prints "  adding: path (deflated 42%)".

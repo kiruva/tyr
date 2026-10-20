@@ -42,12 +42,7 @@ func ListMembers(archive string) ([]Member, error) {
 	var err error
 	switch {
 	case isTar(f):
-		a := []string{"-t"}
-		if c := tarComp(f); c != "" {
-			a = append(a, c)
-		}
-		a = append(a, "-f", archive)
-		out, err = exec.Command("tar", a...).Output()
+		out, err = exec.Command("tar", tarArgs("-t", f, "-f", archive)...).Output()
 	case f == fmtZip:
 		out, err = exec.Command("zipinfo", "-1", argPath(archive)).Output()
 	default:
@@ -92,12 +87,7 @@ func ReadMember(archive, member string) ([]byte, error) {
 	var cmd *exec.Cmd
 	switch {
 	case isTar(f):
-		a := []string{"-x"}
-		if c := tarComp(f); c != "" {
-			a = append(a, c)
-		}
-		a = append(a, "-O", "-f", archive, "--", member)
-		cmd = exec.Command("tar", a...)
+		cmd = exec.Command("tar", tarArgs("-x", f, "-O", "-f", archive, "--", member)...)
 	case f == fmtZip:
 		// 7-Zip honours "--" and unzip does not, so an entry whose name starts
 		// with a "-" is only readable where 7-Zip is installed. unzip stays the
@@ -208,12 +198,7 @@ func repackTar(ctx context.Context, f format, archive string, mutate func(dir st
 	}
 	defer os.RemoveAll(tmp)
 
-	ex := []string{"-x"}
-	if c := tarComp(f); c != "" {
-		ex = append(ex, c)
-	}
-	ex = append(ex, "-f", archive, "-C", tmp)
-	if err := runQuiet(exec.CommandContext(ctx, "tar", ex...)); err != nil {
+	if err := runQuiet(exec.CommandContext(ctx, "tar", tarArgs("-x", f, "-f", archive, "-C", tmp)...)); err != nil {
 		return err
 	}
 
@@ -229,12 +214,7 @@ func repackTar(ctx context.Context, f format, archive string, mutate func(dir st
 	if err != nil {
 		return err
 	}
-	create := []string{"-c"}
-	if c := tarComp(f); c != "" {
-		create = append(create, c)
-	}
-	create = append(create, "-f", out, "-C", tmp, "--")
-	create = append(create, names...)
+	create := append(tarArgs("-c", f, "-f", out, "-C", tmp, "--"), names...)
 	if err := runQuiet(exec.CommandContext(ctx, "tar", create...)); err != nil {
 		_ = os.Remove(out)
 		return err

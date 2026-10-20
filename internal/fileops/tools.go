@@ -12,10 +12,6 @@ var alternates = map[string][]string{
 	"7z": {"7z", "7zz", "7za"},
 }
 
-// onPath reports whether a tool is installed, under its own name or any of the
-// names it also ships as.
-func onPath(bin string) bool { return resolveTool(bin, installed) != "" }
-
 // resolveTool returns the command name to run for a canonical tool name, or ""
 // when none of its variants is installed. have is the PATH lookup, injected so
 // this is testable without touching the machine's PATH.
