@@ -165,7 +165,7 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // openViewSearch puts the cursor in the search field.
 func (m Model) openViewSearch() (tea.Model, tea.Cmd) {
-	ti := newConnInput("text to find", false, 30)
+	ti := newInput("text to find", false, 30)
 	ti.SetValue(m.viewer.query)
 	ti.CursorEnd()
 
@@ -481,4 +481,16 @@ func onOffWord(on bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// tickViewer passes a non-key message to the search field while it is open,
+// and to the pager otherwise.
+func (m *Model) tickViewer(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	if m.viewer.prompting {
+		m.viewer.input, cmd = m.viewer.input.Update(msg)
+		return cmd
+	}
+	m.viewport, cmd = m.viewport.Update(msg)
+	return cmd
 }

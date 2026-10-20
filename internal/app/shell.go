@@ -106,7 +106,7 @@ func (m *Model) openCommand() tea.Cmd {
 		dir = filepath.Dir(p.ArchivePath())
 	}
 
-	ti := newConnInput("git status, wc -l %s, …", false, contentWidth-2)
+	ti := newInput("git status, wc -l %s, …", false, contentWidth-2)
 	m.command = commandState{input: ti, dir: dir, paneIdx: m.active}
 	m.mode = modeCommand
 	return m.command.input.Focus()
@@ -319,21 +319,14 @@ func optionSafe(name string) string {
 
 // renderCommand draws the prompt.
 func (m Model) renderCommand() string {
-	lines := []string{
-		ui.DialogTitle.Render("Run a command"),
-		"",
-		ui.Faint.Render("in " + ui.TruncTail(m.command.dir, contentWidth-3)),
-		ui.AddrEdit.Width(contentWidth).Render(m.command.input.View()),
-		"",
-		ui.Faint.Render("%f name · %F path · %s selection · %d dir · %D other"),
-	}
-	if m.command.status != "" {
-		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.command.status, contentWidth)))
-	}
-	lines = append(lines, "",
-		ui.DialogHint.Render("enter")+" run    "+ui.DialogHint.Render("esc")+" cancel")
-
-	return ui.Dialog.Width(dialogWidth).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return prompt{
+		title:  "Run a command",
+		about:  "in " + ui.TruncTail(m.command.dir, contentWidth-3),
+		field:  m.command.input,
+		note:   "%f name · %F path · %s selection · %d dir · %D other",
+		status: m.command.status,
+		action: "run",
+	}.render()
 }
 
 // renderRunning is the box shown while a command is running.

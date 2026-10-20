@@ -140,7 +140,7 @@ func (m *Model) openBookmarkAdd() tea.Cmd {
 		dir = filepath.Dir(p.ArchivePath())
 	}
 
-	ti := newConnInput("name", false, contentWidth-2)
+	ti := newInput("name", false, contentWidth-2)
 	ti.SetValue(filepath.Base(dir))
 	ti.CursorEnd()
 
@@ -214,17 +214,11 @@ func (m Model) renderBookmarks() string {
 
 // renderBookmarkAdd draws the naming prompt.
 func (m Model) renderBookmarkAdd() string {
-	lines := []string{
-		ui.DialogTitle.Render("Bookmark this directory"),
-		"",
-		ui.Faint.Render(ui.TruncTail(m.bookmarkAdd.path, contentWidth)),
-		ui.AddrEdit.Width(contentWidth).Render(m.bookmarkAdd.input.View()),
-	}
-	if m.bookmarkAdd.status != "" {
-		lines = append(lines, "", ui.Danger.Render(ui.TruncTail(m.bookmarkAdd.status, contentWidth)))
-	}
-	lines = append(lines, "",
-		ui.DialogHint.Render("enter")+" save    "+ui.DialogHint.Render("esc")+" cancel")
-
-	return ui.Dialog.Width(dialogWidth).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return prompt{
+		title:  "Bookmark this directory",
+		about:  ui.TruncTail(m.bookmarkAdd.path, contentWidth),
+		field:  m.bookmarkAdd.input,
+		status: m.bookmarkAdd.status,
+		action: "save",
+	}.render()
 }

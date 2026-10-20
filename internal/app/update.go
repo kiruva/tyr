@@ -91,79 +91,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Non-key messages (e.g. cursor blink) are routed to the active component.
-	switch m.mode {
-	case modeAddress:
-		cmd := m.panes[m.active].UpdateAddr(msg)
-		return m, cmd
-	case modeConn:
-		cmd := m.updateConnInputs(msg)
-		return m, cmd
-	case modeCreate:
-		var cmd tea.Cmd
-		m.create.input, cmd = m.create.input.Update(msg)
-		return m, cmd
-	case modeRenameOne:
-		var cmd tea.Cmd
-		m.renOne.input, cmd = m.renOne.input.Update(msg)
-		return m, cmd
-	case modeRename:
-		var cmd tea.Cmd
-		m.ren.fields[m.ren.focus], cmd = m.ren.fields[m.ren.focus].Update(msg)
-		return m, cmd
-	case modePack:
-		var cmd tea.Cmd
-		switch m.pack.focus {
-		case packFieldPassword:
-			m.pack.pw, cmd = m.pack.pw.Update(msg)
-		case packFieldName:
-			m.pack.name, cmd = m.pack.name.Update(msg)
-		}
-		return m, cmd
-	case modeUnpackPw:
-		var cmd tea.Cmd
-		m.unpackPw.input, cmd = m.unpackPw.input.Update(msg)
-		return m, cmd
-	case modeFilter:
-		var cmd tea.Cmd
-		m.filter.input, cmd = m.filter.input.Update(msg)
-		return m, cmd
-	case modeProps:
-		var cmd tea.Cmd
-		m.props.mode, cmd = m.props.mode.Update(msg)
-		return m, cmd
-	case modeBookmarkAdd:
-		var cmd tea.Cmd
-		m.bookmarkAdd.input, cmd = m.bookmarkAdd.input.Update(msg)
-		return m, cmd
-	case modeCommand:
-		var cmd tea.Cmd
-		m.command.input, cmd = m.command.input.Update(msg)
-		return m, cmd
-	case modeSelectMask:
-		var cmd tea.Cmd
-		m.selMask.input, cmd = m.selMask.input.Update(msg)
-		return m, cmd
-	case modeFind:
-		var cmd tea.Cmd
-		switch m.find.focus {
-		case findFieldName:
-			m.find.name, cmd = m.find.name.Update(msg)
-		case findFieldContent:
-			m.find.content, cmd = m.find.content.Update(msg)
-		}
-		return m, cmd
-	case modeEdit:
-		return m, nil // the editor has no timers of its own
-	case modeView:
-		var cmd tea.Cmd
-		if m.viewer.prompting {
-			m.viewer.input, cmd = m.viewer.input.Update(msg)
-			return m, cmd
-		}
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-	}
-	return m, nil
+	return m.tick(msg)
 }
 
 // onKey dispatches a keypress to the handler for the current mode.
@@ -174,71 +102,25 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.quit()
 	}
 
-	switch m.mode {
-	case modeAddress:
-		return m.onAddressKey(msg)
-	case modeConfirm:
-		return m.onConfirmKey(msg)
-	case modeProgress:
-		return m.onProgressKey(msg)
-	case modeView:
-		return m.onViewKey(msg)
-	case modeEdit:
-		return m.onEditKey(msg)
-	case modeHelp:
-		// The two overlays swap into each other on tab; anything else dismisses.
-		if msg.String() == "tab" || key.Matches(msg, m.keys.Caps) {
-			m.mode, m.overlayScroll = modeCaps, 0
-			return m, nil
-		}
-		return m.scrollOverlay(msg)
-	case modeCaps:
-		if msg.String() == "tab" || key.Matches(msg, m.keys.Help) {
-			m.mode, m.overlayScroll = modeHelp, 0
-			return m, nil
-		}
-		return m.scrollOverlay(msg)
-	case modeTheme:
-		return m.onThemeKey(msg)
-	case modeConn:
-		return m.onConnKey(msg)
-	case modeCreate:
-		return m.onCreateKey(msg)
-	case modeRenameOne:
-		return m.onRenameOneKey(msg)
-	case modeRename:
-		return m.onRenameKey(msg)
-	case modePack:
-		return m.onPackKey(msg)
-	case modeUnpackPw:
-		return m.onUnpackPwKey(msg)
-	case modeConvert:
-		return m.onConvertKey(msg)
-	case modeFilter:
-		return m.onFilterKey(msg)
-	case modeConflict:
-		return m.onConflictKey(msg)
-	case modeProps:
-		return m.onPropsKey(msg)
-	case modeSync:
-		return m.onSyncKey(msg)
-	case modeBookmarks:
-		return m.onBookmarksKey(msg)
-	case modeBookmarkAdd:
-		return m.onBookmarkAddKey(msg)
-	case modeCommand:
-		return m.onCommandKey(msg)
-	case modeRunning:
-		return m.onRunningKey(msg)
-	case modeKeys:
-		return m.onKeyEditKey(msg)
-	case modeSelectMask:
-		return m.onSelectMaskKey(msg)
-	case modeFind:
-		return m.onFindKey(msg)
-	default:
-		return m.onNormalKey(msg)
+	return m.modal().key(m, msg)
+}
+
+// onHelpKey and onCapsKey drive the two overlays, which swap into each other
+// on tab; anything that is not a scroll key dismisses them.
+func (m Model) onHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "tab" || key.Matches(msg, m.keys.Caps) {
+		m.mode, m.overlayScroll = modeCaps, 0
+		return m, nil
 	}
+	return m.scrollOverlay(msg)
+}
+
+func (m Model) onCapsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "tab" || key.Matches(msg, m.keys.Help) {
+		m.mode, m.overlayScroll = modeHelp, 0
+		return m, nil
+	}
+	return m.scrollOverlay(msg)
 }
 
 // ctrlCQuits reports whether Ctrl+C means quit right now. It does everywhere
@@ -292,6 +174,11 @@ func (m Model) scrollOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.overlayScroll = min(m.overlayScroll, m.overlayMaxScroll())
 	return m, nil
+}
+
+// scrollOverlayBy is the mouse wheel over the help or capabilities overlay.
+func (m *Model) scrollOverlayBy(step int) {
+	m.overlayScroll = min(max(m.overlayScroll+step, 0), m.overlayMaxScroll())
 }
 
 // overlayMaxScroll is as far as the open overlay scrolls: its last line at the

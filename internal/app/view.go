@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kiruva/tyr/internal/app/caps"
-	"github.com/kiruva/tyr/internal/app/keymap"
-
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kiruva/tyr/internal/fileops"
@@ -39,57 +36,14 @@ func (m Model) render() string {
 	)
 	base := lipgloss.JoinVertical(lipgloss.Left, body, m.statusBar())
 
-	switch m.mode {
-	case modeConfirm:
-		return overlay(m.width, m.height, m.renderConfirm())
-	case modeProgress:
-		return overlay(m.width, m.height, m.renderProgress())
-	case modeView:
-		return m.renderViewer()
-	case modeEdit:
-		return m.renderEditor()
-	case modeHelp:
-		return overlay(m.width, m.height, keymap.Help(m.keys, m.width, m.overlayRows(), m.overlayScroll))
-	case modeCaps:
-		return overlay(m.width, m.height, caps.View(m.width, m.overlayRows(), m.overlayScroll))
-	case modeTheme:
-		return overlay(m.width, m.height, m.theme.View())
-	case modeConn:
-		return overlay(m.width, m.height, m.renderConn())
-	case modeCreate:
-		return overlay(m.width, m.height, m.renderCreate())
-	case modeRenameOne:
-		return overlay(m.width, m.height, m.renderRenameOne())
-	case modeRename:
-		return m.renderRename()
-	case modePack:
-		return overlay(m.width, m.height, m.renderPack())
-	case modeConvert:
-		return overlay(m.width, m.height, m.renderConvert())
-	case modeUnpackPw:
-		return overlay(m.width, m.height, m.renderUnpackPw())
-	case modeConflict:
-		return overlay(m.width, m.height, m.renderConflict())
-	case modeProps:
-		return overlay(m.width, m.height, m.renderProps())
-	case modeSync:
-		return m.renderSync()
-	case modeBookmarks:
-		return overlay(m.width, m.height, m.renderBookmarks())
-	case modeBookmarkAdd:
-		return overlay(m.width, m.height, m.renderBookmarkAdd())
-	case modeCommand:
-		return overlay(m.width, m.height, m.renderCommand())
-	case modeRunning:
-		return overlay(m.width, m.height, m.renderRunning())
-	case modeKeys:
-		return m.keyEdit.View(m.keys, m.width, m.height)
-	case modeSelectMask:
-		return overlay(m.width, m.height, m.renderSelectMask())
-	case modeFind:
-		return overlay(m.width, m.height, m.renderFind())
-	default:
+	md := m.modal()
+	switch {
+	case md.view == nil:
 		return base
+	case md.fullScreen:
+		return md.view(m)
+	default:
+		return overlay(m.width, m.height, md.view(m))
 	}
 }
 

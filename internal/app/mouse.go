@@ -29,22 +29,39 @@ type clickRecord struct {
 	when  time.Time
 }
 
-// onMouse routes a mouse event to whatever is on screen.
+// onMouse routes a mouse event to whatever is on screen: the modal's own
+// handler, or else the wheel over the list it shows.
 func (m Model) onMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch m.mode {
-	case modeNormal:
-		return m.paneMouse(msg)
-	case modeView:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-	case modeEdit:
-		msg.Y-- // below the header line
-		m.editor.Update(msg)
-		return m, nil
-	default:
-		return m.listMouse(msg)
+	md := m.modal()
+	if md.mouse != nil {
+		return md.mouse(m, msg)
 	}
+	up := msg.Button == tea.MouseButtonWheelUp
+	down := msg.Button == tea.MouseButtonWheelDown
+	if md.wheel == nil || (!up && !down) {
+		return m, nil
+	}
+	step := wheelStep
+	if up {
+		step = -wheelStep
+	}
+	md.wheel(&m, step)
+	return m, nil
+}
+
+// viewerMouse is the pointer over the pager, which scrolls it.
+func (m Model) viewerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
+}
+
+// editorMouse is the pointer over the editor: clicks place the cursor, drags
+// select, the wheel scrolls.
+func (m Model) editorMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	msg.Y-- // below the header line
+	m.editor.Update(msg)
+	return m, nil
 }
 
 // paneMouse is the pointer over the two panes.
@@ -133,42 +150,6 @@ func (m Model) paneAt(x, y int) (idx, px, py int) {
 		return 0, x, y
 	}
 	return 1, x - leftW, y
-}
-
-// listMouse is the wheel over the overlays that are lists. Clicks are left
-// alone: a dialog is a box drawn at a size the mouse cannot be sure of, and a
-// misplaced click in one would act on the wrong row.
-func (m Model) listMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	up := msg.Button == tea.MouseButtonWheelUp
-	down := msg.Button == tea.MouseButtonWheelDown
-	if !up && !down {
-		return m, nil
-	}
-	step := wheelStep
-	if up {
-		step = -wheelStep
-	}
-
-	switch m.mode {
-	case modeHelp, modeCaps:
-		m.overlayScroll = min(max(m.overlayScroll+step, 0), m.overlayMaxScroll())
-	case modeKeys:
-		m.keyEdit = m.keyEdit.MoveTo(m.keyEdit.Cursor() + step)
-	case modeSync:
-		if m.sync.stage == syncStageList {
-			m.sync.cursor = clampIndex(m.sync.cursor+step, len(m.visibleSyncRows()))
-		}
-	case modeFind:
-		if m.find.stage == findStageResults {
-			m.find.cursor = clampIndex(m.find.cursor+step, len(m.find.results))
-		}
-	case modeBookmarks:
-		m.bookmarks.cursor = clampIndex(m.bookmarks.cursor+step, len(m.bookmarks.marks))
-	case modeTheme:
-		// The picker previews as it moves, which MoveTo does.
-		m.theme = m.theme.MoveTo(m.theme.Cursor() + step)
-	}
-	return m, nil
 }
 
 // clampIndex keeps a cursor inside a list of n rows.

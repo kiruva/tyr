@@ -99,7 +99,7 @@ func (m *Model) openRenameOne() tea.Cmd {
 		return nil
 	}
 
-	ti := newConnInput("new name", false, contentWidth-2)
+	ti := newInput("new name", false, contentWidth-2)
 	ti.SetValue(cur.Name)
 	ti.CursorEnd()
 	m.renOne = renameOneState{input: ti, paneIdx: m.active, orig: cur.Name, isDir: cur.IsDir}
@@ -183,7 +183,7 @@ func (m *Model) openRename() tea.Cmd {
 		opt:     rename.Options{Recursive: true, Hidden: p.HiddenShown()},
 	}
 	for f := range st.fields {
-		st.fields[f] = newConnInput(renamePlaceholders[f], false, renameFieldWidth(renameField(f)))
+		st.fields[f] = newInput(renamePlaceholders[f], false, renameFieldWidth(renameField(f)))
 	}
 	st.fields[renNameMask].SetValue("[N]")
 	st.fields[renExtMask].SetValue("[E]")
