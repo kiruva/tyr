@@ -140,3 +140,51 @@ func TestGlobMatch(t *testing.T) {
 		}
 	}
 }
+
+// Options before the first Host line apply to every host, as in ssh.
+func TestSSHConfigTopOfFileAppliesToAll(t *testing.T) {
+	path := writeSSHConfig(t, "User everyone\nPort 2200\n\nHost box\n  HostName box.example.com\n")
+	cfg := parseSSHConfig(path, "box", 0)
+	if cfg.User != "everyone" || cfg.Port != "2200" || cfg.HostName != "box.example.com" {
+		t.Fatalf("cfg = %+v, want the top-of-file User and Port kept", cfg)
+	}
+}
+
+// An Include inside a Host block counts only for that host: the file it names
+// was read for every host there was.
+func TestSSHConfigIncludeInsideAHostBlock(t *testing.T) {
+	path := writeSSHConfig(t, "Host other\n  Include other.conf\n\nHost box\n  User mine\n")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "other.conf"),
+		[]byte("User theirs\nHostName other.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	box := parseSSHConfig(path, "box", 0)
+	if box.User != "mine" || box.HostName != "" {
+		t.Errorf("box = %+v, want other's include left out", box)
+	}
+	other := parseSSHConfig(path, "other", 0)
+	if other.User != "theirs" || other.HostName != "other.example.com" {
+		t.Errorf("other = %+v, want its include read", other)
+	}
+}
+
+// %d, %h, %u, %p, %r and %% in IdentityFile and UserKnownHostsFile are what ssh
+// expands them to.
+func TestSSHConfigExpandsTokens(t *testing.T) {
+	path := writeSSHConfig(t, "Host box\n  HostName %h.example.com\n  User deploy\n  Port 2222\n"+
+		"  IdentityFile %d/.ssh/%r@%h:%p\n  UserKnownHostsFile ~/.ssh/kh_%u_100%%\n")
+	t.Setenv("USER", "kim")
+	home := filepath.Dir(filepath.Dir(path))
+
+	cfg := lookupSSHConfig("box")
+	if cfg.HostName != "box.example.com" {
+		t.Errorf("HostName = %q", cfg.HostName)
+	}
+	if want := filepath.Join(home, ".ssh", "deploy@box.example.com:2222"); len(cfg.IdentityFiles) == 0 || cfg.IdentityFiles[0] != want {
+		t.Errorf("IdentityFiles = %v, want %q first", cfg.IdentityFiles, want)
+	}
+	if got := cfg.UserKnownHostsFiles; len(got) != 1 || got[0] != "~/.ssh/kh_kim_100%" {
+		t.Errorf("UserKnownHostsFiles = %v", got)
+	}
+}

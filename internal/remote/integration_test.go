@@ -49,11 +49,11 @@ func connectForTest(t *testing.T, h Host) {
 	t.Cleanup(func() { Forget(h) })
 
 	opts := Options{IdentityFile: os.Getenv("TYR_TEST_SSH_KEY")}
-	err := Connect(h, opts)
+	_, err := Connect(context.Background(), h, opts)
 	var hk *HostKeyError
 	if errors.As(err, &hk) {
 		opts.TrustedKeys = []HostKey{hk.Key()}
-		err = Connect(h, opts)
+		_, err = Connect(context.Background(), h, opts)
 	}
 	if err != nil {
 		t.Fatalf("connect to %s: %v", h.String(), err)
@@ -79,7 +79,7 @@ func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
 	setHome(t, home)
 	t.Cleanup(func() { Forget(h) })
 
-	err := Connect(h, Options{IdentityFile: key})
+	_, err := Connect(context.Background(), h, Options{IdentityFile: key})
 	var hk *HostKeyError
 	if !errors.As(err, &hk) {
 		t.Fatalf("first connect = %v, want a HostKeyError", err)
@@ -96,7 +96,7 @@ func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
 
 	// Accepting records it, and the recorded entry is what makes the next
 	// connection succeed without asking again.
-	if err := Connect(h, Options{IdentityFile: key, TrustedKeys: []HostKey{hk.Key()}}); err != nil {
+	if _, err := Connect(context.Background(), h, Options{IdentityFile: key, TrustedKeys: []HostKey{hk.Key()}}); err != nil {
 		t.Fatalf("connect after accepting: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join(home, ".ssh", "known_hosts"))
@@ -111,7 +111,7 @@ func TestIntegrationUnknownHostKeyIsReported(t *testing.T) {
 	if Connected(h) {
 		t.Fatal("Forget did not close the session")
 	}
-	if err := Connect(h, Options{IdentityFile: key}); err != nil {
+	if _, err := Connect(context.Background(), h, Options{IdentityFile: key}); err != nil {
 		t.Fatalf("reconnect against the recorded key: %v", err)
 	}
 }
@@ -188,14 +188,10 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatal("plain.txt has no mtime")
 	}
 
-	// AnyExist / Stat agree with the listing.
+	// stat agrees with the listing.
 	exists, isDir, err := Stat(h, path.Join(base, "sub"))
 	if err != nil || !exists || !isDir {
 		t.Fatalf("Stat(sub) = %v %v %v", exists, isDir, err)
-	}
-	any, err := AnyExist(h, base, []string{"nope", "with space.txt"})
-	if err != nil || !any {
-		t.Fatalf("AnyExist = %v %v", any, err)
 	}
 
 	// Download everything back and compare contents.
@@ -278,5 +274,24 @@ func TestIntegrationErrorsAreReadable(t *testing.T) {
 	}
 	if len(err.Error()) < 10 {
 		t.Fatalf("error is not informative: %v", err)
+	}
+}
+
+// Stat reports whether a remote path exists and whether it is a directory —
+// the tests' way of checking what a transfer left behind.
+func Stat(h Host, p string) (exists, isDir bool, err error) {
+	script := "if [ -d " + shQuote(p) + " ]; then echo dir; elif [ -e " + shQuote(p) +
+		" ]; then echo file; else echo none; fi"
+	out, err := output(context.Background(), h, script)
+	if err != nil {
+		return false, false, err
+	}
+	switch strings.TrimSpace(out) {
+	case "dir":
+		return true, true, nil
+	case "file":
+		return true, false, nil
+	default:
+		return false, false, nil
 	}
 }

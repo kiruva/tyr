@@ -264,6 +264,7 @@ func (m Model) quit() tea.Cmd {
 	m.sync.task.stop()
 	m.command.task.stop()
 	m.ren.collect.stop()
+	m.conn.attempt.stop()
 	m.saveSession()
 	remote.ForgetAll()
 	return tea.Quit

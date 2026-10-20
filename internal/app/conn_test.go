@@ -135,12 +135,12 @@ func TestConnPasswordPromptOnAuthRequired(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // connect to "prod"
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01"},
 		host:    remote.Host{Name: "web01"},
 		paneIdx: 0,
 		err:     remote.ErrAuthRequired,
-	})
+	}))
 
 	app := m.(Model)
 	if app.conn.stage != connStagePassword {
@@ -175,13 +175,13 @@ func TestConnWrongPasswordRetries(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:   config.Connection{Name: "prod", Host: "web01"},
 		host:     remote.Host{Name: "web01"},
 		paneIdx:  0,
 		password: "wrong",
 		err:      errors.New("web01: authentication failed"),
-	})
+	}))
 
 	app := m.(Model)
 	if app.conn.stage != connStagePassword {
@@ -196,7 +196,7 @@ func TestConnHostKeyConfirmation(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01"},
 		host:    remote.Host{Name: "web01"},
 		paneIdx: 0,
@@ -205,7 +205,7 @@ func TestConnHostKeyConfirmation(t *testing.T) {
 			KeyType:     "ssh-ed25519",
 			Fingerprint: "SHA256:abc123",
 		},
-	})
+	}))
 
 	app := m.(Model)
 	if app.conn.stage != connStageHostKey {
@@ -241,10 +241,10 @@ func TestConnHostKeyNamesTheJumpHost(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	jump := remote.Host{Name: "bastion"}
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target: config.Connection{Name: "prod", Host: "web01"}, paneIdx: 0,
 		err: &remote.HostKeyError{Host: jump, KeyType: "ssh-ed25519", Fingerprint: "SHA256:jjj"},
-	})
+	}))
 	view := m.View()
 	for _, want := range []string{"jump host bastion", "on the way to prod", "SHA256:jjj"} {
 		if !strings.Contains(view, want) {
@@ -264,7 +264,7 @@ func TestConnChangedHostKeyIsNotClickThrough(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01"},
 		host:    remote.Host{Name: "web01"},
 		paneIdx: 0,
@@ -272,7 +272,7 @@ func TestConnChangedHostKeyIsNotClickThrough(t *testing.T) {
 			Host: remote.Host{Name: "web01"}, KeyType: "ssh-ed25519",
 			Fingerprint: "SHA256:abc123", Changed: true,
 		},
-	})
+	}))
 
 	app := m.(Model)
 	if app.conn.stage == connStageHostKey {
@@ -288,17 +288,17 @@ func TestConnChangedHostKeyIsNotClickThrough(t *testing.T) {
 func TestConnPasswordSurvivesHostKeyStage(t *testing.T) {
 	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target: config.Connection{Name: "prod", Host: "web01"}, paneIdx: 0,
 		err: remote.ErrAuthRequired,
-	})
+	}))
 	m = typeKeys(t, m, "hunter2")
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target: config.Connection{Name: "prod", Host: "web01"}, paneIdx: 0, password: "hunter2",
 		err: &remote.HostKeyError{Host: remote.Host{Name: "web01"}, Fingerprint: "SHA256:abc"},
-	})
+	}))
 	app := m.(Model)
 	if app.conn.stage != connStageHostKey {
 		t.Fatalf("stage = %v", app.conn.stage)
@@ -313,11 +313,11 @@ func TestConnSuccessOpensPane(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	host := remote.Host{Name: "web01"}
-	m, cmd := m.Update(connResultMsg{
+	m, cmd := m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01", Path: "/srv"},
 		host:    host,
 		paneIdx: 0,
-	})
+	}))
 
 	app := m.(Model)
 	if app.mode != modeNormal {
@@ -362,11 +362,11 @@ func TestConnOpensInTheOriginatingPane(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01"},
 		host:    remote.Host{Name: "web01"},
 		paneIdx: 1,
-	})
+	}))
 
 	app := m.(Model)
 	if !app.panes[1].IsRemote() || app.panes[0].IsRemote() {
@@ -444,11 +444,11 @@ func TestConnResultIgnoredAfterDismissal(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
-	m, _ = m.Update(connResultMsg{
+	m, _ = m.Update(connResult(m, connResultMsg{
 		target:  config.Connection{Name: "prod", Host: "web01"},
 		host:    remote.Host{Name: "web01"},
 		paneIdx: 0,
-	})
+	}))
 
 	app := m.(Model)
 	if app.mode != modeNormal {
@@ -456,5 +456,31 @@ func TestConnResultIgnoredAfterDismissal(t *testing.T) {
 	}
 	if app.panes[0].IsRemote() {
 		t.Fatal("a dismissed attempt still opened the pane")
+	}
+}
+
+// connResult stamps msg as the reply to the attempt m is waiting on, which is
+// what the command connAttempt returned would have sent.
+func connResult(m tea.Model, msg connResultMsg) connResultMsg {
+	msg.seq = m.(Model).conn.attempt.seq
+	return msg
+}
+
+// A key with a passphrase is named, with what to do about it.
+func TestConnPasswordPromptNamesAnEncryptedKey(t *testing.T) {
+	m := openModal(t, config.Connection{Name: "prod", Host: "web01"})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(connResult(m, connResultMsg{
+		target: config.Connection{Name: "prod", Host: "web01"},
+		host:   remote.Host{Name: "web01"},
+		err:    &remote.AuthRequiredError{Encrypted: []string{"/home/kim/.ssh/id_ed25519"}},
+	}))
+
+	app := m.(Model)
+	if app.conn.stage != connStagePassword {
+		t.Fatalf("stage = %v, want the password prompt", app.conn.stage)
+	}
+	if !strings.Contains(app.conn.status, "id_ed25519") || !strings.Contains(app.conn.status, "ssh-add") {
+		t.Errorf("status = %q, want the key named and ssh-add suggested", app.conn.status)
 	}
 }

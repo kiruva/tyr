@@ -1,6 +1,8 @@
 package pane
 
 import (
+	"slices"
+
 	"github.com/kiruva/tyr/internal/remote"
 )
 
@@ -110,6 +112,18 @@ func (m *Model) RemoteEntryPath() (string, bool) {
 		return "", false
 	}
 	return remote.Child(m.Path, cur.Name), true
+}
+
+// ListingHas reports whether the pane's last remote listing holds any of names,
+// whether or not the view is showing them — a hidden dotfile is overwritten
+// all the same. It is as fresh as the listing, which is what the user sees.
+func (m *Model) ListingHas(names []string) bool {
+	for _, e := range m.remoteRaw {
+		if slices.Contains(names, e.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // remoteRawEntries is the cached listing with ".." in front; the view options

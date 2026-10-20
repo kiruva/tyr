@@ -222,7 +222,7 @@ func (m *Model) beginRemoteOp(op fileops.Op) {
 			Dest: dst.Path,
 			Move: move,
 		}
-		m.willOverwrite = false
+		m.willOverwrite = dst.ListingHas(names)
 
 	case src.IsRemote(): // remote → local
 		m.pending = fileops.Job{
@@ -246,9 +246,10 @@ func (m *Model) beginRemoteOp(op fileops.Op) {
 			Dest: dst.Path,
 			Move: move,
 		}
-		// Checking the far side would mean another round trip before the
-		// dialog can be drawn; the dialog warns unconditionally instead.
-		m.willOverwrite = false
+		// The destination pane's listing says what is there, without another
+		// round trip before the dialog can be drawn. It is as old as the
+		// listing, so the dialog still says files there would be replaced.
+		m.willOverwrite = dst.ListingHas(names)
 	}
 
 	m.mode = modeConfirm

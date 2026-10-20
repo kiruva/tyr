@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -91,14 +92,18 @@ type connState struct {
 	pendingPassword string
 
 	status string // error or hint shown inside the modal
+
+	attempt bgTask // the connect in flight; Esc cancels it
 }
 
 // connResultMsg reports the outcome of a connection attempt.
 type connResultMsg struct {
+	seq      uint64
 	target   config.Connection
 	host     remote.Host
 	paneIdx  int
 	password string
+	warning  string // about a connect that worked
 	err      error
 }
 
@@ -203,18 +208,21 @@ func (m *Model) connAttempt(password string) tea.Cmd {
 
 	m.conn.stage = connStageBusy
 	m.conn.status = ""
+	ctx, seq := m.conn.attempt.start()
 
 	return func() tea.Msg {
-		err := remote.Connect(host, remote.Options{
+		warning, err := remote.Connect(ctx, host, remote.Options{
 			Password:     password,
 			IdentityFile: target.Identity,
 			TrustedKeys:  trusted,
 		})
 		return connResultMsg{
+			seq:      seq,
 			target:   target,
 			host:     host,
 			paneIdx:  paneIdx,
 			password: password,
+			warning:  warning,
 			err:      err,
 		}
 	}
@@ -228,7 +236,7 @@ func connHost(c config.Connection) remote.Host {
 // onConnResult routes a finished attempt: connected, needs a password, needs a
 // host key decision, or failed outright.
 func (m Model) onConnResult(msg connResultMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeConn || m.conn.paneIdx != msg.paneIdx {
+	if !m.conn.attempt.finish(msg.seq) {
 		return m, nil // the modal was dismissed while we were dialling
 	}
 
@@ -240,6 +248,11 @@ func (m Model) onConnResult(msg connResultMsg) (tea.Model, tea.Cmd) {
 		m.conn.stage = connStagePassword
 		m.conn.password.SetValue("")
 		m.conn.status = "key and agent authentication did not get in"
+		var auth *remote.AuthRequiredError
+		if errors.As(msg.err, &auth) && len(auth.Encrypted) > 0 {
+			m.conn.status = filepath.Base(auth.Encrypted[0]) +
+				" has a passphrase — load it into ssh-agent (ssh-add) to use it"
+		}
 		cmd := m.conn.password.Focus()
 		return m, cmd
 	}
@@ -274,6 +287,9 @@ func (m Model) onConnResult(msg connResultMsg) (tea.Model, tea.Cmd) {
 
 // connSucceeded opens the pane on the host and records the connection's use.
 func (m Model) connSucceeded(msg connResultMsg) (tea.Model, tea.Cmd) {
+	// Said after the connect, not instead of it: what follows is worth
+	// knowing, and none of it is a reason not to browse the host.
+	m.errText = msg.warning
 	if !m.conn.adHoc && msg.target.Name != "" {
 		if err := config.TouchConnection(msg.target.Name); err != nil {
 			m.errText = "connected, but could not update the config: " + err.Error()
@@ -282,7 +298,6 @@ func (m Model) connSucceeded(msg connResultMsg) (tea.Model, tea.Cmd) {
 
 	m.mode = modeNormal
 	m.conn = connState{}
-	m.errText = ""
 	cmd := m.openRemote(msg.paneIdx, msg.host, msg.target.Path)
 	return m, cmd
 }
@@ -300,6 +315,9 @@ func (m Model) onConnKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onConnHostKeyKey(msg)
 	default: // connStageBusy — the attempt is in flight
 		if msg.String() == "esc" {
+			// Stopped, not just walked away from: left to finish, a dial the
+			// user gave up on would still open a session in the background.
+			m.conn.attempt.stop()
 			m.mode = modeNormal
 			m.conn = connState{}
 		}
