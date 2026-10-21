@@ -38,6 +38,7 @@ const (
 	modePack                    // the pack dialog: format, level, password, name
 	modeUnpackPw                // password prompt for an encrypted archive
 	modeConvert                 // the audio conversion dialog: format and quality
+	modeRotate                  // rotating or flipping images
 	modeFilter                  // typing a filter that narrows the active pane
 	modeFind                    // the find tool: query form, search, hit list
 	modeSelectMask              // selecting or deselecting entries by mask
@@ -140,6 +141,9 @@ type Model struct {
 
 	// the audio conversion dialog
 	convert convertState
+
+	// the rotate / flip dialog
+	rotate rotateState
 
 	// rename state: the one-field prompt and the batch tool
 	renOne renameOneState

@@ -88,6 +88,11 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **Rotate and flip images without re-encoding.** `o` turns the marked images — folders
+  too — right, left, 180°, or flips them, by changing their EXIF orientation: nothing is
+  decoded, nothing is lost, and the rest of the metadata stays as it was. JPEG, PNG and WebP;
+  an image without EXIF is given a minimal block. `Ctrl+Z` turns them back. A GIF has no EXIF
+  and is skipped, and a program that ignores EXIF still shows the pixels as they are stored.
 - **`ProxyCommand` from `~/.ssh/config`.** A host reached through a command — `ssh -W`, a
   corporate connector — now connects the same way `ssh` would, with `%h`, `%p`, `%r`, `%n`
   filled in. A command that fails says why in its own words, and one that hangs is stopped

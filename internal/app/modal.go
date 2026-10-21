@@ -86,6 +86,8 @@ func (m Model) modal() modal {
 			focused: func(m *Model) *textinput.Model { return &m.unpackPw.input }}
 	case modeConvert:
 		return modal{key: Model.onConvertKey, view: Model.renderConvert}
+	case modeRotate:
+		return modal{key: Model.onRotateKey, view: Model.renderRotate}
 	case modeFilter:
 		// Drawn in the pane's own address bar, so nothing over the panes.
 		return modal{key: Model.onFilterKey,

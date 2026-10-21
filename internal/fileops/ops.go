@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/kiruva/tyr/internal/fsutil"
+	"github.com/kiruva/tyr/internal/metastrip"
 	"github.com/kiruva/tyr/internal/remote"
 	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/trash"
@@ -42,6 +43,7 @@ const (
 	OpMovePairs    // move every Pair, for putting a move back
 	OpChmod        // change the mode of Srcs, optionally recursively
 	OpConvert      // convert audio Srcs into Dest with ffmpeg, images into clean copies
+	OpRotate       // turn or flip the images in Srcs in place, by their EXIF orientation
 )
 
 func (o Op) String() string {
@@ -84,6 +86,8 @@ func (o Op) String() string {
 		return "Change permissions"
 	case OpConvert:
 		return "Convert"
+	case OpRotate:
+		return "Rotate"
 	default:
 		return "?"
 	}
@@ -128,6 +132,8 @@ func (o Op) Present() string {
 		return "Changing permissions"
 	case OpConvert:
 		return "Converting"
+	case OpRotate:
+		return "Rotating"
 	default:
 		return "Working"
 	}
@@ -167,6 +173,9 @@ type Job struct {
 
 	// Trash is the batch OpRestore puts back.
 	Trash []trash.Item
+
+	// Turn is what OpRotate does to every image.
+	Turn metastrip.Turn
 
 	// Mode and Recursive are OpChmod's new permissions and how far they reach.
 	Mode      os.FileMode
@@ -229,6 +238,9 @@ type Result struct {
 	// Notes are things worth saying about how the job went that are neither an
 	// error nor undoable: "stripped 3 images in place", say.
 	Notes []string
+
+	// Rotated is every image a rotate job turned, for an undo to turn back.
+	Rotated []string
 }
 
 // Run starts the job in a goroutine and returns a channel that yields zero or
@@ -275,6 +287,10 @@ func Run(ctx context.Context, job Job) <-chan Event {
 			created, notes, err := convert(ctx, job, r, newResolver(ctx, ch, job.OnConflict))
 			ch <- Result{Op: job.Op, Err: r.cancelled(err), Created: created, Notes: notes}
 			return
+		case OpRotate:
+			rotated, notes, err := rotate(ctx, job, r)
+			ch <- Result{Op: job.Op, Err: r.cancelled(err), Rotated: rotated, Notes: notes}
+			return
 		default:
 			res := runLocal(ctx, job, r, ch)
 			ch <- Result{
@@ -298,8 +314,8 @@ func computeTotal(ctx context.Context, job Job) int {
 	switch job.Op {
 	case OpRename, OpRenameUndo:
 		return len(rename.Applicable(job.Renames))
-	case OpConvert:
-		// The job walks the selection for audio itself and sets the total then;
+	case OpConvert, OpRotate:
+		// The job walks the selection itself and sets the total then;
 		// counting every entry here would include the cover art.
 		return 0
 	case OpDownload, OpRemoteCopy, OpRemoteDelete:

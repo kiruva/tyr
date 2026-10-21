@@ -99,6 +99,7 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `u`                 | Unpack archive → other pane     |
 | `U`                 | Unpack archive in place         |
 | `C`                 | Convert (audio, images) → other |
+| `o`                 | Rotate / flip images in place   |
 | `v`                 | View file (images: metadata)    |
 | `e`                 | Edit file                       |
 | `S` / `Ctrl+S`      | ssh connections                 |
@@ -694,6 +695,7 @@ Put `delete = remove` in the config file to make `F8` the permanent one.
 | copy               | removes the copies it made — and only those            |
 | audio conversion   | removes the files it wrote                            |
 | delete to trash    | restores from the trash                                |
+| rotate (`o`)       | turns the images back                                  |
 
 A move or copy into a folder that was already there records what arrived in it, not the
 folder, so undoing it takes back what came and leaves what was there. A restore that cannot
@@ -1007,6 +1009,30 @@ inside a folder). Images are stripped in place: the confirm prompt says so in re
 nothing to remove is left as it is, and the notice at the end counts what was stripped. Each
 file is still written under a temporary name and renamed over the original, so a failure never
 leaves half an image; a symlink is followed, and the picture it points at is the one cleaned.
+
+## Rotating and flipping
+
+`o` turns the marked images, or the one under the cursor, and folders with every image in
+them. The dialog lists the choices and says how a single image is shown now; one key does it:
+
+| Key       | Does                 |
+| --------- | -------------------- |
+| `→` / `r` | rotate right (90°)   |
+| `←` / `l` | rotate left (90°)    |
+| `u`       | rotate 180°          |
+| `h`       | flip horizontally    |
+| `v`       | flip vertically      |
+
+It changes the EXIF orientation and nothing else, so it is instant and loses nothing: the
+pixels and the rest of the metadata stay exactly as they were, and `Ctrl+Z` turns the images
+back. The turn lands on top of the orientation the image already has. JPEG, PNG and WebP carry
+an orientation; an image without EXIF is given a minimal block that holds only that. A GIF
+has nowhere to keep one — picked by name it is refused, inside a folder it is skipped and
+counted, like a file named `.jpg` that is not a JPEG.
+
+What this cannot do is change what a program that ignores EXIF shows: that one shows the
+pixels as they are stored, which is what they still are. Most viewers, browsers and phones
+read the orientation. The thumbnail some cameras keep inside the EXIF is not turned.
 
 ## Capabilities
 

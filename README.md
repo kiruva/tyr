@@ -36,6 +36,8 @@ too. Keyboard driven, intuitive like lazygit.
 - **Convert audio, clean images.** `C` turn mp3 into ogg, opus, flac, wav, m4a, any way round,
   whole pile at once; pick quality, `ffmpeg` do work. Same key on photos make clean copy: EXIF,
   GPS, XMP, C2PA gone, pixels untouched, no tool needed. Originals stay put.
+- **Turn photos without loss.** `o` rotate or flip images, folders too: only EXIF
+  orientation change, pixels and other metadata untouched, `Ctrl+Z` turn back.
 - **See what image carry.** `v` on JPEG, PNG, GIF, WebP show its metadata decoded: where taken,
   what camera, who signed, AI-generation markers. `x` for hex.
 - **Read and write files.** Pager with search, wrap, line numbers, syntax colors, hex dump for
