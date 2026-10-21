@@ -336,6 +336,8 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beginOp(fileops.OpUnwrap)
 	case key.Matches(msg, m.keys.Convert):
 		m.openConvert()
+	case key.Matches(msg, m.keys.Rotate):
+		m.openRotate()
 	}
 	return m, nil
 }
@@ -748,6 +750,11 @@ func undoNotice(res fileops.Result) string {
 		if n := len(res.Trashed); n > 0 {
 			return fmt.Sprintf("%s to trash · ctrl+z puts it back", countLabel(n))
 		}
+	case fileops.OpRotate:
+		if len(res.Rotated) > 0 {
+			return strings.Join(append(res.Notes, "ctrl+z turns them back"), " · ")
+		}
+		return strings.Join(res.Notes, " · ")
 	case fileops.OpConvert:
 		var parts []string
 		if n := len(res.Created); n > 0 {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/kiruva/tyr/internal/fileops"
+	"github.com/kiruva/tyr/internal/metastrip"
 	"github.com/kiruva/tyr/internal/rename"
 	"github.com/kiruva/tyr/internal/trash"
 )
@@ -32,6 +33,7 @@ const (
 	undoMove
 	undoCopy
 	undoTrash
+	undoRotate
 )
 
 // undoEntry is one operation that happened, kept so it can be reversed. Each
@@ -45,6 +47,8 @@ type undoEntry struct {
 	moved   []fileops.Pair  // what a move moved, and to where
 	created []string        // what a copy brought into being
 	trashed []trash.Item    // what a delete put in the trash
+	rotated []string        // what a rotate turned
+	turn    metastrip.Turn  // and which way
 
 	// landed is what a copy created or a move left behind, as it was when the
 	// job finished, keyed by path. An undo only touches what still matches:
@@ -114,6 +118,15 @@ func (m *Model) recordUndo(res fileops.Result) {
 				label:  fmt.Sprintf("move of %s", countLabel(len(res.Moved))),
 				moved:  res.Moved,
 				landed: stampAll(dsts),
+			})
+		}
+	case fileops.OpRotate:
+		if len(res.Rotated) > 0 {
+			m.pushUndo(undoEntry{
+				kind:    undoRotate,
+				label:   fmt.Sprintf("%s of %s", m.pending.Turn, countLabel(len(res.Rotated))),
+				rotated: res.Rotated,
+				turn:    m.pending.Turn,
 			})
 		}
 	case fileops.OpTrash:
@@ -234,6 +247,20 @@ func (m *Model) undoJob(e undoEntry) (fileops.Job, int, error) {
 
 	case undoTrash:
 		return fileops.Job{Op: fileops.OpRestore, Trash: e.trashed}, 0, nil
+
+	case undoRotate:
+		// Only the orientation changed, so turning back is safe on an image
+		// edited since: it is the turn that is undone, not the file.
+		srcs := make([]string, 0, len(e.rotated))
+		for _, p := range e.rotated {
+			if localExists(p) {
+				srcs = append(srcs, p)
+			}
+		}
+		if len(srcs) == 0 {
+			return fileops.Job{}, 0, fmt.Errorf("cannot undo that — the images are gone")
+		}
+		return fileops.Job{Op: fileops.OpRotate, Srcs: srcs, Turn: fileops.UndoTurn(e.turn)}, 0, nil
 	}
 	return fileops.Job{}, 0, fmt.Errorf("nothing to undo")
 }

@@ -240,6 +240,10 @@ func (m Model) renderConfirm() string {
 			body += "\n" + ui.Danger.Render("Images are stripped in place: the originals are") +
 				"\n" + ui.Danger.Render("overwritten, and ctrl+z cannot bring the metadata back.")
 		}
+	case fileops.OpRotate:
+		// Only an undo asks first; a turn from the dialog just happens.
+		title = ui.DialogTitle.Render(fmt.Sprintf("Turn %d %s back", n, images(n)))
+		body = termsafe.Line(j.Turn.String())
 	case fileops.OpChmod:
 		title = ui.Danger.Render("Change permissions of everything in " + termsafe.Line(ui.TruncHead(filepath.Base(j.Srcs[0]), 30)) + "?")
 		body = fmt.Sprintf("folders → %04o\nfiles → %04o, or %04o if they run",
@@ -381,6 +385,13 @@ func items(n int) string {
 		return "item"
 	}
 	return "items"
+}
+
+func images(n int) string {
+	if n == 1 {
+		return "image"
+	}
+	return "images"
 }
 
 func archives(n int) string {
