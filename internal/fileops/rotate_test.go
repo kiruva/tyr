@@ -37,6 +37,7 @@ func TestRotateInPlace(t *testing.T) {
 	plain := filepath.Join(dir, "plain.jpg")
 	writeFile(t, tagged, dirtyJPEG(t, 6), 0o640)
 	writeFile(t, plain, dirtyJPEG(t, 0), 0o644)
+	mode := modeOf(t, tagged) // 0640 here, whatever Windows makes of it there
 
 	res := runJob(t, rotateJob([]string{tagged, plain}, metastrip.RotateRight))
 	if res.Err != nil {
@@ -48,8 +49,8 @@ func TestRotateInPlace(t *testing.T) {
 	if got := orientationOn(t, plain); got != 6 {
 		t.Errorf("plain: orientation %d, want 6", got)
 	}
-	if m := modeOf(t, tagged); m != 0o640 {
-		t.Errorf("mode %v, want 0640", m)
+	if m := modeOf(t, tagged); m != mode {
+		t.Errorf("mode %v, want %v as before", m, mode)
 	}
 	data, _ := os.ReadFile(plain)
 	if !bytes.Contains(data, []byte("secret comment")) {
