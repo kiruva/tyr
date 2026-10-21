@@ -113,8 +113,11 @@ func (m Model) renderEditor() string {
 	}
 	header := ui.StatusBar.Width(m.width).Render(" edit · " + ui.TruncTail(name, m.width-8))
 
-	hint := " ^S save · ^Q quit · ^F find · ^Z undo · ^C/^X/^V"
-	if m.editStatus != "" {
+	hint := " ^S save · ^Q quit · ^F find · ^Z undo · ^C/^X/^V · ^T json"
+	switch {
+	case m.editJSON:
+		hint = editJSONHint()
+	case m.editStatus != "":
 		hint = " " + termsafe.Line(m.editStatus)
 	}
 	line, col := m.editor.Cursor()

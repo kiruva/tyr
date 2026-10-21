@@ -391,7 +391,14 @@ func (m Model) onConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // onEditKey drives the editor. Saving, quitting and closing are the app's;
 // every other key is the editor's.
 func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.editJSON {
+		return m.onEditJSONKey(msg.String()), nil
+	}
 	switch msg.String() {
+	case "ctrl+t":
+		m.editJSON = true
+		m.editStatus = ""
+		return m, nil
 	case "ctrl+s":
 		m.saveEditor()
 		return m, nil
@@ -489,6 +496,7 @@ func (m *Model) saveEditor() {
 func (m *Model) closeEditor() {
 	m.mode = modeNormal
 	m.editStatus = ""
+	m.editJSON = false
 }
 
 // beginOp assembles a job from the active pane's selection and asks for
