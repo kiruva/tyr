@@ -1072,6 +1072,17 @@ control character shows as `^X` and is saved as itself. Code is coloured like in
 | `Ctrl+Z` `Ctrl+Y`                | undo, redo                                           |
 | `Ctrl+F`                         | find, as you type; `Enter`/`↓` next, `↑` previous, `Esc` done |
 | `F3` / `Ctrl+G`, `Shift+F3`      | next / previous match of the last search             |
+| `Ctrl+T`                         | JSON tools: `p` prettify, `m` minify, `c` strip comments |
+
+`Ctrl+T` works on the selection, or the whole file when nothing is selected, and each tool is
+one undo step; nothing is saved until you save. Nothing in the JSON is re-encoded: key order,
+numbers (`1.50e+10` stays as written, a 20-digit ID is not rounded) and string escapes come
+out exactly as they went in. Prettify indents the way the file already does — tabs, or as many
+spaces as its first indented line — or two spaces. Strip comments turns JSONC (`//` and
+`/* */` comments, trailing commas, as VS Code settings and `tsconfig.json` write it) into
+plain JSON and keeps every line where it was. Text that is not JSON is left as it is: the
+footer says where it stops being JSON and what was expected there, and the cursor goes to the
+spot. A byte order mark and a final newline are kept, and a CRLF file stays CRLF.
 
 The mouse places the cursor, drags a selection and scrolls. A file that is not UTF-8 text is
 refused, since the editor could not save it back unchanged; `v` still shows it.

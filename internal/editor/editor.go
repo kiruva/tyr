@@ -144,6 +144,58 @@ func (m *Model) insert(text string, kind editKind) {
 	m.change(from, to, text, kind)
 }
 
+// targetSpan is what a whole-text tool works on: the selection, or the whole
+// buffer when there is none.
+func (m Model) targetSpan() (from, to Pos, whole bool) {
+	if m.sel && m.anchor != m.cur {
+		from, to = order(m.anchor, m.cur)
+		return from, to, false
+	}
+	return Pos{}, m.buf.end(), true
+}
+
+// Target is the text a whole-text tool — a JSON prettifier, say — works on:
+// the selection, or everything when nothing is selected, which whole says.
+// Lines are joined with \n whatever the file uses; ReplaceTarget puts the
+// file's own line endings back.
+func (m Model) Target() (text string, whole bool) {
+	from, to, whole := m.targetSpan()
+	return m.buf.slice(from, to), whole
+}
+
+// ReplaceTarget swaps the target for text as one undo step. A replaced
+// selection stays selected, so what changed can be seen; after the whole
+// buffer the cursor stays on its line. Text the same as the target is no
+// change at all, and leaves nothing to undo.
+func (m *Model) ReplaceTarget(text string) {
+	from, to, whole := m.targetSpan()
+	if m.buf.slice(from, to) == text {
+		return
+	}
+	row := m.cur.Row
+	m.change(from, to, text, editOther)
+	if whole {
+		m.cur = m.buf.clamp(Pos{row, 0})
+	} else {
+		m.anchor, m.sel = from, true
+	}
+	m.hist.undo[len(m.hist.undo)-1].After = m.cur // where redo puts it back
+	m.settle()
+}
+
+// GoToTarget puts the cursor at line and column (from 1, the column in
+// characters) counted within the target — where a tool said it found a
+// problem.
+func (m *Model) GoToTarget(line, col int) {
+	from, _, _ := m.targetSpan()
+	p := Pos{from.Row + line - 1, col - 1}
+	if line == 1 {
+		p.Col += from.Col
+	}
+	m.moveTo(p, false)
+	m.settle()
+}
+
 // deleteSelection removes the selection, reporting whether there was one.
 func (m *Model) deleteSelection() bool {
 	if !m.sel || m.anchor == m.cur {

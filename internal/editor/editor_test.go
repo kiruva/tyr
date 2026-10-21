@@ -268,3 +268,74 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// A whole-text tool works on the selection, or on everything when there is
+// none, and its result is one undo step.
+func TestReplaceTarget(t *testing.T) {
+	m := open("a\nb\nc")
+	keys(m, "down")
+	if text, whole := m.Target(); text != "a\nb\nc" || !whole {
+		t.Fatalf("Target = %q, %v; want the whole text", text, whole)
+	}
+	m.ReplaceTarget("x\ny\nz\nw")
+	if m.Text() != "x\ny\nz\nw" {
+		t.Fatalf("Text = %q", m.Text())
+	}
+	if line, _ := m.Cursor(); line != 2 {
+		t.Errorf("cursor on line %d, want it left on line 2", line)
+	}
+	keys(m, "ctrl+z")
+	if m.Text() != "a\nb\nc" {
+		t.Errorf("one undo left %q", m.Text())
+	}
+	keys(m, "ctrl+y")
+	if m.Text() != "x\ny\nz\nw" {
+		t.Errorf("redo left %q", m.Text())
+	}
+
+	// With a selection, only that is the target, and the result stays selected.
+	m = open("keep [1,2] keep")
+	keys(m, "right", "right", "right", "right", "right",
+		"shift+right", "shift+right", "shift+right", "shift+right", "shift+right")
+	if text, whole := m.Target(); text != "[1,2]" || whole {
+		t.Fatalf("Target = %q, %v", text, whole)
+	}
+	m.ReplaceTarget("[\n  1,\n  2\n]")
+	if m.Text() != "keep [\n  1,\n  2\n] keep" {
+		t.Errorf("Text = %q", m.Text())
+	}
+	if text, _ := m.Target(); text != "[\n  1,\n  2\n]" {
+		t.Errorf("the result is not selected: Target = %q", text)
+	}
+}
+
+// A CRLF file stays CRLF after a whole-text tool rewrote it.
+func TestReplaceTargetKeepsCRLF(t *testing.T) {
+	m := open("{\"a\":1}\r\n")
+	m.ReplaceTarget("{\n  \"a\": 1\n}\n")
+	if m.Text() != "{\r\n  \"a\": 1\r\n}\r\n" {
+		t.Errorf("Text = %q", m.Text())
+	}
+}
+
+// GoToTarget puts the cursor at a line and column counted inside the target.
+func TestGoToTarget(t *testing.T) {
+	m := open("x [1,\n 2 3] y")
+	m.GoToTarget(2, 4)
+	if line, col := m.Cursor(); line != 2 || col != 4 {
+		t.Errorf("cursor %d:%d, want 2:4", line, col)
+	}
+	keys(m, "ctrl+home", "right", "right", "shift+right", "shift+right", "shift+right", "shift+down", "shift+left")
+	if text, _ := m.Target(); text != "[1,\n 2 3" {
+		t.Fatalf("Target = %q", text)
+	}
+	m.GoToTarget(2, 4) // the "3": line 2 of the selection is line 2 of the file
+	if line, col := m.Cursor(); line != 2 || col != 4 {
+		t.Errorf("cursor %d:%d, want 2:4", line, col)
+	}
+	keys(m, "ctrl+home", "right", "right", "shift+right", "shift+right", "shift+right", "shift+down", "shift+left")
+	m.GoToTarget(1, 2) // the "1": the selection starts at column 3
+	if line, col := m.Cursor(); line != 1 || col != 4 {
+		t.Errorf("cursor %d:%d, want 1:4", line, col)
+	}
+}

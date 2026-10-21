@@ -88,6 +88,11 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Added
 
+- **JSON tools in the editor.** `Ctrl+T` then `p` prettifies, `m` minifies and `c` strips
+  JSONC's comments and trailing commas — on the selection, or the whole file — each one undo
+  step. Nothing is re-encoded: key order, number literals and escapes stay exactly as written.
+  Text that is not JSON is left alone, and the footer says where it breaks and what was
+  expected, with the cursor taken there.
 - **Rotate and flip images without re-encoding.** `o` turns the marked images — folders
   too — right, left, 180°, or flips them, by changing their EXIF orientation: nothing is
   decoded, nothing is lost, and the rest of the metadata stays as it was. JPEG, PNG and WebP;
