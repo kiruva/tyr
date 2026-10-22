@@ -36,7 +36,7 @@ func TestDetect(t *testing.T) {
 		"App.tsx":         TypeScript,
 		"lib.rs":          Rust,
 		"main.c":          C,
-		"style.css":       CLike,
+		"style.css":       CSS,
 		"deploy.sh":       Shell,
 		".zshrc":          Shell,
 		"tool.py":         Python,
@@ -427,5 +427,28 @@ func TestSpansReconstructTheLine(t *testing.T) {
 				t.Errorf("%v turned %q into %q", lang, line, b.String())
 			}
 		}
+	}
+}
+
+// Each language says how a line is commented out; the editor's comment toggle
+// uses it.
+func TestComment(t *testing.T) {
+	cases := []struct {
+		lang              Lang
+		line, open, close string
+	}{
+		{Go, "//", "", ""}, {CLike, "//", "", ""}, {Python, "#", "", ""}, {YAML, "#", "", ""},
+		{Hash, "#", "", ""}, {SQL, "--", "", ""}, {HTML, "", "<!--", "-->"},
+		{XML, "", "<!--", "-->"}, {Markdown, "", "<!--", "-->"}, {CSS, "", "/*", "*/"},
+		{JSON, "", "", ""}, {Diff, "", "", ""}, {None, "", "", ""},
+	}
+	for _, c := range cases {
+		line, open, close := c.lang.Comment()
+		if line != c.line || open != c.open || close != c.close {
+			t.Errorf("%v.Comment() = %q %q %q, want %q %q %q", c.lang, line, open, close, c.line, c.open, c.close)
+		}
+	}
+	if Detect("site.css") != CSS || Detect("site.scss") != CLike {
+		t.Errorf("Detect: css %v, scss %v", Detect("site.css"), Detect("site.scss"))
 	}
 }

@@ -80,3 +80,27 @@ func TestEditorJSONMenuEsc(t *testing.T) {
 		t.Errorf("mode %v, menu %v, text %q", app.mode, app.editJSON, app.editor.Text())
 	}
 }
+
+// t in the tools menu trims trailing spaces and tabs, in one undo step; the
+// file's CRLF line endings stay.
+func TestEditorTrimTrailingSpaces(t *testing.T) {
+	dir := t.TempDir()
+	text := "a  \r\n\tb\t\r\n  \r\nc\r\n"
+	writeBytes(t, filepath.Join(dir, "a.txt"), []byte(text))
+	m := press(t, press(t, editIn(t, dir, "a.txt"), "ctrl+t"), "t")
+	app := m.(Model)
+	if got := app.editor.Text(); got != "a\r\n\tb\r\n\r\nc\r\n" {
+		t.Fatalf("buffer = %q", got)
+	}
+	if !strings.Contains(app.editStatus, "trimmed") {
+		t.Errorf("status %q", app.editStatus)
+	}
+	m = press(t, press(t, m, "ctrl+t"), "t")
+	if app := m.(Model); !strings.Contains(app.editStatus, "no trailing") {
+		t.Errorf("second trim: status %q", app.editStatus)
+	}
+	m = press(t, m, "ctrl+z")
+	if got := m.(Model).editor.Text(); got != text {
+		t.Errorf("one undo left %q", got)
+	}
+}

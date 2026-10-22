@@ -11,6 +11,8 @@ from the commit history by GitVersion and tagged by CI; see
 
 ### Fixed
 
+- **`Alt+Shift+←`/`→` select a word at a time in the editor**, like `Ctrl+Shift+←`/`→`;
+  they did nothing.
 - **Saving from the editor no longer changes what you did not touch.** The editor turned every
   tab into four spaces, every `\r\n` into two line breaks, dropped other control characters and
   cut files at 10000 lines — so a Makefile saved unchanged stopped working. It is replaced by
@@ -109,6 +111,13 @@ from the commit history by GitVersion and tagged by CI; see
   `$variables` (inside double quotes as well) and Python `@decorators`; Python's `"""`
   strings run across lines. The viewer's flags name the language (`go`, `python`) instead of
   `code` or `script`.
+- **The editor does more of what a quick fix needs.** `Ctrl+R` finds and replaces — one at a
+  time, or all at once as a single undo step. `Ctrl+L` goes to a line (`120`, or `120:8`).
+  `Alt+↑`/`Alt+↓` move the line or the selected lines, `Alt+Shift+↑`/`↓` duplicate them, and
+  `Ctrl+/` comments them out or back in with the language's own marker. The bracket paired
+  with the one at the cursor is marked, skipping any in strings and comments. `Ctrl+T`'s menu
+  gains `t`, trim trailing spaces. `Ctrl+O` saves under another name and goes on editing that
+  file. The footer's hints are cut to fit instead of spilling onto a second line.
 - **Rotate and flip images without re-encoding.** `o` turns the marked images — folders
   too — right, left, 180°, or flips them, by changing their EXIF orientation: nothing is
   decoded, nothing is lost, and the rest of the metadata stays as it was. JPEG, PNG and WebP;

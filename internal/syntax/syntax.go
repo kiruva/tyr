@@ -51,6 +51,7 @@ const (
 	TOML
 	HTML
 	Dockerfile
+	CSS
 )
 
 func (l Lang) String() string {
@@ -75,6 +76,26 @@ func (l Lang) String() string {
 	default:
 		return "plain"
 	}
+}
+
+// Comment is how a line of l is commented out: a marker that runs to the end
+// of the line, or failing that a pair to wrap it in. All empty: it cannot be.
+func (l Lang) Comment() (line, open, close string) {
+	switch {
+	case l == CSS:
+		return "", "/*", "*/"
+	case l == XML || l == Markdown || l.shape() == XML:
+		return "", "<!--", "-->"
+	}
+	switch l.shape() {
+	case CLike:
+		return "//", "", ""
+	case Hash:
+		return "#", "", ""
+	case SQL:
+		return "--", "", ""
+	}
+	return "", "", ""
 }
 
 // shape is the shape of language l is scanned as.
@@ -113,7 +134,7 @@ var byExtension = map[string]Lang{
 	".hh": Cpp, ".java": Java, ".kt": Kotlin, ".kts": Kotlin, ".js": JavaScript,
 	".mjs": JavaScript, ".cjs": JavaScript, ".jsx": JavaScript, ".ts": TypeScript,
 	".tsx": TypeScript, ".mts": TypeScript, ".rs": Rust, ".swift": Swift, ".cs": CSharp,
-	".php": PHP, ".scala": CLike, ".css": CLike, ".scss": CLike, ".zig": CLike,
+	".php": PHP, ".scala": CLike, ".css": CSS, ".scss": CLike, ".zig": CLike,
 	".dart": CLike, ".proto": CLike,
 
 	".sh": Shell, ".bash": Shell, ".zsh": Shell, ".fish": Shell, ".py": Python,
@@ -211,6 +232,8 @@ var languages = map[Lang]language{
 	YAML: {"yaml", Hash, words(`true false null yes no on off True False Null TRUE FALSE NULL`)},
 	TOML: {"toml", Hash, words(`true false`)},
 	HTML: {"html", XML, nil},
+	CSS: {"css", CLike, words(`important media import supports keyframes charset namespace page
+		from to and not only`)},
 	Dockerfile: {"dockerfile", Hash, words(`FROM AS RUN CMD LABEL EXPOSE ENV ADD COPY ENTRYPOINT
 		VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL MAINTAINER`)},
 }

@@ -13,8 +13,8 @@
 Mouse slow. Menus slower. tyr put two folders side by side. Active pane is source, other pane
 is target, `Tab` swap them. That is whole mental model.
 
-Total Commander spirit, terminal body. Built for Linux first, happy on macOS, runs on Windows
-too. Keyboard driven, intuitive like lazygit.
+Classic two-pane file manager, terminal body. Built for Linux first, happy on macOS, runs on
+Windows too. Keyboard driven, intuitive like lazygit.
 
 ## What tyr do
 
@@ -41,9 +41,11 @@ too. Keyboard driven, intuitive like lazygit.
 - **See what image carry.** `v` on JPEG, PNG, GIF, WebP show its metadata decoded: where taken,
   what camera, who signed, AI-generation markers. `x` for hex.
 - **Read and write files.** Pager with search, wrap, line numbers, syntax colors, hex dump for
-  binary. Editor for quick fixes — syntax colors, undo, find, select and copy/paste, tabs
-  and line endings kept as they were — saves in place, even file inside archive. `Ctrl+T`
-  prettify, minify JSON, strip JSONC comments; numbers and key order stay as written.
+  binary. Editor for quick fixes — syntax colors, undo, find and replace, go to line, move,
+  duplicate and comment out lines, bracket match, select and copy/paste, tabs and line endings
+  kept as they were — saves in place or save as, even file inside archive. `Ctrl+T` prettify,
+  minify JSON, strip JSONC comments, trim trailing spaces; numbers and key order stay as
+  written.
   Viewer shows JSON pretty (`p`) or as tree to fold (`t`), find inside, `y` copy jq path.
 - **Remote panes.** One pane on ssh host, other local, transfer both ways. Reads
   `~/.ssh/config` aliases, uses agent and keys, checks host keys. Passwords never written to

@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -61,9 +62,9 @@ func (m *Model) gutterWidth() int { return len(fmt.Sprint(len(m.buf.lines))) + 3
 // textWidth is how many columns of text fit beside the gutter.
 func (m *Model) textWidth() int { return max(m.width-m.gutterWidth(), 1) }
 
-// textHeight is how many lines of text fit: the find prompt takes the last row.
+// textHeight is how many lines of text fit: a prompt takes the last row.
 func (m *Model) textHeight() int {
-	if m.find.active {
+	if m.Prompting() {
 		return max(m.height-1, 1)
 	}
 	return m.height
@@ -143,6 +144,7 @@ const (
 	styleRemoved
 	styleControl
 	styleMatch
+	styleBracket
 	styleSelected
 	styleCursor
 )
@@ -175,6 +177,8 @@ func (s cellStyle) render(text string) string {
 		return ui.Faint.Render(text)
 	case styleMatch:
 		return ui.Match.Render(text)
+	case styleBracket:
+		return ui.BracketMatch.Render(text)
 	case styleSelected:
 		return ui.CursorInactive.Render(text)
 	case styleCursor:
@@ -191,6 +195,10 @@ func (m *Model) View() string {
 	digits := m.gutterWidth() - 3
 	selFrom, selTo := order(m.anchor, m.cur)
 	needle := []rune(m.find.query)
+	var brackets []Pos
+	if from, to, ok := m.bracketPair(); ok {
+		brackets = []Pos{from, to}
+	}
 
 	for i := range h {
 		row := m.top + i
@@ -199,16 +207,19 @@ func (m *Model) View() string {
 			continue
 		}
 		gutter := ui.Gutter.Render(fmt.Sprintf("%*d │ ", digits, row+1))
-		out = append(out, gutter+m.drawLine(row, selFrom, selTo, needle))
+		out = append(out, gutter+m.drawLine(row, selFrom, selTo, needle, brackets))
 	}
 	if m.find.active {
 		out = append(out, m.find.view(m.width))
+	}
+	if m.jump.active {
+		out = append(out, m.jump.view(m.width))
 	}
 	return strings.Join(out, "\n")
 }
 
 // drawLine draws the visible part of one line, run by run of equal style.
-func (m *Model) drawLine(row int, selFrom, selTo Pos, needle []rune) string {
+func (m *Model) drawLine(row int, selFrom, selTo Pos, needle []rune, brackets []Pos) string {
 	line := m.buf.lines[row]
 	kinds := m.kinds(row)
 	matches := matchesIn(line, needle)
@@ -240,6 +251,8 @@ func (m *Model) drawLine(row int, selFrom, selTo Pos, needle []rune) string {
 			style = styleCursor
 		case m.sel && !p.Before(selFrom) && p.Before(selTo):
 			style = styleSelected
+		case slices.Contains(brackets, p):
+			style = styleBracket
 		case i < len(line) && matches[i]:
 			style = styleMatch
 		case i < len(line) && isControl(line[i]):

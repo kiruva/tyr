@@ -61,6 +61,7 @@ type Model struct {
 	color bool
 
 	find finder
+	jump jumper
 
 	// Clipboard is where cut, copy and paste go; the system's by default.
 	Clipboard Clipboard
@@ -83,6 +84,12 @@ func (m *Model) SetText(text string, lang syntax.Lang) {
 	m.width, m.height = w, h
 	m.buf = newBuffer(text)
 	m.lang = lang
+}
+
+// SetLang changes the language the buffer is highlighted as — after a save
+// under a new name, say — keeping the text and its undo history.
+func (m *Model) SetLang(lang syntax.Lang) {
+	m.lang, m.hl = lang, nil
 }
 
 // Text is the buffer as it would be saved.
@@ -357,6 +364,9 @@ func (m *Model) Update(msg tea.Msg) bool {
 		if m.find.active {
 			return m.findKey(msg)
 		}
+		if m.jump.active {
+			return m.jumpKey(msg)
+		}
 		return m.key(msg)
 	case tea.MouseMsg:
 		m.mouse(msg)
@@ -408,9 +418,9 @@ func (m *Model) key(msg tea.KeyMsg) bool {
 		m.moveTo(m.home(m.cur), shift)
 	case "end", "shift+end", "ctrl+e":
 		m.moveTo(Pos{m.cur.Row, len(m.buf.lines[m.cur.Row])}, shift)
-	case "ctrl+left", "alt+left", "alt+b", "ctrl+shift+left", "shift+alt+left":
+	case "ctrl+left", "alt+left", "alt+b", "ctrl+shift+left", "alt+shift+left":
 		m.moveTo(m.wordLeft(m.cur), shift)
-	case "ctrl+right", "alt+right", "alt+f", "ctrl+shift+right", "shift+alt+right":
+	case "ctrl+right", "alt+right", "alt+f", "ctrl+shift+right", "alt+shift+right":
 		m.moveTo(m.wordRight(m.cur), shift)
 	case "ctrl+home", "ctrl+shift+home":
 		m.moveTo(Pos{}, shift)
@@ -487,6 +497,24 @@ func (m *Model) key(msg tea.KeyMsg) bool {
 	case "shift+f3":
 		m.findNext(-1)
 		return true
+	case "ctrl+r":
+		m.openReplace()
+		return true
+	case "ctrl+l":
+		m.openJump()
+		return true
+	case "alt+up":
+		m.moveLines(-1)
+		return true
+	case "alt+down":
+		m.moveLines(1)
+		return true
+	case "alt+shift+up":
+		m.duplicateLines(-1)
+		return true
+	case "alt+shift+down":
+		m.duplicateLines(1)
+		return true
 
 	default:
 		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
@@ -534,14 +562,7 @@ func (m *Model) cutLine() {
 // indent adds a tab to, or takes one level of indentation off, every line the
 // selection touches (or the cursor's line), as one undoable step.
 func (m *Model) indent(in bool) {
-	first, last := m.cur.Row, m.cur.Row
-	if m.sel {
-		from, to := order(m.anchor, m.cur)
-		first, last = from.Row, to.Row
-		if to.Col == 0 && to.Row > from.Row {
-			last-- // a selection ending at a line's start does not take that line
-		}
-	}
+	first, last := m.selectedRows()
 	var lines []string
 	for r := first; r <= last; r++ {
 		line := string(m.buf.lines[r])

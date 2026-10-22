@@ -1062,17 +1062,35 @@ control character shows as `^X` and is saved as itself. Code is coloured like in
 | -------------------------------- | ---------------------------------------------------- |
 | arrows, `Home` `End` `PgUp` `PgDn` | move; `Home` goes to the first non-blank, then column 0 |
 | `Ctrl+←` `Ctrl+→` (or `Alt+`)    | word left / right                                    |
+| `Ctrl+L`                         | go to line — `120`, or `120:8` for a column too      |
 | `Ctrl+Home` `Ctrl+End`           | top / bottom of the file                             |
 | `Shift` + any move, `Ctrl+A`     | select; select all                                   |
 | `Ctrl+C` `Ctrl+X` `Ctrl+V`       | copy, cut, paste — the system clipboard where there is one |
 | `Ctrl+K`                         | cut the line                                         |
+| `Alt+↑` `Alt+↓`                  | move the line (or the selected lines) up / down      |
+| `Alt+Shift+↑` `Alt+Shift+↓`      | duplicate the line (or the selected lines)           |
+| `Ctrl+/`                         | comment / uncomment the line (or the selected lines) |
 | `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them    |
 | `Enter`                          | new line, keeping the indentation                    |
 | `Alt+Backspace`, `Ctrl+W`        | delete the word before the cursor                    |
 | `Ctrl+Z` `Ctrl+Y`                | undo, redo                                           |
 | `Ctrl+F`                         | find, as you type; `Enter`/`↓` next, `↑` previous, `Esc` done |
 | `F3` / `Ctrl+G`, `Shift+F3`      | next / previous match of the last search             |
-| `Ctrl+T`                         | JSON tools: `p` prettify, `m` minify, `c` strip comments |
+| `Ctrl+R`                         | find and replace; `Tab` switches field, `Enter` replaces and goes on, `↓` skips, `Ctrl+A` replaces all |
+| `Ctrl+T`                         | tools: `p` prettify, `m` minify, `c` strip comments (JSON), `t` trim trailing spaces |
+| `Ctrl+O`                         | save as — then go on editing the new file            |
+
+Replace finds the way find does, ignoring case, and puts the replacement in as typed.
+Replace all is one undo step. `Ctrl+R` from the find bar keeps what was typed. `Ctrl+/`
+uses the language's comment marker — `//`, `#`, `--` — at the lines' common indent, or wraps
+each line in `<!-- -->` (`/* */` for CSS); when every line is commented already it takes the
+markers off. Blank lines are left alone, and a JSON file, which has no comments, is not
+touched. Terminals send `Ctrl+/` as `Ctrl+_`, which works too. The bracket paired with the
+one at the cursor is marked; brackets in strings and comments do not count.
+
+`Ctrl+O` starts with the file's own path; a bare name is saved beside it (beside the archive,
+for a file being edited inside one), and `~` is the home folder. A file that is already there
+takes a second `Enter` to overwrite. The old file keeps what it had at its last save.
 
 `Ctrl+T` works on the selection, or the whole file when nothing is selected, and each tool is
 one undo step; nothing is saved until you save. Nothing in the JSON is re-encoded: key order,

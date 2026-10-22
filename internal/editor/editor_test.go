@@ -36,7 +36,14 @@ func keyMsg(k string) tea.KeyMsg {
 		"home": tea.KeyHome, "end": tea.KeyEnd, "ctrl+home": tea.KeyCtrlHome, "ctrl+end": tea.KeyCtrlEnd,
 		"ctrl+z": tea.KeyCtrlZ, "ctrl+y": tea.KeyCtrlY, "ctrl+c": tea.KeyCtrlC, "ctrl+x": tea.KeyCtrlX,
 		"ctrl+v": tea.KeyCtrlV, "ctrl+a": tea.KeyCtrlA, "ctrl+f": tea.KeyCtrlF, "ctrl+k": tea.KeyCtrlK,
-		"esc": tea.KeyEsc, "ctrl+right": tea.KeyCtrlRight,
+		"esc": tea.KeyEsc, "ctrl+right": tea.KeyCtrlRight, "ctrl+l": tea.KeyCtrlL,
+		"ctrl+r": tea.KeyCtrlR, "ctrl+_": tea.KeyCtrlUnderscore, "ctrl+g": tea.KeyCtrlG,
+	}
+	// "alt+…" is the key with Alt held, as bubbletea reports it.
+	if rest, ok := strings.CutPrefix(k, "alt+"); ok {
+		msg := keyMsg(rest)
+		msg.Alt = true
+		return msg
 	}
 	if t, ok := named[k]; ok {
 		return tea.KeyMsg{Type: t}
@@ -347,5 +354,20 @@ func TestEverySyntaxKindIsStyled(t *testing.T) {
 		if _, ok := syntaxStyle[k]; !ok {
 			t.Errorf("syntax kind %d has no style", k)
 		}
+	}
+}
+
+// Alt+Shift+arrow selects a word at a time. bubbletea calls the key
+// "alt+shift+left"; the editor listened for "shift+alt+left", so it never
+// selected.
+func TestAltShiftSelectsWords(t *testing.T) {
+	m := open("one two three")
+	keys(m, "end", "alt+shift+left")
+	if !m.sel || m.selection() != "three" {
+		t.Fatalf("alt+shift+left selected %q (sel %v), want three", m.selection(), m.sel)
+	}
+	keys(m, "home", "alt+shift+right")
+	if m.selection() != "one" {
+		t.Errorf("alt+shift+right selected %q, want one", m.selection())
 	}
 }
