@@ -45,6 +45,12 @@ sboms:
 snapshot:
   version_template: "{{ incpatch .Version }}-nightly.{{ .ShortCommit }}"
 
+# The rolling `nightly` tag is not a version. Left visible, it is the nearest tag
+# to main after the first nightly, and `incpatch` above fails on it.
+git:
+  ignore_tags:
+    - nightly
+
 changelog:
   sort: asc
   filters:
