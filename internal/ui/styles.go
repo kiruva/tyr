@@ -71,6 +71,10 @@ var (
 	Match        lipgloss.Style
 	MatchCurrent lipgloss.Style
 
+	// BracketMatch marks the bracket that pairs with the one at the editor's
+	// cursor.
+	BracketMatch lipgloss.Style
+
 	// The syntax styles colour the viewer's highlighting. They are drawn from
 	// the same eight theme colours as everything else, so a theme does not have
 	// to say anything about code to look right on it.
@@ -175,6 +179,7 @@ func Apply(t Theme) {
 
 	Match = lipgloss.NewStyle().Background(t.Mark).Foreground(t.CursorFg)
 	MatchCurrent = lipgloss.NewStyle().Background(t.Accent).Foreground(t.CursorFg).Bold(true)
+	BracketMatch = lipgloss.NewStyle().Background(t.Dim).Foreground(t.Accent).Bold(true)
 
 	SyntaxKeyword = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
 	SyntaxString = lipgloss.NewStyle().Foreground(t.Mark)

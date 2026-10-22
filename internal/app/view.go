@@ -139,8 +139,10 @@ func (m Model) renderEditor() string {
 	}
 	header := ui.StatusBar.Width(m.width).Render(" edit · " + ui.TruncTail(name, m.width-8))
 
-	hint := " ^S save · ^Q quit · ^F find · ^Z undo · ^C/^X/^V · ^T json"
+	hint := " ^S save · ^O save as · ^Q quit · ^F find · ^R replace · ^L line · ^/ comment · ^T tools"
 	switch {
+	case m.editAs.on:
+		hint = m.saveAsHint()
 	case m.editJSON:
 		hint = editJSONHint()
 	case m.editStatus != "":
@@ -148,6 +150,7 @@ func (m Model) renderEditor() string {
 	}
 	line, col := m.editor.Cursor()
 	where := fmt.Sprintf("Ln %d, Col %d ", line, col)
+	hint = ui.TruncHead(hint, m.width-lipgloss.Width(where)-1)
 	footer := ui.StatusBar.Width(m.width).Render(hint + spacer(m.width, hint, where) + where)
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)
 }

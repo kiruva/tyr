@@ -3,11 +3,13 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kiruva/tyr/internal/jsonfmt"
 )
 
-// Ctrl+T in the editor opens a one-line menu of JSON tools in the footer. Each
+// Ctrl+T in the editor opens a one-line menu of text tools in the footer —
+// the JSON ones, and trimming trailing whitespace. Each
 // works on the selection, or the whole buffer when nothing is selected, and is
 // one undo step; nothing is written until the file is saved. Text that is not
 // JSON is never touched: the footer says where it stops being JSON, and the
@@ -22,11 +24,21 @@ var editJSONTools = []struct {
 	{"p", "prettify", "prettified", "already pretty", jsonfmt.Prettify},
 	{"m", "minify", "minified", "already minified", jsonfmt.Minify},
 	{"c", "strip comments", "stripped the comments from", "no comments to strip", jsonfmt.StripComments},
+	{"t", "trim spaces", "trimmed trailing spaces in", "no trailing spaces", trimTrailing},
+}
+
+// trimTrailing takes the spaces and tabs off the end of every line.
+func trimTrailing(text string) (string, error) {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // editJSONHint is the footer while the menu is open.
 func editJSONHint() string {
-	s := " JSON:"
+	s := " tools:"
 	for _, t := range editJSONTools {
 		s += " " + t.key + " " + t.label + " ·"
 	}

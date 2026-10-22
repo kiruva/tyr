@@ -394,10 +394,21 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.editJSON {
 		return m.onEditJSONKey(msg.String()), nil
 	}
+	if m.editAs.on {
+		return m.onSaveAsKey(msg)
+	}
 	switch msg.String() {
+	case "ctrl+o":
+		return m, m.openSaveAs()
 	case "ctrl+t":
 		m.editJSON = true
 		m.editStatus = ""
+		return m, nil
+	case "ctrl+_": // Ctrl+/ in most terminals
+		m.editStatus = ""
+		if !m.editor.ToggleComment() {
+			m.editStatus = "this kind of file has no comments"
+		}
 		return m, nil
 	case "ctrl+s":
 		m.saveEditor()
@@ -406,7 +417,7 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeEditor()
 		return m, nil
 	case "esc":
-		if m.editor.Finding() {
+		if m.editor.Prompting() {
 			break // closes the find prompt
 		}
 		if m.editor.Dirty() {
@@ -497,6 +508,7 @@ func (m *Model) closeEditor() {
 	m.mode = modeNormal
 	m.editStatus = ""
 	m.editJSON = false
+	m.editAs.on = false
 }
 
 // beginOp assembles a job from the active pane's selection and asks for

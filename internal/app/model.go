@@ -118,7 +118,8 @@ type Model struct {
 	editor     editor.Model
 	edit       editTarget
 	editStatus string // transient footer message ("saved", etc.)
-	editJSON   bool   // the JSON tools menu is open in the footer
+	editJSON   bool   // the tools menu is open in the footer
+	editAs     saveAs // the save-as prompt in the footer
 	loadSeq    int    // the open being waited for; an older reply is dropped
 
 	sizes [2]sizing // directory sizes being measured, per pane
