@@ -138,6 +138,9 @@ const (
 	styleComment
 	styleNumber
 	styleHeading
+	styleKey
+	styleAdded
+	styleRemoved
 	styleControl
 	styleMatch
 	styleSelected
@@ -146,7 +149,8 @@ const (
 
 var syntaxStyle = map[syntax.Kind]cellStyle{
 	syntax.Keyword: styleKeyword, syntax.Str: styleString, syntax.Comment: styleComment,
-	syntax.Number: styleNumber, syntax.Heading: styleHeading,
+	syntax.Number: styleNumber, syntax.Heading: styleHeading, syntax.Key: styleKey,
+	syntax.Name: styleKey, syntax.Added: styleAdded, syntax.Removed: styleRemoved,
 }
 
 func (s cellStyle) render(text string) string {
@@ -161,6 +165,12 @@ func (s cellStyle) render(text string) string {
 		return ui.SyntaxNumber.Render(text)
 	case styleHeading:
 		return ui.SyntaxHeading.Render(text)
+	case styleKey:
+		return ui.SyntaxKey.Render(text)
+	case styleAdded:
+		return ui.SyntaxAdded.Render(text)
+	case styleRemoved:
+		return ui.SyntaxRemoved.Render(text)
 	case styleControl:
 		return ui.Faint.Render(text)
 	case styleMatch:

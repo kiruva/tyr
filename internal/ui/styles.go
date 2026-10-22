@@ -79,6 +79,9 @@ var (
 	SyntaxComment lipgloss.Style
 	SyntaxNumber  lipgloss.Style
 	SyntaxHeading lipgloss.Style
+	SyntaxKey     lipgloss.Style
+	SyntaxAdded   lipgloss.Style
+	SyntaxRemoved lipgloss.Style
 )
 
 // current is the theme the styles were last built from.
@@ -178,6 +181,9 @@ func Apply(t Theme) {
 	SyntaxComment = lipgloss.NewStyle().Foreground(t.Dim).Italic(true)
 	SyntaxNumber = lipgloss.NewStyle().Foreground(t.Title)
 	SyntaxHeading = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Underline(true)
+	SyntaxKey = lipgloss.NewStyle().Foreground(t.Accent)
+	SyntaxAdded = lipgloss.NewStyle().Foreground(t.Accent)
+	SyntaxRemoved = lipgloss.NewStyle().Foreground(t.Danger)
 }
 
 // Swatch renders a small colour sample of a theme, for the theme picker.

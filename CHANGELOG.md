@@ -100,6 +100,15 @@ from the commit history by GitVersion and tagged by CI; see
   is untouched and `e` still edits it as it is. Numbers stay as written; JSONC is shown
   without its comments, and text that is not JSON says where it breaks. A 16 MB file scrolls
   as quickly as a small one.
+- **Highlighting knows more languages, and each one's own words.** Go, C/C++, Java, Kotlin,
+  JavaScript/TypeScript, Rust, Swift, C#, PHP, Python, Ruby, shell, YAML and TOML colour
+  their own keywords — `func` is no longer a keyword in C, nor `done` in Python. New:
+  XML/HTML (tags, attributes, entities, comments across lines), SQL (keywords in any case),
+  diffs and patches (added and removed lines), and Dockerfiles. Keys in JSON, YAML and TOML
+  are coloured apart from `true`/`false`/`null` — in the JSON tree too — and so are shell
+  `$variables` (inside double quotes as well) and Python `@decorators`; Python's `"""`
+  strings run across lines. The viewer's flags name the language (`go`, `python`) instead of
+  `code` or `script`.
 - **Rotate and flip images without re-encoding.** `o` turns the marked images — folders
   too — right, left, 180°, or flips them, by changing their EXIF orientation: nothing is
   decoded, nothing is lost, and the rest of the metadata stays as it was. JPEG, PNG and WebP;
