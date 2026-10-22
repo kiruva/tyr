@@ -186,8 +186,8 @@ func TestViewerSyntaxToggle(t *testing.T) {
 	m := openIn(t, "main.go", "package main\n\nfunc main() {} // hi\n")
 
 	app := m.(Model)
-	if app.viewer.lang.String() != "code" {
-		t.Fatalf("language = %q, want code", app.viewer.lang.String())
+	if app.viewer.lang.String() != "go" {
+		t.Fatalf("language = %q, want go", app.viewer.lang.String())
 	}
 	if !app.viewer.colour {
 		t.Error("a known language opened with highlighting off")

@@ -455,12 +455,15 @@ func (m Model) row(i int32, cursor bool, width int) string {
 			marker = "▾ "
 		}
 	}
-	label := ""
+	label, styled := "", ""
 	switch {
 	case n.index >= 0:
 		label = "[" + strconv.Itoa(int(n.index)) + "]: "
+		styled = label
 	case n.parent >= 0:
-		label = termsafe.Line(n.key) + ": "
+		key := termsafe.Line(n.key)
+		label = key + ": "
+		styled = ui.SyntaxKey.Render(key) + ": "
 	}
 
 	value, style := termsafe.Line(n.value), lipgloss.NewStyle()
@@ -477,12 +480,12 @@ func (m Model) row(i int32, cursor bool, width int) string {
 		style = ui.SyntaxKeyword
 	}
 
-	lead := strings.Repeat("  ", int(n.depth)) + marker + label
+	lead := strings.Repeat("  ", int(n.depth)) + marker
 	if cursor {
-		line := ansi.Truncate(lead+value, width, "…")
+		line := ansi.Truncate(lead+label+value, width, "…")
 		return ui.Cursor.Render(ui.PadRight(line, width))
 	}
-	return ansi.Truncate(lead+style.Render(value), width, "…")
+	return ansi.Truncate(lead+styled+style.Render(value), width, "…")
 }
 
 // summary says what a container holds: {} or [] when nothing, else a count.

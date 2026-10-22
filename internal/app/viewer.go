@@ -385,6 +385,12 @@ func styleFor(kind syntax.Kind) lipgloss.Style {
 		return ui.SyntaxNumber
 	case syntax.Heading:
 		return ui.SyntaxHeading
+	case syntax.Key, syntax.Name:
+		return ui.SyntaxKey
+	case syntax.Added:
+		return ui.SyntaxAdded
+	case syntax.Removed:
+		return ui.SyntaxRemoved
 	default:
 		return lipgloss.NewStyle()
 	}

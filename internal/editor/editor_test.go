@@ -339,3 +339,13 @@ func TestGoToTarget(t *testing.T) {
 		t.Errorf("cursor %d:%d, want 1:4", line, col)
 	}
 }
+
+// Every kind the highlighter can hand back has a style; a kind left out of
+// the map is drawn plain without anyone noticing.
+func TestEverySyntaxKindIsStyled(t *testing.T) {
+	for k := syntax.Keyword; k <= syntax.Removed; k++ {
+		if _, ok := syntaxStyle[k]; !ok {
+			t.Errorf("syntax kind %d has no style", k)
+		}
+	}
+}
