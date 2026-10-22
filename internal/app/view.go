@@ -60,17 +60,27 @@ func (m Model) renderViewer() string {
 	left := " view · " + ui.TruncTail(m.viewTitle, max(m.width-lipgloss.Width(right)-10, 8))
 	header := ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View(), m.viewerFooter())
+	body := m.viewport.View()
+	if m.viewer.treeOn {
+		body = m.viewer.tree.View(m.width, m.viewport.Height)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, m.viewerFooter())
 }
 
 // viewerFlags says which of the pager's switches are on, and what the file is
 // being highlighted as.
 func (m Model) viewerFlags() string {
+	if m.viewer.treeOn {
+		return "tree "
+	}
 	var on []string
 	if m.viewer.hex {
 		on = append(on, "hex")
 	} else if m.viewer.meta {
 		on = append(on, "metadata")
+	}
+	if m.viewer.pretty && !m.viewer.hex {
+		on = append(on, "pretty")
 	}
 	if m.viewer.wrap {
 		on = append(on, "wrap")
@@ -87,21 +97,37 @@ func (m Model) viewerFlags() string {
 	return strings.Join(on, " · ") + " "
 }
 
-// viewerFooter is the search field, whatever the pager has to say, or the keys.
+// viewerFooter is the search field, whatever the pager has to say, or the
+// keys. Over the tree, the right-hand side is the path of the cursor's row.
 func (m Model) viewerFooter() string {
-	if m.viewer.prompting {
+	tree := m.viewer.treeOn
+	if m.viewer.prompting || tree && m.viewer.tree.Prompting() {
 		left := " find: " + m.viewer.input.View()
 		right := "enter keep · esc clear"
+		if tree {
+			left, right = " find: "+m.viewer.tree.InputView(), "enter find · esc cancel"
+		}
 		return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
+
+	right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+	if tree {
+		right = ui.TruncTail(m.viewer.tree.Path(), max(m.width/2, 8)) + " "
+	}
+	room := max(m.width-lipgloss.Width(right)-1, 8)
 	if m.viewer.status != "" {
-		left := " " + ui.TruncTail(m.viewer.status, max(m.width-12, 8))
-		right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+		left := " " + ui.TruncTail(m.viewer.status, room-1)
 		return ui.NoticeBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 	}
 
 	left := " / find · n next · w wrap · # numbers · x hex · s colour · e edit · q close"
-	right := fmt.Sprintf("%3.0f%% ", m.viewport.ScrollPercent()*100)
+	switch {
+	case tree:
+		left = " ←→ fold · * open all · - close all · y copy path · / find · t text · q close"
+	case m.viewer.lang == syntax.JSON:
+		left = " / find · n next · p pretty · t tree · w wrap · # numbers · x hex · s colour · e edit · q close"
+	}
+	left = ui.TruncHead(left, room)
 	return ui.StatusBar.Width(m.width).Render(left + spacer(m.width, left, right) + right)
 }
 

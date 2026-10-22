@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kiruva/tyr/internal/find"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // Find searches the active pane's directory and everything under it, by name
@@ -237,7 +238,7 @@ func (m Model) onFindDone(msg findDoneMsg) (tea.Model, tea.Cmd) {
 
 // onFindResultsKey drives the hit list.
 func (m Model) onFindResultsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if moveCursor(&m.find.cursor, msg.String(), len(m.find.results)-1, findRows) {
+	if ui.MoveCursor(&m.find.cursor, msg.String(), len(m.find.results)-1, findRows) {
 		return m, nil
 	}
 	switch msg.String() {

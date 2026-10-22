@@ -35,31 +35,6 @@ func formRow(focused bool, label, value, note string) string {
 	return row + strings.Repeat(" ", gap) + ui.Faint.Render(note)
 }
 
-// moveCursor applies the keys every scrolling list shares — ↑↓ and jk, page
-// up and down, home and end — to a cursor over rows 0..last, page rows at a
-// time. It reports whether key was one of them.
-func moveCursor(cursor *int, key string, last, page int) bool {
-	c := *cursor
-	switch key {
-	case "up", "k":
-		c--
-	case "down", "j":
-		c++
-	case "pgup", "ctrl+u":
-		c -= page
-	case "pgdown", "ctrl+d":
-		c += page
-	case "home", "g":
-		c = 0
-	case "end", "G":
-		c = last
-	default:
-		return false
-	}
-	*cursor = max(min(c, last), 0)
-	return true
-}
-
 // newInput is a text field as the dialogs use it: no prompt of its own, no
 // length limit, a placeholder saying what goes in it.
 func newInput(placeholder string, password bool, width int) textinput.Model {
