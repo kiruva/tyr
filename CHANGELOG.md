@@ -9,6 +9,8 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-22
+
 ### Fixed
 
 - **`Alt+Shift+←`/`→` select a word at a time in the editor**, like `Ctrl+Shift+←`/`→`;
