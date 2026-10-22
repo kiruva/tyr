@@ -49,8 +49,18 @@ func (m Model) onMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// viewerMouse is the pointer over the pager, which scrolls it.
+// viewerMouse is the pointer over the pager, which scrolls it — or, over the
+// JSON tree, moves its cursor.
 func (m Model) viewerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.viewer.treeOn {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.viewer.tree = m.viewer.tree.Scroll(-wheelStep)
+		case tea.MouseButtonWheelDown:
+			m.viewer.tree = m.viewer.tree.Scroll(wheelStep)
+		}
+		return m, nil
+	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd

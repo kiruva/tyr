@@ -1,4 +1,4 @@
-package app
+package ui
 
 import "testing"
 
@@ -22,8 +22,8 @@ func TestMoveCursorStaysOnTheList(t *testing.T) {
 	}
 	for _, c := range cases {
 		cur := c.from
-		if got := moveCursor(&cur, c.key, c.last, 3); got != c.handled || cur != c.want {
-			t.Errorf("moveCursor(%d, %q, last %d) = %d, %v; want %d, %v", c.from, c.key, c.last, cur, got, c.want, c.handled)
+		if got := MoveCursor(&cur, c.key, c.last, 3); got != c.handled || cur != c.want {
+			t.Errorf("MoveCursor(%d, %q, last %d) = %d, %v; want %d, %v", c.from, c.key, c.last, cur, got, c.want, c.handled)
 		}
 	}
 }

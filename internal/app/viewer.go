@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kiruva/tyr/internal/jsontree"
 	"github.com/kiruva/tyr/internal/syntax"
 	"github.com/kiruva/tyr/internal/termsafe"
 	"github.com/kiruva/tyr/internal/ui"
@@ -38,6 +39,15 @@ type viewerState struct {
 	// meta is set for an image: lines then hold its metadata report, and hex
 	// switches between that and the bytes.
 	meta bool
+	// pretty is set while lines hold the JSON prettified; plain keeps the
+	// file's own lines for when it is turned off.
+	pretty bool
+	plain  []string
+	// tree is the JSON as a tree to fold, built the first time t asks for
+	// it and kept, folds and all, while treeOn says it is the one showing.
+	tree      jsontree.Model
+	treeBuilt bool
+	treeOn    bool
 
 	// source is the file the viewer shows, for e to open in the editor; it
 	// is empty for a command's output, which has none.
@@ -108,6 +118,9 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.viewer.prompting {
 		return m.onViewSearchKey(msg)
 	}
+	if m.viewer.treeOn {
+		return m.onViewTreeKey(msg)
+	}
 
 	switch msg.String() {
 	case "q", "esc":
@@ -115,16 +128,10 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clearViewSearch()
 			return m, nil
 		}
-		m.mode = modeNormal
-		m.viewer = viewerState{}
+		m.closeViewer()
 		return m, nil
 	case "e":
-		// The file being viewed, not whatever the pane's cursor is on now.
-		if m.viewer.source.realPath == "" && m.viewer.source.archive == "" {
-			m.viewer.status = "nothing to edit — this is not a file"
-			return m, nil
-		}
-		return m, m.loadCmd(m.viewer.source, loadEdit)
+		return m.editViewed()
 	case "/":
 		return m.openViewSearch()
 	case "n":
@@ -151,6 +158,12 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshViewer()
 		return m, nil
+	case "p":
+		m.togglePretty()
+		return m, nil
+	case "t":
+		m.toggleTree()
+		return m, nil
 	case "s":
 		m.viewer.colour = !m.viewer.colour
 		m.viewer.status = "highlighting " + onOffWord(m.viewer.colour)
@@ -161,6 +174,22 @@ func (m Model) onViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd
+}
+
+// closeViewer goes back to the panes.
+func (m *Model) closeViewer() {
+	m.mode = modeNormal
+	m.viewer = viewerState{}
+}
+
+// editViewed opens the file being viewed in the editor — not whatever the
+// pane's cursor is on now.
+func (m Model) editViewed() (tea.Model, tea.Cmd) {
+	if m.viewer.source.realPath == "" && m.viewer.source.archive == "" {
+		m.viewer.status = "nothing to edit — this is not a file"
+		return m, nil
+	}
+	return m, m.loadCmd(m.viewer.source, loadEdit)
 }
 
 // openViewSearch puts the cursor in the search field.
@@ -265,7 +294,7 @@ func (m Model) viewerLines() []string {
 	if !m.viewer.hex && !m.viewer.wrap {
 		return m.viewer.lines
 	}
-	key := laidKey{hex: m.viewer.hex, wrap: m.viewer.wrap, width: m.textWidth()}
+	key := laidKey{hex: m.viewer.hex, wrap: m.viewer.wrap, pretty: m.viewer.pretty, width: m.textWidth()}
 	if c := m.viewer.laid; c != nil && c.lines != nil && c.key == key {
 		return c.lines
 	}
@@ -283,8 +312,8 @@ func (m Model) viewerLines() []string {
 
 // laidKey is what the hex dump or the wrapping depends on, beyond the bytes.
 type laidKey struct {
-	hex, wrap bool
-	width     int
+	hex, wrap, pretty bool
+	width             int
 }
 
 type laidLines struct {
@@ -487,6 +516,10 @@ func onOffWord(on bool) string {
 // and to the pager otherwise.
 func (m *Model) tickViewer(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
+	if m.viewer.treeOn {
+		m.viewer.tree, cmd = m.viewer.tree.Tick(msg)
+		return cmd
+	}
 	if m.viewer.prompting {
 		m.viewer.input, cmd = m.viewer.input.Update(msg)
 		return cmd

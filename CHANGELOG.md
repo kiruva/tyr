@@ -93,6 +93,13 @@ from the commit history by GitVersion and tagged by CI; see
   step. Nothing is re-encoded: key order, number literals and escapes stay exactly as written.
   Text that is not JSON is left alone, and the footer says where it breaks and what was
   expected, with the cursor taken there.
+- **JSON in the viewer: pretty and a tree.** `p` shows minified JSON one value to a line, and
+  `t` as a tree to fold — `→`/`←` open and close, `*` opens everything under the cursor, `-`
+  closes all, `/` finds in keys and values (inside closed nodes too, opening the way), and `y`
+  copies the row's jq path (`.deps["odd key"][3]`). Both only change what is shown: the file
+  is untouched and `e` still edits it as it is. Numbers stay as written; JSONC is shown
+  without its comments, and text that is not JSON says where it breaks. A 16 MB file scrolls
+  as quickly as a small one.
 - **Rotate and flip images without re-encoding.** `o` turns the marked images — folders
   too — right, left, 180°, or flips them, by changing their EXIF orientation: nothing is
   decoded, nothing is lost, and the rest of the metadata stays as it was. JPEG, PNG and WebP;

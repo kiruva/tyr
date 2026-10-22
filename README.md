@@ -44,6 +44,7 @@ too. Keyboard driven, intuitive like lazygit.
   binary. Editor for quick fixes — syntax colors, undo, find, select and copy/paste, tabs
   and line endings kept as they were — saves in place, even file inside archive. `Ctrl+T`
   prettify, minify JSON, strip JSONC comments; numbers and key order stay as written.
+  Viewer shows JSON pretty (`p`) or as tree to fold (`t`), find inside, `y` copy jq path.
 - **Remote panes.** One pane on ssh host, other local, transfer both ways. Reads
   `~/.ssh/config` aliases, uses agent and keys, checks host keys. Passwords never written to
   disk.

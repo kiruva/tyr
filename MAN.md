@@ -1101,12 +1101,34 @@ The pager has the four switches a pager is asked for:
 | `#`   | line numbers                                                             |
 | `x`   | the hex dump: offset, bytes, and the characters they stand for           |
 | `s`   | syntax highlighting                                                      |
+| `p`   | JSON prettified, one value to a line — the file is not touched           |
+| `t`   | JSON as a tree to fold (below)                                           |
 | `e`   | hand this file to the editor                                             |
 | `q`   | close (`Esc` clears the search first, if there is one)                   |
 
 Everything the pager draws is built from the bytes it was handed, so each of those is a
 re-render rather than a re-read — which is why **a binary file opens instead of being
 refused**. It comes up in hex, and `x` switches back if you want to see it as text anyway.
+
+**JSON can be read as a tree.** `t` shows the document with its top level open, each object
+and array summed up (`{12 keys}`, `[340 items]`) and each value as written. In it:
+
+| Key                  | What it does                                                    |
+| -------------------- | --------------------------------------------------------------- |
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | move                                              |
+| `→` / `←`            | open, or step into an open one / close, or go to the parent     |
+| `Enter`              | open or close                                                   |
+| `*` / `-`            | open everything under the cursor / close everything             |
+| `/`, `n` `N`         | find in keys and values, closed nodes included; next, previous  |
+| `y`                  | copy the row's jq path, such as `.deps["odd key"][3]`           |
+| `t`                  | back to the text, the tree kept as you left it                  |
+
+The footer shows the path of the row the cursor is on. `p` and `t` are ways of looking: neither
+changes the file, and `e` edits it as it is. Both take JSONC (comments and trailing commas,
+as in VS Code settings), shown without them; text that is not JSON is shown as it is, and the
+status line says where it stops being JSON. Only the rows on screen are drawn, so a 16 MB file
+scrolls as quickly as a small one; a document of more than two million values, or nested more
+than a thousand deep, is too large for the tree.
 
 **An image shows its metadata** rather than its bytes: a JPEG, PNG, GIF or WebP opens on a
 report of everything it carries, decoded — the GPS position first when there is one, then any

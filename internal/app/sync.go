@@ -12,6 +12,7 @@ import (
 	"github.com/kiruva/tyr/internal/compare"
 	"github.com/kiruva/tyr/internal/fileops"
 	"github.com/kiruva/tyr/internal/pane"
+	"github.com/kiruva/tyr/internal/ui"
 )
 
 // Two panes side by side are already half of a directory comparison; this is
@@ -212,7 +213,7 @@ func (m Model) onSyncKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	last := len(visible) - 1
 	m.sync.status = "" // said once; the next key brings the legend back
 
-	if moveCursor(&m.sync.cursor, msg.String(), last, syncRowsPerPage) {
+	if ui.MoveCursor(&m.sync.cursor, msg.String(), last, syncRowsPerPage) {
 		return m, nil
 	}
 	switch msg.String() {
