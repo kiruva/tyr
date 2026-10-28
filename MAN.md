@@ -1077,7 +1077,8 @@ control character shows as `^X` and is saved as itself. Code is coloured like in
 | `Alt+↑` `Alt+↓`                  | move the line (or the selected lines) up / down      |
 | `Alt+Shift+↑` `Alt+Shift+↓`      | duplicate the line (or the selected lines)           |
 | `Ctrl+/`                         | comment / uncomment the line (or the selected lines) |
-| `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them    |
+| `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them; with the completion list open, take the entry |
+| `Ctrl+Space`                     | complete the word — a single match goes straight in  |
 | `Enter`                          | new line, keeping the indentation                    |
 | `Alt+Backspace`, `Ctrl+W`        | delete the word before the cursor                    |
 | `Ctrl+Z` `Ctrl+Y`                | undo, redo                                           |
@@ -1094,6 +1095,20 @@ each line in `<!-- -->` (`/* */` for CSS); when every line is commented already 
 markers off. Blank lines are left alone, and a JSON file, which has no comments, is not
 touched. Terminals send `Ctrl+/` as `Ctrl+_`, which works too. The bracket paired with the
 one at the cursor is marked; brackets in strings and comments do not count.
+
+The footer names the file's language next to the cursor position — `bash`, `c#`,
+`dockerfile`, `markdown` — from a `#!` first line when there is one, then the name. A script
+with no extension is highlighted from its `#!` line too.
+
+Completion opens by itself once a word is two characters long and something matches: the
+language's keywords, common commands and names (shell builtins and tools, Dockerfile
+instructions, compose and Kubernetes keys), snippets, and words already in the file, the
+most used first. `↑`/`↓` choose, `Tab` takes one, `Esc` or any other key puts the list away,
+and `Enter` is still a line break. It stays shut in comments and strings, and in Markdown and
+plain text offers only snippets until asked with `Ctrl+Space`. Snippets — `if`, `for`,
+`case`, `shebang` in shell, `apt` and `HEALTHCHECK` in a Dockerfile, `table`, `code`,
+`link` in Markdown, `service` in YAML, `iferr` in Go — are indented to the line they land on,
+with the file's tabs or spaces, and leave the cursor where the blank is.
 
 `Ctrl+O` starts with the file's own path; a bare name is saved beside it (beside the archive,
 for a file being edited inside one), and `~` is the home folder. A file that is already there

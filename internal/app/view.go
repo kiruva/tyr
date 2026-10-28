@@ -149,7 +149,7 @@ func (m Model) renderEditor() string {
 		hint = " " + termsafe.Line(m.editStatus)
 	}
 	line, col := m.editor.Cursor()
-	where := fmt.Sprintf("Ln %d, Col %d ", line, col)
+	where := fmt.Sprintf("%s · Ln %d, Col %d ", syntax.Label(m.edit.title, m.editor.FirstLine()), line, col)
 	hint = ui.TruncHead(hint, m.width-lipgloss.Width(where)-1)
 	footer := ui.StatusBar.Width(m.width).Render(hint + spacer(m.width, hint, where) + where)
 	return lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View(), footer)

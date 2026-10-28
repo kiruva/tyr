@@ -119,7 +119,7 @@ func (m *Model) saveAsTo(target string) {
 	m.edit = editTarget{realPath: target, title: filepath.Base(target), stamp: stampOf(target)}
 	m.editAs.on = false
 	m.editor.MarkSaved()
-	m.editor.SetLang(syntax.Detect(target))
+	m.editor.SetLang(syntax.DetectText(target, m.editor.FirstLine()))
 	m.editStatus = "saved as " + target
 	for i := range m.panes {
 		if !m.panes[i].IsRemote() {

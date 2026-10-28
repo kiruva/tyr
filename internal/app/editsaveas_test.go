@@ -111,3 +111,16 @@ func TestEditorPromptsAndFooter(t *testing.T) {
 		t.Errorf("view is %d rows, want 12", n)
 	}
 }
+
+// The footer says what kind of file is open, as a person would put it.
+func TestEditorFooterNamesTheLanguage(t *testing.T) {
+	dir := t.TempDir()
+	writeBytes(t, filepath.Join(dir, "run.sh"), []byte("echo hi\n"))
+	writeBytes(t, filepath.Join(dir, "deploy"), []byte("#!/usr/bin/env python3\n"))
+	if view := editIn(t, dir, "run.sh").(Model).View(); !strings.Contains(view, "bash · Ln 1") {
+		t.Errorf("no bash label:\n%s", view)
+	}
+	if view := editIn(t, dir, "deploy").(Model).View(); !strings.Contains(view, "python · Ln 1") {
+		t.Errorf("no python label:\n%s", view)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -142,7 +143,9 @@ func (m Model) onLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.edit = msg.target
 	m.editStatus = ""
-	m.editor.SetText(string(msg.data), syntax.Detect(msg.title))
+	text := string(msg.data)
+	first, _, _ := strings.Cut(text, "\n")
+	m.editor.SetText(text, syntax.DetectText(msg.title, first))
 	m.mode = modeEdit
 	return m, nil
 }

@@ -425,8 +425,8 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeEditor()
 		return m, nil
 	case "esc":
-		if m.editor.Prompting() {
-			break // closes the find prompt
+		if m.editor.Prompting() || m.editor.Completing() {
+			break // closes the find prompt or the completion list
 		}
 		if m.editor.Dirty() {
 			m.editStatus = "unsaved — Ctrl+S to save, Ctrl+Q to discard"

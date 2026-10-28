@@ -71,6 +71,7 @@ type Model struct {
 
 	find finder
 	jump jumper
+	comp completer
 
 	// Clipboard is where cut, copy and paste go; the system's by default.
 	Clipboard Clipboard
@@ -110,6 +111,9 @@ func (m *Model) TakeNote() string {
 	m.note = ""
 	return n
 }
+
+// FirstLine is the buffer's first line, where a #! says what a script is.
+func (m Model) FirstLine() string { return string(m.buf.lines[0]) }
 
 // Text is the buffer as it would be saved.
 func (m Model) Text() string { return m.buf.text() }
@@ -386,12 +390,37 @@ func (m *Model) Update(msg tea.Msg) bool {
 		if m.jump.active {
 			return m.jumpKey(msg)
 		}
-		return m.key(msg)
+		return m.keyCompleting(msg)
 	case tea.MouseMsg:
+		m.comp = completer{}
 		m.mouse(msg)
 		return true
 	}
 	return false
+}
+
+// keyCompleting is key with the completion list around it: the list takes
+// the keys it uses, and typing a word, or taking a character off one, opens
+// or narrows it.
+func (m *Model) keyCompleting(msg tea.KeyMsg) bool {
+	switch k := msg.String(); {
+	case k == "ctrl+@" || k == "ctrl+ ":
+		m.suggest(true) // Ctrl+Space
+		return true
+	case m.comp.active && m.completeKey(msg):
+		return true
+	}
+	wasOpen := m.comp.active
+	m.comp = completer{}
+	handled := m.key(msg)
+	switch {
+	case msg.Paste:
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && isWord(msg.Runes[0]):
+		m.suggest(false)
+	case wasOpen && msg.Type == tea.KeyBackspace:
+		m.suggest(false)
+	}
+	return handled
 }
 
 func (m *Model) key(msg tea.KeyMsg) bool {
