@@ -56,6 +56,36 @@ func TestPropsShowsAndChmods(t *testing.T) {
 	}
 }
 
+// +x is enough for someone told to make a script executable, and the dialog
+// shows what it comes to before Enter.
+func TestPropsSymbolicPlusX(t *testing.T) {
+	skipWithoutUnixPerms(t)
+
+	dir := t.TempDir()
+	file := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(file, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := focusEntry(t, newInDir(t, dir), "script.sh")
+	m = typeKeys(t, m, "i")
+	for range 4 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m = typeKeys(t, m, "+x")
+	if view := m.(Model).View(); !strings.Contains(view, "0755 rwxr-xr-x") {
+		t.Errorf("no preview of the result:\n%s", view)
+	}
+	press(t, m, "enter")
+
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("mode = %o, want 755", got)
+	}
+}
+
 // A recursive change reaches everything inside a directory, once confirmed. A
 // folder keeps execute so it can still be opened; a file that was no program
 // does not become one.
@@ -137,7 +167,7 @@ func TestPropsRejectsBadMode(t *testing.T) {
 func TestParseMode(t *testing.T) {
 	cases := map[string]os.FileMode{"644": 0o644, "0755": 0o755, "600": 0o600, "1777": 0o1777}
 	for in, want := range cases {
-		got, err := parseMode(in)
+		got, err := parseMode(in, 0o644, false)
 		if err != nil {
 			t.Errorf("parseMode(%q): %v", in, err)
 			continue
@@ -146,9 +176,38 @@ func TestParseMode(t *testing.T) {
 			t.Errorf("parseMode(%q) = %o, want %o", in, got, want)
 		}
 	}
-	for _, in := range []string{"", "999", "rwx", "77777"} {
-		if _, err := parseMode(in); err == nil {
+	for _, in := range []string{"", "999", "rwx", "77777", "u", "+q", "u+x,"} {
+		if _, err := parseMode(in, 0o644, false); err == nil {
 			t.Errorf("parseMode(%q) was accepted", in)
+		}
+	}
+}
+
+// Symbolic modes work from what the entry has now, as chmod's do.
+func TestParseSymbolicMode(t *testing.T) {
+	cases := []struct {
+		in    string
+		cur   os.FileMode
+		isDir bool
+		want  os.FileMode
+	}{
+		{"+x", 0o644, false, 0o755},
+		{"u+x", 0o644, false, 0o744},
+		{"go-w", 0o666, false, 0o644},
+		{"a=r", 0o755, false, 0o444},
+		{"u=rwx,g=rx,o=", 0o600, false, 0o750},
+		{"u+rw,g-w", 0o464, false, 0o644},
+		{"+X", 0o644, false, 0o644},
+		{"+X", 0o644, true, 0o755},
+		{"+X", 0o744, false, 0o755},
+		{"u+s", 0o755, false, 0o4755},
+		{"+t", 0o777, true, 0o1777},
+		{"-x+w", 0o555, false, 0o666},
+	}
+	for _, c := range cases {
+		got, err := parseMode(c.in, c.cur, c.isDir)
+		if err != nil || got != c.want {
+			t.Errorf("parseMode(%q) on %04o = %04o, %v; want %04o", c.in, c.cur, got, err, c.want)
 		}
 	}
 }

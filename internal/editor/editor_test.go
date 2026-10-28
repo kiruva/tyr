@@ -171,6 +171,28 @@ func TestPasteNormalisesLineBreaks(t *testing.T) {
 	}
 }
 
+// brokenClipboard is a desktop with no clipboard tool to call.
+type brokenClipboard struct{}
+
+func (brokenClipboard) Read() (string, error) { return "", errNoClipboard }
+func (brokenClipboard) Write(string) error    { return nil }
+
+// Ctrl+V with no clipboard to read says why once, rather than doing nothing.
+func TestPasteWithoutClipboardSaysWhy(t *testing.T) {
+	m := open("x")
+	m.Clipboard = brokenClipboard{}
+	keys(m, "ctrl+v")
+	if got := m.TakeNote(); got != errNoClipboard.Error() {
+		t.Errorf("note = %q", got)
+	}
+	if got := m.TakeNote(); got != "" {
+		t.Errorf("note shown twice: %q", got)
+	}
+	if got := m.Text(); got != "x" {
+		t.Errorf("text = %q", got)
+	}
+}
+
 // Tab with several lines selected indents them all; shift+tab takes it back.
 func TestIndentSelection(t *testing.T) {
 	m := open("a\nb\n    c")

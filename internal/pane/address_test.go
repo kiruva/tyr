@@ -17,6 +17,10 @@ func typeAddr(m *Model, s string) {
 	}
 }
 
+// keepSeed presses End, which keeps the bar's starting path for editing
+// instead of letting the first typed key replace it.
+func keepSeed(m *Model) { m.UpdateAddr(tea.KeyMsg{Type: tea.KeyEnd}) }
+
 func TestAddressBarJump(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "child")
@@ -31,6 +35,7 @@ func TestAddressBarJump(t *testing.T) {
 	if !m.EditingPath() {
 		t.Fatal("address bar should be focused")
 	}
+	keepSeed(&m)
 	typeAddr(&m, string(os.PathSeparator)+"child")
 	if err := m.CommitEditPath(); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -55,6 +60,7 @@ func TestAddressBarRejectsNonDirectory(t *testing.T) {
 
 	m := New(root)
 	m.BeginEditPath()
+	keepSeed(&m)
 	typeAddr(&m, string(os.PathSeparator)+"note.txt")
 	if err := m.CommitEditPath(); err == nil {
 		t.Fatal("expected an error for a plain file")
@@ -135,6 +141,7 @@ func TestAddressBarSuggestsDirectories(t *testing.T) {
 
 	m := New(root)
 	m.BeginEditPath()
+	keepSeed(&m)
 	typeAddr(&m, string(os.PathSeparator)+"al")
 
 	sugg := m.addr.AvailableSuggestions()
@@ -163,6 +170,7 @@ func TestAddressBarReadsAFolderOnce(t *testing.T) {
 	}
 	m := New(root)
 	m.BeginEditPath()
+	keepSeed(&m)
 	typeAddr(&m, string(os.PathSeparator)+"a")
 	listed := m.addrList
 	if len(listed) != 2 {
@@ -189,5 +197,45 @@ func TestAddressBarFitsWidePaths(t *testing.T) {
 	m := New(dir)
 	if got := lipgloss.Width(m.addrView(20, true)); got > 20 {
 		t.Errorf("address bar is %d cells, over the 20 it was given", got)
+	}
+}
+
+// The starting path is selected: typing replaces it, so ~ or a child's name
+// is all it takes, while backspace edits the path that was there.
+func TestAddressBarTypingReplacesSeed(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	m.BeginEditPath()
+	typeAddr(&m, "~")
+	if got := m.addr.Value(); got != "~" {
+		t.Errorf("typed over the seed: %q", got)
+	}
+
+	m.BeginEditPath()
+	m.UpdateAddr(tea.KeyMsg{Type: tea.KeyBackspace})
+	if got := m.addr.Value(); got != root[:len(root)-1] {
+		t.Errorf("backspace on the seed: %q", got)
+	}
+	typeAddr(&m, "x")
+	if got := m.addr.Value(); got != root[:len(root)-1]+"x" {
+		t.Errorf("typing after an edit replaced it: %q", got)
+	}
+}
+
+// Ctrl+W takes one path segment at a time, not the whole path.
+func TestAddressBarDeletesASegment(t *testing.T) {
+	m := New(t.TempDir())
+	m.BeginEditPath()
+	m.SetAddrValue("/home/me/dev/")
+	for _, want := range []string{"/home/me/", "/home/", "/", ""} {
+		m.UpdateAddr(tea.KeyMsg{Type: tea.KeyCtrlW})
+		if got := m.addr.Value(); got != want {
+			t.Fatalf("after ctrl+w: %q, want %q", got, want)
+		}
+	}
+	m.SetAddrValue("/home/me/dev")
+	m.UpdateAddr(tea.KeyMsg{Type: tea.KeyBackspace, Alt: true})
+	if got := m.addr.Value(); got != "/home/me/" {
+		t.Errorf("after alt+backspace: %q", got)
 	}
 }

@@ -33,6 +33,9 @@ type Model struct {
 	// address bar (top line): mirrors the location, editable for direct jumps
 	addr        textinput.Model
 	editingAddr bool
+	// addrFresh is the bar just opened and untouched: its path is shown as
+	// selected, and typing replaces it rather than appending to it.
+	addrFresh bool
 	// addrDir and addrList are the last folder the address bar completed
 	// from and what was in it: typing a name within one folder reads it once.
 	addrDir  string

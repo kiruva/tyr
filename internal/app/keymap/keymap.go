@@ -34,6 +34,7 @@ type Map struct {
 	Enter       key.Binding
 	Back        key.Binding
 	Address     key.Binding
+	Home        key.Binding
 	Switch      key.Binding
 	Refresh     key.Binding
 	Select      key.Binding
@@ -98,6 +99,7 @@ var specs = []Spec{
 	{"open", "Navigate", "open", []string{"enter", "l", "right"}, func(k *Map) *key.Binding { return &k.Enter }},
 	{"parent", "Navigate", "up dir", []string{"backspace", "h", "left"}, func(k *Map) *key.Binding { return &k.Back }},
 	{"address", "Navigate", "edit path", []string{"ctrl+l", ":"}, func(k *Map) *key.Binding { return &k.Address }},
+	{"gohome", "Navigate", "home dir", []string{"~"}, func(k *Map) *key.Binding { return &k.Home }},
 	{"switchpane", "Navigate", "switch pane", []string{"tab"}, func(k *Map) *key.Binding { return &k.Switch }},
 	{"refresh", "Navigate", "refresh", []string{"ctrl+r", "R"}, func(k *Map) *key.Binding { return &k.Refresh }},
 

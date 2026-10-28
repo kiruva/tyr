@@ -232,6 +232,14 @@ func (m Model) onNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeAddress
 		cmd := p.BeginEditPath()
 		return m, cmd
+	case key.Matches(msg, m.keys.Home):
+		// A remote pane goes to its own home, as ~ typed in its bar does.
+		if p.IsRemote() {
+			return m, m.remoteNavigate(m.active, "~")
+		}
+		if err := p.GoTo(homeOrRoot()); err != nil {
+			m.errText = err.Error()
+		}
 	case key.Matches(msg, m.keys.Select):
 		// Space marks the entry; on a directory it also asks for the one thing
 		// the listing cannot say — how much is inside it.
@@ -430,6 +438,7 @@ func (m Model) onEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.editStatus = ""
 	m.edit.overwrite = false // the warning was about the last Ctrl+S, not a later one
 	m.editor.Update(msg)
+	m.editStatus = m.editor.TakeNote()
 	return m, nil
 }
 

@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"strings"
 	"unicode"
 
@@ -24,9 +25,17 @@ type Clipboard interface {
 // paste then still work within tyr.
 type systemClipboard struct{ fallback string }
 
+// errNoClipboard is what a paste says when there is nothing to paste and no
+// desktop clipboard to ask: on Linux that means no wl-clipboard, xclip or xsel,
+// and the terminal's own paste still works.
+var errNoClipboard = errors.New("no system clipboard — install wl-clipboard or xclip, or paste with Ctrl+Shift+V")
+
 func (c *systemClipboard) Read() (string, error) {
 	if s, err := clipboard.ReadAll(); err == nil {
 		return s, nil
+	}
+	if c.fallback == "" {
+		return "", errNoClipboard
 	}
 	return c.fallback, nil
 }
@@ -65,6 +74,8 @@ type Model struct {
 
 	// Clipboard is where cut, copy and paste go; the system's by default.
 	Clipboard Clipboard
+
+	note string // something the last key could not do, for the caller's status line
 }
 
 // New makes an empty editor.
@@ -90,6 +101,14 @@ func (m *Model) SetText(text string, lang syntax.Lang) {
 // under a new name, say — keeping the text and its undo history.
 func (m *Model) SetLang(lang syntax.Lang) {
 	m.lang, m.hl = lang, nil
+}
+
+// TakeNote returns what the last key could not do — a paste with no clipboard
+// to read — and forgets it, so it is shown once.
+func (m *Model) TakeNote() string {
+	n := m.note
+	m.note = ""
+	return n
 }
 
 // Text is the buffer as it would be saved.
@@ -473,7 +492,10 @@ func (m *Model) key(msg tea.KeyMsg) bool {
 		m.cutLine()
 		return true
 	case "ctrl+v":
-		if s, err := m.Clipboard.Read(); err == nil && s != "" {
+		s, err := m.Clipboard.Read()
+		if err != nil {
+			m.note = err.Error()
+		} else if s != "" {
 			m.insert(cleanPaste(s), editOther)
 		}
 		return true

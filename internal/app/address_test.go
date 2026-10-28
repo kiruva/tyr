@@ -77,3 +77,22 @@ func TestAddressModeBadPathStaysOpen(t *testing.T) {
 		t.Fatal("esc should cancel the edit")
 	}
 }
+
+// ~ in the listing goes straight to the home folder, and ~ typed over the
+// address bar's path does the same in two keys.
+func TestTildeGoesHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := t.TempDir()
+
+	m := typeKeys(t, newInDir(t, dir), "~")
+	if got := m.(Model).panes[m.(Model).active].Path; got != home {
+		t.Fatalf("~ went to %q, want %q", got, home)
+	}
+
+	m = typeKeys(t, newInDir(t, dir), ":~")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.(Model).panes[m.(Model).active].Path; got != home {
+		t.Fatalf(": ~ enter went to %q, want %q", got, home)
+	}
+}
