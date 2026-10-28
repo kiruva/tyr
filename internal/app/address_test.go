@@ -83,6 +83,7 @@ func TestAddressModeBadPathStaysOpen(t *testing.T) {
 func TestTildeGoesHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // where os.UserHomeDir looks on Windows
 	dir := t.TempDir()
 
 	m := typeKeys(t, newInDir(t, dir), "~")
