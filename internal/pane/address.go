@@ -20,8 +20,10 @@ import (
 func (m *Model) EditingPath() bool { return m.editingAddr }
 
 // BeginEditPath focuses the address bar, seeded with the current location.
+// The seed starts out selected, as in a browser: typing ~, / or a name
+// replaces it, while a cursor key or backspace keeps it for editing.
 func (m *Model) BeginEditPath() tea.Cmd {
-	m.editingAddr = true
+	m.editingAddr, m.addrFresh = true, true
 	if m.IsRemote() {
 		m.addr.SetValue(m.host.Display(m.Path))
 	} else {
@@ -48,6 +50,7 @@ func (m *Model) AddrValue() string { return m.addr.Value() }
 func (m *Model) SetAddrValue(s string) {
 	m.addr.SetValue(s)
 	m.addr.CursorEnd()
+	m.addrFresh = false
 }
 
 // CommitEditPath jumps to the typed location. A directory is entered directly;
@@ -87,6 +90,17 @@ func (m *Model) CommitEditPath() error {
 // UpdateAddr forwards a message to the address input (typing, cursor blink).
 func (m *Model) UpdateAddr(msg tea.Msg) tea.Cmd {
 	before := m.addr.Value()
+	if k, ok := msg.(tea.KeyMsg); ok {
+		if m.addrFresh && k.Type == tea.KeyRunes {
+			m.addr.SetValue("") // typing over the selected path
+		}
+		m.addrFresh = false
+		if s := k.String(); s == "ctrl+w" || s == "alt+backspace" {
+			m.deleteSegment()
+			m.suggest()
+			return nil
+		}
+	}
 	var cmd tea.Cmd
 	m.addr, cmd = m.addr.Update(msg)
 	// The cursor blinks through here twice a second; only typing changes
@@ -97,8 +111,27 @@ func (m *Model) UpdateAddr(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// deleteSegment removes the path segment before the cursor, and the separator
+// after it: /home/me/dev/ becomes /home/me/. The input's own word delete
+// splits on spaces, which in a path takes the whole thing.
+func (m *Model) deleteSegment() {
+	value := []rune(m.addr.Value())
+	pos := min(m.addr.Position(), len(value))
+	cut := pos
+	for cut > 0 && isPathSep(value[cut-1]) {
+		cut--
+	}
+	for cut > 0 && !isPathSep(value[cut-1]) {
+		cut--
+	}
+	m.addr.SetValue(string(value[:cut]) + string(value[pos:]))
+	m.addr.SetCursor(cut)
+}
+
+func isPathSep(r rune) bool { return r == '/' || r == os.PathSeparator }
+
 func (m *Model) stopEditPath() {
-	m.editingAddr = false
+	m.editingAddr, m.addrFresh = false, false
 	m.addr.Blur()
 	m.syncAddr()
 }
@@ -194,6 +227,9 @@ func (m *Model) suggest() {
 
 // addrView renders the top line: the location, or the input while editing.
 func (m Model) addrView(width int, active bool) string {
+	if m.editingAddr && m.addrFresh {
+		return ui.AddrEdit.Width(width).Render(ui.Cursor.Render(ui.TruncTail(m.addr.Value(), width)))
+	}
 	if m.editingAddr {
 		return ui.AddrEdit.Width(width).Render(m.addr.View())
 	}

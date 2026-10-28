@@ -71,6 +71,7 @@ See [Following tyr out](#following-tyr-out) for the shell function `--cd-file` i
 | `Enter` / `l` / `→` | Open directory or archive       |
 | `h` / `←` / `⌫`     | Go to parent dir                |
 | `Ctrl+L` / `:`      | Edit address bar (jump to path) |
+| `~`                 | Go to home dir                  |
 | `Tab`               | Switch active pane              |
 | `Ctrl+R` / `R`      | Re-read the active pane         |
 | `/`                 | Filter the pane (`Esc` clears)  |
@@ -173,7 +174,10 @@ mouse = off      # leave the pointer to the terminal, for selecting and pasting
 
 Each pane's top line is its address bar. It follows the cursor as you walk the tree, and
 `Ctrl+L` (or `:`) turns it into an input for jumping straight to a path — `Enter` goes,
-`Esc` cancels, `Tab` completes, `↑`/`↓` cycle completions. Paths may be absolute, relative
+`Esc` cancels, `Tab` completes, `↑`/`↓` cycle completions. The current path starts out
+selected: typing replaces it, so `~` `Enter` goes home and a folder's name `Enter` goes into
+it, while `End`, an arrow or `⌫` keeps it for editing. `Ctrl+W` (or `Alt+⌫`) takes off one
+path segment at a time. `~` outside the bar goes home in one key. Paths may be absolute, relative
 to the current directory, `~`-rooted, or contain `$VARS`. Typing the path of a browsable
 archive opens it as a virtual tree, and an `ssh://` or `host:/path` target starts the ssh
 connection flow for that pane (see [Over ssh](#over-ssh)); anything that isn't a directory
@@ -760,7 +764,10 @@ Comparing is local: transfer files across first, and unpack an archive before co
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-The permissions field takes octal — `644`, `755`, `0600` — and `Enter` applies it. On a
+The permissions field takes octal — `644`, `755`, `0600` — or chmod's symbolic form — `+x`,
+`u+x`, `go-w`, `a=r`, `u+rw,g-w` — worked out from what the entry has now; no `u`/`g`/`o`
+means everyone. As soon as the value changes something, the field shows what it comes to
+(`→ 0755 rwxr-xr-x`), and `Enter` applies it. On a
 directory, `Tab` reaches a switch that applies the change to everything inside, which runs as a
 normal job with a progress bar. A symlink is left alone: `chmod` would follow it and change
 something you did not point at.
@@ -1065,12 +1072,13 @@ control character shows as `^X` and is saved as itself. Code is coloured like in
 | `Ctrl+L`                         | go to line — `120`, or `120:8` for a column too      |
 | `Ctrl+Home` `Ctrl+End`           | top / bottom of the file                             |
 | `Shift` + any move, `Ctrl+A`     | select; select all                                   |
-| `Ctrl+C` `Ctrl+X` `Ctrl+V`       | copy, cut, paste — the system clipboard where there is one |
+| `Ctrl+C` `Ctrl+X` `Ctrl+V`       | copy, cut, paste — the system clipboard where there is one; on Linux that needs `wl-clipboard`, `xclip` or `xsel`, and without one the terminal's own paste (`Ctrl+Shift+V`) still works |
 | `Ctrl+K`                         | cut the line                                         |
 | `Alt+↑` `Alt+↓`                  | move the line (or the selected lines) up / down      |
 | `Alt+Shift+↑` `Alt+Shift+↓`      | duplicate the line (or the selected lines)           |
 | `Ctrl+/`                         | comment / uncomment the line (or the selected lines) |
-| `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them    |
+| `Tab` / `Shift+Tab`              | a tab; with lines selected, indent / outdent them; with the completion list open, take the entry |
+| `Ctrl+Space`                     | complete the word — a single match goes straight in  |
 | `Enter`                          | new line, keeping the indentation                    |
 | `Alt+Backspace`, `Ctrl+W`        | delete the word before the cursor                    |
 | `Ctrl+Z` `Ctrl+Y`                | undo, redo                                           |
@@ -1087,6 +1095,20 @@ each line in `<!-- -->` (`/* */` for CSS); when every line is commented already 
 markers off. Blank lines are left alone, and a JSON file, which has no comments, is not
 touched. Terminals send `Ctrl+/` as `Ctrl+_`, which works too. The bracket paired with the
 one at the cursor is marked; brackets in strings and comments do not count.
+
+The footer names the file's language next to the cursor position — `bash`, `c#`,
+`dockerfile`, `markdown` — from a `#!` first line when there is one, then the name. A script
+with no extension is highlighted from its `#!` line too.
+
+Completion opens by itself once a word is two characters long and something matches: the
+language's keywords, common commands and names (shell builtins and tools, Dockerfile
+instructions, compose and Kubernetes keys), snippets, and words already in the file, the
+most used first. `↑`/`↓` choose, `Tab` takes one, `Esc` or any other key puts the list away,
+and `Enter` is still a line break. It stays shut in comments and strings, and in Markdown and
+plain text offers only snippets until asked with `Ctrl+Space`. Snippets — `if`, `for`,
+`case`, `shebang` in shell, `apt` and `HEALTHCHECK` in a Dockerfile, `table`, `code`,
+`link` in Markdown, `service` in YAML, `iferr` in Go — are indented to the line they land on,
+with the file's tabs or spaces, and leave the cursor where the blank is.
 
 `Ctrl+O` starts with the file's own path; a bare name is saved beside it (beside the archive,
 for a file being edited inside one), and `~` is the home folder. A file that is already there

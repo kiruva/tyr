@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -61,14 +62,29 @@ func propsRow(label, value string) string {
 	return ui.Faint.Render(ui.PadRight(label, propsLabelW)) + value
 }
 
-// propsModeRow is the editable octal field.
+// propsModeRow is the editable field, octal or symbolic, with what the typed
+// value comes to once it differs from what the entry has.
 func propsModeRow(m Model) string {
 	label := ui.PadRight("permissions", propsLabelW)
 	if m.props.focus == propsFieldMode {
 		label = ui.HelpKey.Render(label)
-		return label + ui.AddrEdit.Width(8).Render(m.props.mode.View())
+		return label + ui.AddrEdit.Width(10).Render(m.props.mode.View()) + propsModePreview(m)
 	}
-	return ui.Faint.Render(label) + m.props.mode.View()
+	return ui.Faint.Render(label) + m.props.mode.View() + propsModePreview(m)
+}
+
+// propsModePreview is "→ 0755 rwxr-xr-x" for a value that parses and changes
+// something, so +x shows what it does before Enter.
+func propsModePreview(m Model) string {
+	typed := strings.TrimSpace(m.props.mode.Value())
+	if typed == m.props.orig {
+		return ""
+	}
+	perm, err := parseMode(typed, m.props.info.Mode(), m.props.info.IsDir())
+	if err != nil {
+		return ""
+	}
+	return ui.Faint.Render(fmt.Sprintf("  → %04o %s", uint32(perm), (perm & 0o777).String()[1:]))
 }
 
 // propsRecursiveRow is the switch a directory gets.

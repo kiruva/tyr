@@ -209,6 +209,7 @@ func (m *Model) View() string {
 		gutter := ui.Gutter.Render(fmt.Sprintf("%*d │ ", digits, row+1))
 		out = append(out, gutter+m.drawLine(row, selFrom, selTo, needle, brackets))
 	}
+	m.drawCompletion(out)
 	if m.find.active {
 		out = append(out, m.find.view(m.width))
 	}

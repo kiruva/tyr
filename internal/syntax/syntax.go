@@ -12,6 +12,7 @@ package syntax
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -96,6 +97,21 @@ func (l Lang) Comment() (line, open, close string) {
 		return "--", "", ""
 	}
 	return "", "", ""
+}
+
+// Keywords are the words l reserves, or its shape's shared set when it has
+// none of its own — what completion offers before anything typed in the file.
+func (l Lang) Keywords() []string {
+	set := keywords[l.shape()]
+	if lang, ok := languages[l]; ok && lang.keys != nil {
+		set = lang.keys
+	}
+	out := make([]string, 0, len(set))
+	for w := range set {
+		out = append(out, w)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // shape is the shape of language l is scanned as.

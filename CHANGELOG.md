@@ -9,6 +9,41 @@ from the commit history by GitVersion and tagged by CI; see
 
 ## [Unreleased]
 
+### Added
+
+- **Completion in the editor.** Once a word is two characters long a small list opens under it:
+  the language's keywords, common commands and names (shell builtins and tools, Dockerfile
+  instructions, compose, Kubernetes and Actions keys, Python and Go builtins), snippets, and
+  words already in the file, most used first. `↑`/`↓` choose, `Tab` takes one, `Esc` or any
+  other key puts it away, and `Enter` is still a line break. `Ctrl+Space` asks for it, and takes
+  a single match straight in. It stays shut in comments and strings, and in Markdown and plain
+  text offers only snippets until asked. Snippets — `if`, `for`, `case`, `shebang` in shell,
+  `apt` and `HEALTHCHECK` in a Dockerfile, `table`, `code`, `link` in Markdown, `service` in
+  YAML, `iferr` in Go — land indented to their line, with the file's tabs or spaces, and leave
+  the cursor in the blank.
+- **The editor names the file's language** in the footer, next to the cursor position: `bash`,
+  `c#`, `dockerfile`, `terraform` — from a `#!` line when there is one, then the name. A script
+  with no extension is highlighted from its `#!` line too.
+- **`~` goes to the home folder** from the listing, in one key; a pane on a host goes to the
+  host's home. Rebindable as `gohome`.
+- **Symbolic permissions.** The properties dialog takes chmod's `+x`, `u+x`, `go-w`, `a=r`,
+  `u+rw,g-w` as well as octal, worked out from what the entry has now, and shows what a value
+  comes to (`→ 0755 rwxr-xr-x`) before `Enter`.
+
+### Changed
+
+- **The address bar's path starts out selected.** Typing replaces it, so `:` `~` `Enter` goes
+  home and a folder's name `Enter` goes into it; `End`, an arrow or `Backspace` keeps it for
+  editing. Typing straight after opening the bar no longer appends to the path.
+- **`Ctrl+W` and `Alt+Backspace` in the address bar take off one path segment**, not the whole
+  path.
+
+### Fixed
+
+- **`Ctrl+V` in the editor says why when there is nothing to paste from.** On Linux the system
+  clipboard needs `wl-clipboard`, `xclip` or `xsel`; without one, paste did nothing at all. The
+  footer now names what to install, and that the terminal's own paste (`Ctrl+Shift+V`) works.
+
 ## [0.5.0] - 2026-10-22
 
 ### Fixed

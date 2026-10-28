@@ -452,3 +452,29 @@ func TestComment(t *testing.T) {
 		t.Errorf("Detect: css %v, scss %v", Detect("site.css"), Detect("site.scss"))
 	}
 }
+
+// The label names the file the way a person would, and a #! line wins over
+// what the name says.
+func TestLabel(t *testing.T) {
+	cases := []struct{ name, first, want string }{
+		{"run.sh", "", "bash"},
+		{"run.sh", "#!/bin/sh", "sh"},
+		{"deploy", "#!/usr/bin/env bash", "bash"},
+		{"tool", "#!/usr/bin/env -S python3 -u", "python"},
+		{"Program.cs", "", "c#"},
+		{"main.go", "", "go"},
+		{"Dockerfile", "", "dockerfile"},
+		{"Makefile", "", "makefile"},
+		{"README.md", "", "markdown"},
+		{"main.tf", "", "terraform"},
+		{"notes", "", "plain text"},
+	}
+	for _, c := range cases {
+		if got := Label(c.name, c.first); got != c.want {
+			t.Errorf("Label(%q, %q) = %q, want %q", c.name, c.first, got, c.want)
+		}
+	}
+	if got := DetectText("deploy", "#!/bin/bash"); got != Shell {
+		t.Errorf("a #!/bin/bash script is %v, want shell", got)
+	}
+}

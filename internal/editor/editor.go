@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"strings"
 	"unicode"
 
@@ -24,9 +25,17 @@ type Clipboard interface {
 // paste then still work within tyr.
 type systemClipboard struct{ fallback string }
 
+// errNoClipboard is what a paste says when there is nothing to paste and no
+// desktop clipboard to ask: on Linux that means no wl-clipboard, xclip or xsel,
+// and the terminal's own paste still works.
+var errNoClipboard = errors.New("no system clipboard — install wl-clipboard or xclip, or paste with Ctrl+Shift+V")
+
 func (c *systemClipboard) Read() (string, error) {
 	if s, err := clipboard.ReadAll(); err == nil {
 		return s, nil
+	}
+	if c.fallback == "" {
+		return "", errNoClipboard
 	}
 	return c.fallback, nil
 }
@@ -62,9 +71,12 @@ type Model struct {
 
 	find finder
 	jump jumper
+	comp completer
 
 	// Clipboard is where cut, copy and paste go; the system's by default.
 	Clipboard Clipboard
+
+	note string // something the last key could not do, for the caller's status line
 }
 
 // New makes an empty editor.
@@ -91,6 +103,17 @@ func (m *Model) SetText(text string, lang syntax.Lang) {
 func (m *Model) SetLang(lang syntax.Lang) {
 	m.lang, m.hl = lang, nil
 }
+
+// TakeNote returns what the last key could not do — a paste with no clipboard
+// to read — and forgets it, so it is shown once.
+func (m *Model) TakeNote() string {
+	n := m.note
+	m.note = ""
+	return n
+}
+
+// FirstLine is the buffer's first line, where a #! says what a script is.
+func (m Model) FirstLine() string { return string(m.buf.lines[0]) }
 
 // Text is the buffer as it would be saved.
 func (m Model) Text() string { return m.buf.text() }
@@ -367,12 +390,37 @@ func (m *Model) Update(msg tea.Msg) bool {
 		if m.jump.active {
 			return m.jumpKey(msg)
 		}
-		return m.key(msg)
+		return m.keyCompleting(msg)
 	case tea.MouseMsg:
+		m.comp = completer{}
 		m.mouse(msg)
 		return true
 	}
 	return false
+}
+
+// keyCompleting is key with the completion list around it: the list takes
+// the keys it uses, and typing a word, or taking a character off one, opens
+// or narrows it.
+func (m *Model) keyCompleting(msg tea.KeyMsg) bool {
+	switch k := msg.String(); {
+	case k == "ctrl+@" || k == "ctrl+ ":
+		m.suggest(true) // Ctrl+Space
+		return true
+	case m.comp.active && m.completeKey(msg):
+		return true
+	}
+	wasOpen := m.comp.active
+	m.comp = completer{}
+	handled := m.key(msg)
+	switch {
+	case msg.Paste:
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && isWord(msg.Runes[0]):
+		m.suggest(false)
+	case wasOpen && msg.Type == tea.KeyBackspace:
+		m.suggest(false)
+	}
+	return handled
 }
 
 func (m *Model) key(msg tea.KeyMsg) bool {
@@ -473,7 +521,10 @@ func (m *Model) key(msg tea.KeyMsg) bool {
 		m.cutLine()
 		return true
 	case "ctrl+v":
-		if s, err := m.Clipboard.Read(); err == nil && s != "" {
+		s, err := m.Clipboard.Read()
+		if err != nil {
+			m.note = err.Error()
+		} else if s != "" {
 			m.insert(cleanPaste(s), editOther)
 		}
 		return true
