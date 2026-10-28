@@ -1,0 +1,20 @@
+# Declares this repo a skuld project. Commit it: every runner serving the project
+# must have the same file.
+project = "tyr"
+base    = "main"   # where tasks are cut from
+
+[checks]
+test = "make test"   # a worker must pass this before asking for review
+
+[merge]
+on_approve = "none"   # none | merge | squash | pr: what approving review does
+
+# How many of this project's tasks run at once, across every runner. Unset: no limit.
+# [limits]
+# max_parallel = 2
+
+# The model per role. Unset: the agent's default.
+# [roles.planner]
+# model = "claude-opus-5-5"
+# [roles.worker]
+# model = "claude-sonnet-5-5"
